@@ -259,6 +259,10 @@ footer{padding:7px 20px;background:var(--bg-sidebar);border-top:1px solid var(--
 .last-refresh{color:var(--text-dim)}
 .footer-right{font-size:10px;color:var(--text-dim);letter-spacing:1px}
 
+.solar-btn{display:flex;align-items:center;gap:6px;padding:6px 13px;border-radius:4px;background:rgba(255,182,18,0.08);border:1px solid rgba(255,182,18,0.25);color:var(--cmd-gold);font-size:12px;font-family:'Barlow',sans-serif;font-weight:500;text-decoration:none;letter-spacing:0.3px;transition:all .2s;flex-shrink:0}
+.solar-btn:hover{background:rgba(255,182,18,0.16);border-color:rgba(255,182,18,0.5);box-shadow:0 0 8px rgba(255,182,18,0.15)}
+.solar-btn svg{flex-shrink:0;animation:orbit 6s linear infinite;transform-origin:center}
+@keyframes orbit{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 @media(max-width:680px){aside{display:none}.modal-body{grid-template-columns:1fr}.cards-grid,.news-grid,.prospects-grid{grid-template-columns:1fr}}
 </style>
 </head>
@@ -278,6 +282,10 @@ footer{padding:7px 20px;background:var(--bg-sidebar);border-top:1px solid var(--
     <span id="globalStatusText">Connecting…</span>
   </div>
   <div class="hdr-right">
+    <a class="solar-btn" href="https://hannibalm-ux.github.io/solar_system_v10.html" target="_blank" rel="noopener" title="Open Solar System Simulator">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="9" stroke-dasharray="3 2"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/></svg>
+      Solar System
+    </a>
     <div class="clock" id="clock">--:--:-- --</div>
     <button class="refresh-btn" id="refreshBtn" onclick="manualRefresh()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
