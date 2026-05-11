@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>DC Sports Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Barlow:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg-deep:#080A0F;--bg-card:#0E1118;--bg-card-hover:#131720;--bg-sidebar:#0A0C12;
+  --border-subtle:#1C2030;--border-mid:#242840;
+  --text-primary:#E8EAF0;--text-secondary:#7A8099;--text-dim:#4A5068;
+  --accent-live:#FF3C5C;--cmd-gold:#FFB612;--cmd-burg:#7A1B1B;
+  --wiz-navy:#002B5C;--wiz-red:#E31837;--nat-red:#AB0003;--nat-navy:#14225A;
+  --cap-red:#C8102E;--cap-navy:#041E42;--spi-navy:#001C4E;--spi-gold:#F5A800;
+  --tot-navy:#132257;--tot-blue:#00B2F8;
+}
+html,body{height:100%;overflow:hidden}
+body{font-family:'Barlow',sans-serif;background:var(--bg-deep);color:var(--text-primary);display:flex;flex-direction:column}
+body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.035) 2px,rgba(0,0,0,0.035) 4px);pointer-events:none;z-index:999}
+
+/* ── HEADER ── */
+header{display:flex;align-items:center;justify-content:space-between;padding:0 20px;height:52px;background:var(--bg-sidebar);border-bottom:1px solid var(--border-subtle);flex-shrink:0;position:relative;z-index:10}
+.brand{display:flex;align-items:center;gap:10px}
+.brand-icon{width:30px;height:30px;border-radius:6px;background:linear-gradient(135deg,#7A1B1B 0%,#FFB612 100%);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;color:#fff}
+.brand-name{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px;letter-spacing:2px;text-transform:uppercase}
+.brand-sub{font-size:11px;color:var(--text-dim);letter-spacing:1px;margin-left:4px;text-transform:uppercase}
+.global-status{display:flex;align-items:center;gap:7px;padding:5px 14px;border-radius:4px;background:rgba(255,60,92,0.1);border:1px solid rgba(255,60,92,0.2);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent-live);letter-spacing:.5px;transition:all .3s}
+.global-status.offline,.global-status.quiet{background:rgba(80,80,100,.1);border-color:rgba(80,80,100,.2);color:var(--text-secondary)}
+.pulse-dot{width:7px;height:7px;border-radius:50%;background:var(--accent-live);animation:pulse 1.4s ease-in-out infinite}
+.global-status.offline .pulse-dot,.global-status.quiet .pulse-dot{animation:none;background:var(--text-dim)}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.75)}}
+.hdr-right{display:flex;align-items:center;gap:14px}
+.clock{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text-secondary);letter-spacing:1px}
+.refresh-btn{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:4px;background:transparent;border:1px solid var(--border-mid);color:var(--text-secondary);font-size:12px;cursor:pointer;font-family:'Barlow',sans-serif;transition:all .2s}
+.refresh-btn:hover{border-color:var(--text-dim);color:var(--text-primary)}
+.refresh-btn svg{transition:transform .5s}
+.refresh-btn.spinning svg{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.countdown-bar{position:absolute;bottom:0;left:0;right:0;height:2px;background:rgba(255,182,18,.06)}
+.countdown-fill{height:100%;background:linear-gradient(90deg,var(--cmd-gold),var(--accent-live));transition:width 1s linear}
+
+/* ── LAYOUT ── */
+.app-body{display:flex;flex:1;overflow:hidden}
+
+/* ── SIDEBAR ── */
+aside{width:176px;flex-shrink:0;background:var(--bg-sidebar);border-right:1px solid var(--border-subtle);display:flex;flex-direction:column;padding:14px 0;overflow-y:auto}
+.sb-label{padding:0 16px 7px;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--text-dim);font-weight:500}
+.nav-item{display:flex;align-items:center;gap:9px;padding:8px 16px;cursor:pointer;border-left:3px solid transparent;transition:all .15s;font-size:13px;color:var(--text-secondary);font-weight:500;letter-spacing:.3px;user-select:none}
+.nav-item:hover{background:rgba(255,255,255,.03);color:var(--text-primary)}
+.nav-item.active{color:var(--text-primary);background:rgba(255,255,255,.04)}
+.league-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.nav-badge{margin-left:auto;min-width:18px;height:18px;border-radius:3px;background:rgba(255,255,255,.07);font-family:'JetBrains Mono',monospace;font-size:10px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);padding:0 4px}
+.nav-badge.live{background:rgba(255,60,92,.2);color:var(--accent-live)}
+.nav-divider{height:1px;background:var(--border-subtle);margin:8px 16px}
+.sb-stats{padding:14px 16px;margin-top:auto}
+.sstat{display:flex;justify-content:space-between;padding:4px 0;font-size:11px}
+.sstat-lbl{color:var(--text-dim)}
+.sstat-val{color:var(--text-secondary);font-family:'JetBrains Mono',monospace}
+.net-status{display:flex;align-items:center;gap:5px;padding:8px 16px;font-size:11px;font-family:'JetBrains Mono',monospace;border-top:1px solid var(--border-subtle);margin-top:8px}
+.net-dot{width:6px;height:6px;border-radius:50%}
+.net-online .net-dot{background:#22C55E}.net-offline .net-dot{background:#EF4444}
+.net-online{color:#4B9B5F}.net-offline{color:#9B4B4B}
+
+/* ── MAIN ── */
+main{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.main-tabs-bar{display:flex;align-items:center;gap:2px;padding:0 20px;background:var(--bg-sidebar);border-bottom:1px solid var(--border-subtle);flex-shrink:0;height:44px}
+.main-tab{display:flex;align-items:center;gap:7px;padding:0 16px;height:100%;cursor:pointer;font-size:13px;font-weight:500;color:var(--text-secondary);border-bottom:2px solid transparent;transition:all .15s;letter-spacing:.3px;user-select:none}
+.main-tab:hover{color:var(--text-primary)}
+.main-tab.active{color:var(--cmd-gold);border-bottom-color:var(--cmd-gold)}
+.main-tab .tab-icon{font-size:14px}
+.tab-panel{display:none;flex:1;overflow-y:auto;padding:20px;scrollbar-width:thin;scrollbar-color:var(--border-mid) transparent}
+.tab-panel.active{display:block}
+.tab-panel::-webkit-scrollbar{width:6px}
+.tab-panel::-webkit-scrollbar-thumb{background:var(--border-mid);border-radius:3px}
+
+/* ── SECTION HEADERS ── */
+.sec-hdr{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border-subtle)}
+.sec-title{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--text-dim)}
+.sec-line{flex:1;height:1px;background:var(--border-subtle)}
+.sec-count{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-dim)}
+.league-block{margin-bottom:26px}
+
+/* ── CARDS GRID ── */
+.cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(296px,1fr));gap:12px}
+.game-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;border-left:3px solid transparent;padding:14px 16px;position:relative;overflow:hidden;transition:background .2s;cursor:default}
+.game-card:hover{background:var(--bg-card-hover)}
+.game-card::before{content:'';position:absolute;top:0;left:3px;right:0;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.07),transparent)}
+@keyframes score-flash{0%{background:rgba(255,182,18,.22)}100%{background:transparent}}
+.game-card.flashed{animation:score-flash 1.5s ease-out}
+.card-commanders{border-left-color:var(--cmd-burg)}.card-wizards{border-left-color:var(--wiz-navy)}
+.card-nationals{border-left-color:var(--nat-red)}.card-capitals{border-left-color:var(--cap-red)}
+.card-mystics{border-left-color:var(--wiz-red)}.card-spirit{border-left-color:var(--spi-gold)}
+.card-tottenham{border-left-color:var(--tot-navy)}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:11px}
+.league-tag{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:2px 7px;border-radius:3px}
+.tag-nfl{background:rgba(122,27,27,.3);color:#D4896A}.tag-nba{background:rgba(0,43,92,.5);color:#6EA3D4}
+.tag-mlb{background:rgba(20,34,90,.4);color:#7A9ED8}.tag-nhl{background:rgba(4,30,66,.5);color:#6A9FD8}
+.tag-wnba{background:rgba(227,24,55,.15);color:#E87A8D}.tag-nwsl{background:rgba(0,28,78,.4);color:#8AA7D4}
+.tag-epl{background:rgba(19,34,87,.5);color:#70A8D8}
+.status-pill{display:flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:10px;padding:3px 8px;border-radius:3px;font-weight:500}
+.s-live{background:rgba(255,60,92,.15);color:var(--accent-live);border:1px solid rgba(255,60,92,.25)}
+.s-live::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--accent-live);animation:pulse 1.2s ease-in-out infinite}
+.s-final{background:rgba(74,80,104,.3);color:var(--text-dim);border:1px solid var(--border-subtle)}
+.s-pre{background:rgba(255,182,18,.08);color:#A08020;border:1px solid rgba(255,182,18,.15)}
+.matchup{display:flex;flex-direction:column;gap:5px}
+.team-row{display:flex;align-items:center;justify-content:space-between;padding:3px 0}
+.team-info{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.team-logo{width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:10px;flex-shrink:0;letter-spacing:.5px}
+.team-name{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.2px}
+.team-rec{font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace}
+.team-score{font-family:'JetBrains Mono',monospace;font-size:21px;font-weight:700;min-width:34px;text-align:right;letter-spacing:-.5px}
+.team-score.lead{color:var(--text-primary)}.team-score.trail{color:var(--text-secondary)}.team-score.ns{font-size:13px;color:var(--text-dim)}
+.vs-divider{height:1px;background:var(--border-subtle);margin:2px 0;position:relative}
+.vs-divider::after{content:'VS';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:9px;letter-spacing:2px;color:var(--text-dim);background:var(--bg-card);padding:0 5px;font-family:'Barlow Condensed',sans-serif;font-weight:700}
+.card-foot{margin-top:9px;padding-top:8px;border-top:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center}
+.game-clock{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-secondary)}
+.game-venue{font-size:11px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px}
+.card-loading{display:flex;align-items:center;justify-content:center;height:80px;color:var(--text-dim);font-size:12px;gap:8px}
+.spinner{width:14px;height:14px;border-radius:50%;border:2px solid var(--border-mid);border-top-color:var(--text-dim);animation:spin .7s linear infinite}
+.empty-state{grid-column:1/-1;padding:32px;text-align:center;color:var(--text-dim);font-size:13px;border:1px dashed var(--border-subtle);border-radius:8px}
+
+/* ── NEWS ── */
+.news-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(272px,1fr));gap:12px}
+.news-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;border-left:3px solid transparent;overflow:hidden;transition:background .2s,transform .15s;cursor:pointer;text-decoration:none;display:flex;flex-direction:column}
+.news-card:hover{background:var(--bg-card-hover);transform:translateY(-1px)}
+.news-img{width:100%;height:126px;object-fit:cover;display:block}
+.news-nophoto{width:100%;height:126px;display:flex;align-items:center;justify-content:center;font-size:26px;opacity:.12;background:linear-gradient(135deg,var(--bg-card),var(--border-subtle))}
+.news-body{padding:11px 13px;flex:1;display:flex;flex-direction:column;gap:5px}
+.news-meta{display:flex;align-items:center;gap:8px}
+.news-tag{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:2px 6px;border-radius:3px}
+.news-time{font-size:11px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;margin-left:auto}
+.news-headline{font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:var(--text-primary);line-height:1.3}
+.news-desc{font-size:12px;color:var(--text-secondary);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.skel{background:linear-gradient(90deg,var(--bg-card) 25%,var(--border-subtle) 50%,var(--bg-card) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:4px}
+.skel-img{height:126px;border-radius:0}.skel-line{height:12px;margin:5px 0}.skel-short{width:55%}.skel-med{width:80%}
+
+/* ── DRAFT SECTION ── */
+.draft-hero{background:linear-gradient(135deg,rgba(0,43,92,.7) 0%,rgba(4,30,66,.9) 100%);border:1px solid rgba(0,43,92,.8);border-radius:8px;padding:18px 22px;margin-bottom:16px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.pick-badge{display:flex;flex-direction:column;align-items:center;background:rgba(255,182,18,.12);border:1px solid rgba(255,182,18,.25);border-radius:8px;padding:10px 18px;flex-shrink:0;min-width:84px}
+.pick-num{font-family:'Barlow Condensed',sans-serif;font-size:44px;font-weight:800;color:var(--cmd-gold);line-height:1;letter-spacing:-1px}
+.pick-lbl{font-size:10px;color:rgba(255,182,18,.6);letter-spacing:2px;text-transform:uppercase;margin-top:2px}
+.draft-info{flex:1}
+.draft-title{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;color:#fff;letter-spacing:1px;margin-bottom:3px}
+.draft-date-str{font-size:13px;color:rgba(200,210,230,.7);margin-bottom:7px}
+.draft-desc{font-size:13px;color:rgba(200,210,230,.55);line-height:1.6;max-width:580px}
+.draft-chips{display:flex;gap:8px;margin-top:9px;flex-wrap:wrap}
+.chip{padding:4px 10px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:rgba(200,210,230,.65)}
+.chip.own{background:rgba(255,182,18,.1);border-color:rgba(255,182,18,.25);color:var(--cmd-gold)}
+
+/* Countdown */
+.countdown-hero{display:flex;align-items:center;gap:16px;padding:14px 20px;border-radius:8px;background:rgba(0,0,0,.3);border:1px solid var(--border-mid);margin-bottom:16px;flex-wrap:wrap}
+.countdown-label{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text-secondary);flex-shrink:0}
+.countdown-units{display:flex;gap:8px;align-items:center}
+.cd-unit{display:flex;flex-direction:column;align-items:center;background:rgba(0,43,92,.5);border:1px solid rgba(0,100,180,.2);border-radius:6px;padding:8px 14px;min-width:62px}
+.cd-num{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700;color:var(--cmd-gold);line-height:1;letter-spacing:-1px}
+.cd-lbl{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text-dim);margin-top:3px}
+.cd-sep{font-family:'JetBrains Mono',monospace;font-size:20px;color:var(--text-dim);padding-bottom:8px}
+
+/* Draft tabs */
+.draft-tabs{display:flex;gap:2px;margin-bottom:14px;border-bottom:1px solid var(--border-subtle);padding-bottom:0}
+.dtab{padding:8px 16px;font-size:13px;font-weight:500;cursor:pointer;color:var(--text-secondary);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
+.dtab:hover{color:var(--text-primary)}.dtab.active{color:var(--cmd-gold);border-bottom-color:var(--cmd-gold)}
+.dpanel{display:none}.dpanel.active{display:block}
+.combine-banner{padding:9px 13px;border-radius:6px;border:1px solid rgba(255,182,18,.18);background:rgba(255,182,18,.05);margin-bottom:14px;font-size:12px;color:rgba(220,200,120,.8);line-height:1.6}
+.prospects-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(218px,1fr));gap:10px}
+.prospect-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;padding:13px;transition:background .2s,border-color .2s;position:relative;overflow:hidden;cursor:pointer}
+.prospect-card:hover{background:var(--bg-card-hover);border-color:var(--border-mid)}
+.prospect-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,rgba(0,43,92,.8),rgba(227,24,55,.5))}
+.p-rank{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;color:var(--cmd-gold);margin-bottom:5px;text-transform:uppercase}
+.p-name{font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;color:var(--text-primary);letter-spacing:.2px;margin-bottom:2px}
+.p-meta{font-size:12px;color:var(--text-secondary);margin-bottom:9px}
+.p-pos{color:var(--cmd-gold);font-weight:600}
+.p-attrs{display:flex;flex-wrap:wrap;gap:4px}
+.attr{font-size:10px;padding:2px 6px;border-radius:3px;background:rgba(255,255,255,.05);border:1px solid var(--border-subtle);color:var(--text-dim)}
+.attr.hi{background:rgba(0,43,92,.4);border-color:rgba(0,100,180,.3);color:#7AAEDC}
+.p-grade{position:absolute;top:13px;right:13px;font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800}
+.gA{color:#22C55E}.gAm{color:#84CC16}.gBp{color:#3B82F6}.gB{color:#60A5FA}
+.p-note{margin-top:8px;font-size:11px;color:var(--text-dim);line-height:1.4}
+.p-view-more{margin-top:8px;font-size:11px;color:var(--tot-blue);letter-spacing:.3px;display:flex;align-items:center;gap:4px}
+
+/* Draft news items */
+.draft-news-item{padding:13px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-card);margin-bottom:10px;text-decoration:none;display:block;transition:background .2s}
+.draft-news-item:hover{background:var(--bg-card-hover)}
+.dni-hl{font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:4px}
+.dni-desc{font-size:12px;color:var(--text-secondary);line-height:1.5}
+.dni-time{font-size:11px;color:var(--text-dim);margin-top:5px;font-family:'JetBrains Mono',monospace}
+
+/* ── PROSPECT MODAL ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:2000;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.modal-card{background:#0D0F18;border:1px solid var(--border-mid);border-radius:12px;width:100%;max-width:720px;max-height:90vh;overflow-y:auto;position:relative;animation:slideUp .2s ease-out}
+@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.modal-card::-webkit-scrollbar{width:5px}
+.modal-card::-webkit-scrollbar-thumb{background:var(--border-mid);border-radius:3px}
+.modal-hdr{background:linear-gradient(135deg,rgba(0,43,92,.8),rgba(4,30,66,.95));padding:20px 24px;border-radius:12px 12px 0 0;border-bottom:1px solid var(--border-mid);position:sticky;top:0;z-index:1}
+.modal-close{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.08);border:1px solid var(--border-mid);color:var(--text-secondary);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.modal-close:hover{background:rgba(255,60,92,.2);color:var(--accent-live);border-color:rgba(255,60,92,.3)}
+.modal-player-name{font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800;color:#fff;letter-spacing:.5px}
+.modal-player-sub{font-size:13px;color:rgba(200,210,230,.6);margin-top:3px}
+.modal-rank-row{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.rank-chip{padding:4px 12px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px}
+.rank-chip.proj{background:rgba(255,182,18,.15);border:1px solid rgba(255,182,18,.3);color:var(--cmd-gold)}
+.rank-chip.src{background:rgba(255,255,255,.06);border:1px solid var(--border-mid);color:var(--text-secondary)}
+.modal-body{padding:20px 24px;display:grid;grid-template-columns:200px 1fr;gap:20px}
+.modal-left{}
+.modal-right{}
+.modal-section-title{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:16px}
+.stat-box{background:rgba(255,255,255,.04);border:1px solid var(--border-subtle);border-radius:6px;padding:8px 10px;text-align:center}
+.stat-val{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:var(--text-primary)}
+.stat-lbl{font-size:10px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-top:2px}
+.phys-table{width:100%;font-size:12px;border-collapse:collapse}
+.phys-table td{padding:5px 0;border-bottom:1px solid var(--border-subtle)}
+.phys-table td:first-child{color:var(--text-dim);width:40%}
+.phys-table td:last-child{color:var(--text-primary);text-align:right;font-family:'JetBrains Mono',monospace}
+.comparison-badge{padding:8px 12px;border-radius:6px;background:rgba(0,43,92,.4);border:1px solid rgba(0,100,180,.2);font-size:13px;color:#7AAEDC;text-align:center;margin-top:8px}
+.str-list li{display:flex;gap:8px;font-size:12px;color:var(--text-secondary);padding:4px 0;line-height:1.4}
+.str-list li::before{content:'✓';color:#22C55E;flex-shrink:0;font-weight:700}
+.wk-list li{display:flex;gap:8px;font-size:12px;color:var(--text-secondary);padding:4px 0;line-height:1.4}
+.wk-list li::before{content:'△';color:#F59E0B;flex-shrink:0}
+.modal-overview{font-size:12px;color:var(--text-secondary);line-height:1.7;background:rgba(255,255,255,.03);padding:12px;border-radius:6px;border-left:3px solid rgba(0,100,180,.4);margin-top:8px}
+.rank-row-modal{display:flex;gap:8px;flex-wrap:wrap}
+.rank-src{text-align:center;flex:1;background:rgba(255,255,255,.04);border:1px solid var(--border-subtle);border-radius:6px;padding:8px}
+.rank-src-num{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:var(--cmd-gold)}
+.rank-src-lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px}
+
+/* ── KEY DATES ── */
+.dates-controls{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+.date-filter{padding:6px 14px;border-radius:4px;border:1px solid var(--border-mid);background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;font-family:'Barlow',sans-serif;transition:all .15s}
+.date-filter:hover{border-color:var(--text-dim);color:var(--text-primary)}
+.date-filter.active{border-color:var(--cmd-gold);color:var(--cmd-gold);background:rgba(255,182,18,.06)}
+.dates-list{display:flex;flex-direction:column;gap:10px}
+.date-card{display:flex;gap:14px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;padding:13px 16px;border-left:3px solid transparent;transition:background .2s}
+.date-card:hover{background:var(--bg-card-hover)}
+.date-card.completed{opacity:.55}
+.date-left{min-width:58px;text-align:center;flex-shrink:0}
+.date-month{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim)}
+.date-day{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;line-height:1;color:var(--text-primary)}
+.date-year{font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace}
+.date-right{flex:1;min-width:0}
+.date-team-tag{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:2px 6px;border-radius:3px;margin-bottom:5px;display:inline-block}
+.date-label{font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:var(--text-primary);letter-spacing:.3px;margin-bottom:3px}
+.date-desc{font-size:12px;color:var(--text-secondary);line-height:1.5}
+.date-badge{margin-left:auto;flex-shrink:0;align-self:flex-start}
+.date-status{font-family:'JetBrains Mono',monospace;font-size:10px;padding:3px 8px;border-radius:3px}
+.ds-done{background:rgba(74,80,104,.3);color:var(--text-dim);border:1px solid var(--border-subtle)}
+.ds-today{background:rgba(255,60,92,.12);color:var(--accent-live);border:1px solid rgba(255,60,92,.25);animation:pulse 1.5s ease-in-out infinite}
+.ds-soon{background:rgba(255,182,18,.1);color:#A08020;border:1px solid rgba(255,182,18,.15)}
+.ds-upcoming{background:rgba(60,80,120,.2);color:#6080B0;border:1px solid rgba(60,80,120,.2)}
+.days-away{font-size:11px;color:var(--text-dim);margin-top:3px;font-family:'JetBrains Mono',monospace}
+
+/* ── FOOTER ── */
+footer{padding:7px 20px;background:var(--bg-sidebar);border-top:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.footer-left{display:flex;align-items:center;gap:14px;font-size:11px;font-family:'JetBrains Mono',monospace}
+.last-refresh{color:var(--text-dim)}
+.footer-right{font-size:10px;color:var(--text-dim);letter-spacing:1px}
+
+@media(max-width:680px){aside{display:none}.modal-body{grid-template-columns:1fr}.cards-grid,.news-grid,.prospects-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════ HEADER ═══════════════════════ -->
+<header>
+  <div class="brand">
+    <div class="brand-icon">DC</div>
+    <div>
+      <span class="brand-name">DC Sports</span>
+      <span class="brand-sub">Command Center</span>
+    </div>
+  </div>
+  <div class="global-status" id="globalStatus">
+    <span class="pulse-dot"></span>
+    <span id="globalStatusText">Connecting…</span>
+  </div>
+  <div class="hdr-right">
+    <div class="clock" id="clock">--:--:-- --</div>
+    <button class="refresh-btn" id="refreshBtn" onclick="manualRefresh()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+      Refresh
+    </button>
+  </div>
+  <div class="countdown-bar"><div class="countdown-fill" id="countdownFill" style="width:100%"></div></div>
+</header>
+
+<!-- ═══════════════════════ BODY ═══════════════════════ -->
+<div class="app-body">
+
+<!-- ── SIDEBAR ── -->
+<aside id="sidebar">
+  <div class="sb-label">Filter</div>
+  <nav>
+    <div class="nav-item active" data-league="all" onclick="filterLeague('all',this)"><span class="league-dot" style="background:#7A8099"></span>All Teams<span class="nav-badge" id="b-all">—</span></div>
+    <div class="nav-divider"></div>
+    <div class="nav-item" data-league="NFL" onclick="filterLeague('NFL',this)"><span class="league-dot" style="background:#7A1B1B"></span>NFL<span class="nav-badge" id="b-NFL">—</span></div>
+    <div class="nav-item" data-league="NBA" onclick="filterLeague('NBA',this)"><span class="league-dot" style="background:#002B5C"></span>NBA<span class="nav-badge" id="b-NBA">—</span></div>
+    <div class="nav-item" data-league="MLB" onclick="filterLeague('MLB',this)"><span class="league-dot" style="background:#AB0003"></span>MLB<span class="nav-badge" id="b-MLB">—</span></div>
+    <div class="nav-item" data-league="NHL" onclick="filterLeague('NHL',this)"><span class="league-dot" style="background:#C8102E"></span>NHL<span class="nav-badge" id="b-NHL">—</span></div>
+    <div class="nav-item" data-league="WNBA" onclick="filterLeague('WNBA',this)"><span class="league-dot" style="background:#E31837"></span>WNBA<span class="nav-badge" id="b-WNBA">—</span></div>
+    <div class="nav-item" data-league="NWSL" onclick="filterLeague('NWSL',this)"><span class="league-dot" style="background:#F5A800"></span>NWSL<span class="nav-badge" id="b-NWSL">—</span></div>
+    <div class="nav-item" data-league="EPL" onclick="filterLeague('EPL',this)"><span class="league-dot" style="background:#132257"></span>EPL<span class="nav-badge" id="b-EPL">—</span></div>
+  </nav>
+  <div class="sb-stats">
+    <div class="sb-label" style="padding:0 0 7px">Today</div>
+    <div class="sstat"><span class="sstat-lbl">Live</span><span class="sstat-val" id="stat-live">0</span></div>
+    <div class="sstat"><span class="sstat-lbl">Final</span><span class="sstat-val" id="stat-final">0</span></div>
+    <div class="sstat"><span class="sstat-lbl">Upcoming</span><span class="sstat-val" id="stat-up">0</span></div>
+  </div>
+  <div class="net-status net-online" id="netStatus">
+    <span class="net-dot"></span><span id="netTxt">Online</span>
+  </div>
+</aside>
+
+<!-- ── MAIN ── -->
+<main>
+  <!-- TAB NAV -->
+  <div class="main-tabs-bar">
+    <div class="main-tab active" onclick="switchTab('scores',this)"><span class="tab-icon">🏟️</span> Scores</div>
+    <div class="main-tab" onclick="switchTab('news',this)"><span class="tab-icon">📰</span> News</div>
+    <div class="main-tab" onclick="switchTab('draft',this)"><span class="tab-icon">🏀</span> 2026 Draft</div>
+    <div class="main-tab" onclick="switchTab('dates',this)"><span class="tab-icon">📅</span> Key Dates</div>
+  </div>
+
+  <!-- ── TAB: SCORES ── -->
+  <div class="tab-panel active" id="tab-scores">
+    <div id="scores-content">
+      <div class="cards-grid"><div class="card-loading"><div class="spinner"></div> Loading DC sports data…</div></div>
+    </div>
+  </div>
+
+  <!-- ── TAB: NEWS ── -->
+  <div class="tab-panel" id="tab-news">
+    <div class="sec-hdr" style="margin-bottom:16px">
+      <span class="sec-title">Latest News</span>
+      <span class="sec-line"></span>
+      <span class="sec-count" id="news-count">Loading…</span>
+    </div>
+    <div class="news-grid" id="news-grid">
+      <div class="news-card" style="pointer-events:none"><div class="skel skel-img"></div><div class="news-body"><div class="skel skel-line skel-short"></div><div class="skel skel-line skel-med" style="height:15px"></div><div class="skel skel-line"></div></div></div>
+      <div class="news-card" style="pointer-events:none"><div class="skel skel-img"></div><div class="news-body"><div class="skel skel-line skel-short"></div><div class="skel skel-line skel-med" style="height:15px"></div><div class="skel skel-line"></div></div></div>
+      <div class="news-card" style="pointer-events:none"><div class="skel skel-img"></div><div class="news-body"><div class="skel skel-line skel-short"></div><div class="skel skel-line skel-med" style="height:15px"></div><div class="skel skel-line"></div></div></div>
+      <div class="news-card" style="pointer-events:none"><div class="skel skel-img"></div><div class="news-body"><div class="skel skel-line skel-short"></div><div class="skel skel-line skel-med" style="height:15px"></div><div class="skel skel-line"></div></div></div>
+      <div class="news-card" style="pointer-events:none"><div class="skel skel-img"></div><div class="news-body"><div class="skel skel-line skel-short"></div><div class="skel skel-line skel-med" style="height:15px"></div><div class="skel skel-line"></div></div></div>
+      <div class="news-card" style="pointer-events:none"><div class="skel skel-img"></div><div class="news-body"><div class="skel skel-line skel-short"></div><div class="skel skel-line skel-med" style="height:15px"></div><div class="skel skel-line"></div></div></div>
+    </div>
+  </div>
+
+  <!-- ── TAB: DRAFT ── -->
+  <div class="tab-panel" id="tab-draft">
+    <!-- Hero + Countdown rendered by JS -->
+    <div id="draft-content"><div class="card-loading"><div class="spinner"></div> Loading draft data…</div></div>
+  </div>
+
+  <!-- ── TAB: KEY DATES ── -->
+  <div class="tab-panel" id="tab-dates">
+    <div class="sec-hdr" style="margin-bottom:16px">
+      <span class="sec-title">Upcoming Key Dates</span>
+      <span class="sec-line"></span>
+      <span class="sec-count" id="dates-count"></span>
+    </div>
+    <div class="dates-controls" id="dates-filters"></div>
+    <div class="dates-list" id="dates-list"></div>
+  </div>
+</main>
+</div>
+
+<!-- ═══════════════════════ PROSPECT MODAL ═══════════════════════ -->
+<div class="modal-overlay" id="prospectModal" onclick="closeModal(event)">
+  <div class="modal-card" id="modalCard"></div>
+</div>
+
+<!-- ═══════════════════════ FOOTER ═══════════════════════ -->
+<footer>
+  <div class="footer-left">
+    <span class="last-refresh" id="lastRefresh">Last refresh: —</span>
+  </div>
+  <div class="footer-right">ESPN API · Auto-refresh 60s · DC Sports Command Center</div>
+</footer>
+
+<!-- ═══════════════════════ SCRIPT ═══════════════════════ -->
+<script>
+/* ════════════════════════════════════════════
+   LEAGUE CONFIG
+════════════════════════════════════════════ */
+const LEAGUES=[
+  {id:'NFL',label:'NFL',url:'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard',
+   teams:[{id:'28',name:'Washington Commanders',abbr:'WSH',primary:'#7A1B1B',secondary:'#FFB612',cls:'card-commanders',tag:'tag-nfl',logo:'CMD'}]},
+  {id:'NBA',label:'NBA',url:'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard',
+   teams:[{id:'27',name:'Washington Wizards',abbr:'WSH',primary:'#002B5C',secondary:'#E31837',cls:'card-wizards',tag:'tag-nba',logo:'WIZ'}]},
+  {id:'MLB',label:'MLB',url:'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard',
+   teams:[{id:'21',name:'Washington Nationals',abbr:'WSH',primary:'#AB0003',secondary:'#14225A',cls:'card-nationals',tag:'tag-mlb',logo:'NAT'}]},
+  {id:'NHL',label:'NHL',url:'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard',
+   teams:[{id:'15',name:'Washington Capitals',abbr:'WSH',primary:'#C8102E',secondary:'#041E42',cls:'card-capitals',tag:'tag-nhl',logo:'CAP'}]},
+  {id:'WNBA',label:'WNBA',url:'https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard',
+   teams:[{id:'20',name:'Washington Mystics',abbr:'WSH',primary:'#002B5C',secondary:'#E31837',cls:'card-mystics',tag:'tag-wnba',logo:'MYS'}]},
+  {id:'NWSL',label:'NWSL',url:'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.nwsl/scoreboard',
+   teams:[{id:'',name:'Washington Spirit',abbr:'WSH',primary:'#001C4E',secondary:'#F5A800',cls:'card-spirit',tag:'tag-nwsl',logo:'WSP'}]},
+  {id:'EPL',label:'EPL',url:'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard',
+   teams:[{id:'367',name:'Tottenham Hotspur',abbr:'TOT',primary:'#132257',secondary:'#00B2F8',cls:'card-tottenham',tag:'tag-epl',logo:'TOT'}]},
+];
+
+/* ════════════════════════════════════════════
+   PROSPECTS DATA — sourced post-lottery May 11 2026
+   ESPN · CBS Sports · Bleacher Report
+════════════════════════════════════════════ */
+const PROSPECTS=[
+  {rank:1,name:'AJ Dybantsa',pos:'SF',school:'BYU',yr:'Freshman',ht:"6'9\"",wt:'220 lbs',age:'19',hometown:'North Brunswick, NJ',grade:'A',
+   highlights:['Led Div-I in scoring','Elite wingspan & frame','Two-way upside'],
+   note:'Projected #1 to Wizards. Perfect fit alongside Trae Young & Anthony Davis.',
+   stats:{pts:25.5,reb:6.8,ast:3.7,fg:'46.2',fg3:'35.1',ft:'78.4',gp:35},
+   strengths:['Elite scoring at all three levels — pull-up, drive, spot-up three','Physical 6\'9" frame with elite wingspan','Exceptional footwork and shot creation off dribble','Competitive motor and high-level makeup','NBA-ready body with room to add muscle','Showed growth as decision-maker across the season'],
+   weaknesses:['3-point consistency needs refinement at NBA range','Can disengage defensively off-ball','Ball-handling under full-court defensive pressure'],
+   comparison:'Paul George / Jayson Tatum',
+   overview:'Dybantsa strengthened his case as a No. 1 pick candidate with a stellar freshman year at BYU, proving capable of carrying a significant offensive workload and demonstrating growth as a decision-maker. His positional size, physical upside and makeup give him an excellent base to build long term. After a strong close to the season amid BYU\'s struggles without Richie Saunders, Dybantsa has become the player NBA executives most commonly project to be selected first. (ESPN)',
+   rankings:{espn:1,cbs:1,br:1},proj:'#1 Overall — Washington Wizards'},
+  {rank:2,name:'Darryn Peterson',pos:'PG/SG',school:'Kansas',yr:'Freshman',ht:"6'6\"",wt:'210 lbs',age:'19',hometown:'Prolific Prep, CA',grade:'A',
+   highlights:['Elite shotmaker','3-level scorer','Tenacious worker'],
+   note:'Real #1 candidate per CBS Sports. Health (preseason cramping) is key combine storyline.',
+   stats:{pts:20.2,reb:4.2,ast:2.2,fg:'44.8',fg3:'38.5',ft:'84.3',gp:24},
+   strengths:['Most gifted scorer and shotmaker in the entire class','True three-level scoring threat with elite shot creation','Standing 6\'6" with long arms — NBA-ready wing body','Outstanding 3-point shooting (38.5%) on high volume','High-character, serious worker — coaches and scouts love his drive','Devastating half-court isolation scorer'],
+   weaknesses:['Health history — preseason cramping episode limited entire season','Only 2.2 assists per 40 min — limited playmaking evidence','Availability concerns (only 24 of 33 games played)','Questions around on-ball creator upside at NBA level'],
+   comparison:'Devin Booker / Klay Thompson',
+   overview:'Although Peterson has ceded ground to Dybantsa in the No. 1 discussion, there\'s widespread belief he\'s capable of much more than what he ultimately showed at Kansas. He\'s the most gifted scorer and shotmaker in the class. NBA teams will be diligent understanding the context of his season — the preseason cramping episode colored his entire freshman year. His medical report and team interviews at the combine (May 10-17) will carry extra weight. (ESPN Big Board)',
+   rankings:{espn:2,cbs:2,br:2},proj:'#2 Overall — Utah Jazz (projected)'},
+  {rank:3,name:'Cameron Boozer',pos:'PF',school:'Duke',yr:'Freshman',ht:"6'9\"",wt:'235 lbs',age:'19',hometown:'Miami, FL',grade:'A',
+   highlights:['College Player of Year','NBA-ready offense','Elite IQ & touch'],
+   note:'Son of NBA veteran Carlos Boozer. Won every major CPOY award. Highest floor in the class.',
+   stats:{pts:21.7,reb:9.4,ast:3.1,fg:'54.2',fg3:'33.0',ft:'71.8',gp:33},
+   strengths:['Highest basketball IQ in the class — right reads in every situation','Elite touch and finish around the rim and in the mid-post','NBA-ready offensive game — lived up to lofty expectations all season','Inside-outside skill set is highly projectable to the NBA','Led Duke all season with real star-level consistency','Polished beyond his years — advanced feel for the game'],
+   weaknesses:['Lack of elite explosiveness raises questions vs. NBA athletes','Defensive limitations may restrict ceiling','Free-throw shooting (71.8%) could be exploited by foul-drawing','3-point volume needs to improve for modern NBA spacing'],
+   comparison:'Bam Adebayo / Jaren Jackson Jr.',
+   overview:'Boozer is a high-floor prospect with all the outlines of an offensive linchpin. His IQ, touch and floor game should provide offensive juice wherever he lands. Lived up to lofty expectations this season, cleaning up player of the year awards and nearly leading Duke to the Final Four, largely carrying the team all season. The safest pick in the class with projectable polish, despite some athletic limitations. (ESPN / CBS Sports)',
+   rankings:{espn:3,cbs:3,br:3},proj:'#3 Overall — Memphis Grizzlies (projected)'},
+  {rank:4,name:'Caleb Wilson',pos:'PF/C',school:'N. Carolina',yr:'Freshman',ht:"6'10\"",wt:'225 lbs',age:'19',hometown:'Alpharetta, GA',grade:'A-',
+   highlights:['Physical marvel','All-defense potential','High motor'],
+   note:"Pair of hand injuries ended his season early — zero impact on lottery stock. Some scouts rank him #1.",
+   stats:{pts:14.8,reb:8.2,ast:1.9,fg:'58.1',fg3:'28.0',ft:'62.4',gp:21},
+   strengths:['Physical marvel — unmistakable all-defense potential','Interior ferocity and explosiveness that stands out on film','Mid-range finesse and open-floor dominance','Consistent motor and energy every possession','Blends interior ferocity with modern forward skill set','Some scouts rate his ceiling higher than anyone in the class'],
+   weaknesses:['Hand injuries — durability is the primary question mark','Perimeter shooting is a significant work in progress (28%)','Limited game sample due to injuries (only 21 games)','Free-throw shooting (62.4%) must improve significantly'],
+   comparison:'Jaren Jackson Jr. / Paolo Banchero',
+   overview:"Wilson's pair of hand injuries didn't impact his standing on draft boards. Teams fell in love with his motor, explosiveness and potential as a two-way impact player. He will receive serious looks higher than #4 and will make his case in predraft workouts where his athletic gifts should stand out. Both Chicago and Memphis are seriously interested. Some pundits genuinely have him as the #1 overall prospect in this class. (ESPN/CBS/Bleacher Report)",
+   rankings:{espn:4,cbs:4,br:4},proj:'#4 Overall — Chicago Bulls (projected)'},
+  {rank:5,name:'Keaton Wagler',pos:'SG',school:'Illinois',yr:'Freshman',ht:"6'6\"",wt:'195 lbs',age:'19',hometown:'Roanoke, IN',grade:'B+',
+   highlights:['Led Illinois to Final Four','38.8% from three','Off-dribble creator'],
+   note:'One of the most remarkable prospect rises ever — entered season as curiosity, left as bona fide lottery talent.',
+   stats:{pts:18.4,reb:3.9,ast:3.8,fg:'46.1',fg3:'38.8',ft:'84.3',gp:37},
+   strengths:['Laser 3-point shooting (38.8%) on high volume throughout the season','Refined off-the-dribble game with excellent change-of-pace','Excellent playmaking — 3.8 assists with low turnovers','Plays both guard positions — versatile on and off ball','Outstanding free-throw shooter (84.3%) — projects as draw-foul threat','Led one of the most remarkable team runs in recent NCAA history (Final Four)'],
+   weaknesses:['Mid-tier athleticism may limit defensive ceiling','Slender build — needs to add significant NBA-level strength','Raw separation creation against elite NBA defensive pressure'],
+   comparison:'Tyler Herro / Buddy Hield',
+   overview:"Wagler led Illinois all the way to the Final Four in one of the more remarkable prospect rises ever. While scouts expect time to add strength and adjust physically to the NBA, the fact that Wagler is 6'6\", plays with change of pace and adds value at both guard positions points to major long-term upside. Unusual trajectory and rapid improvement bode well for his development. Projected #5 to LA Clippers in ESPN's post-lottery mock. (ESPN)",
+   rankings:{espn:5,cbs:6,br:6},proj:'#5 — LA Clippers via Indiana (projected)'},
+  {rank:6,name:'Darius Acuff Jr.',pos:'PG',school:'Arkansas',yr:'Freshman',ht:"6'4\"",wt:'190 lbs',age:'19',hometown:'Memphis, TN',grade:'B+',
+   highlights:['44% from 3 at 29.5% usage','Sweet 16 leader','Only 2.2 turnovers/game'],
+   note:'Exploded up draft boards. Atlanta Hawks reportedly considering trading up to secure him.',
+   stats:{pts:19.7,reb:3.8,ast:5.1,fg:'47.3',fg3:'44.0',ft:'82.1',gp:33},
+   strengths:['Three-level scoring menace — can eviscerate first line of defense','Elite 3-point shooting (44%) at high usage rate','Strong playmaking IQ — 5.1 assists with minimal turnovers','Led Arkansas to Sweet 16 with huge individual performances','High motor and competitive spirit in big moments'],
+   weaknesses:['Defensive limitations — effort level and size are concerns','Primary on-ball creation upside is debated at NBA level','Needs to prove he can guard multiple positions consistently'],
+   comparison:"Tyrese Haliburton / De'Aaron Fox",
+   overview:'Acuff Jr. rocketed up draft boards during his spectacular freshman season at Arkansas. Built a strong all-around offensive profile for a lead playmaker under Calipari — impressively limiting turnovers (2.2/game) while handling a 29.5% usage rate and shooting 44% from 3. Questions persist around defensive limitations but teams needing a true lead guard will take a long look early. The Atlanta Hawks are reportedly eyeing a trade-up to land him. (ESPN Big Board / CBS Sports)',
+   rankings:{espn:6,cbs:5,br:7},proj:'Top 7-8 — Atlanta/Brooklyn area (projected)'},
+  {rank:7,name:'Kingston Flemings',pos:'SG',school:'Houston',yr:'Freshman',ht:"6'4\"",wt:'195 lbs',age:'19',hometown:'Houston, TX',grade:'B+',
+   highlights:['Elite burst & speed','Bonkers at-rim numbers','Pick-and-roll reads'],
+   note:"Captured imagination of NBA scouts — moves at a different gear than everyone else on the floor.",
+   stats:{pts:17.9,reb:3.4,ast:3.2,fg:'51.3',fg3:'36.2',ft:'79.4',gp:31},
+   strengths:['Moves at a different speed than anyone on the floor','Devastating downhill attacker — elite body control and footwork','Elite at-rim finishing percentages (51.3% FG overall)','Defensive tools — quickness to guard multiple positions','Delivers basic reads out of the pick-and-roll','Outstanding straight-line burst creates instant separation'],
+   weaknesses:['Decision-making speed needs to catch up to physical speed','3-point regression expected from current numbers','Still developing consistent on-ball playmaking ability','Can be turnover-prone when trying to push pace too fast'],
+   comparison:'Anfernee Simons / early Anthony Edwards (athleticism profile)',
+   overview:"Flemings burst onto the scene at Houston and immediately captured the attention of NBA scouts. He just moves at a different speed than everyone else on the floor — able to skate downhill past defenders and get wherever he needs to. Burst, body control and footwork make him one tough cover. Still evolving as an on-ball engine, but if Flemings can speed up his decision-making without slowing down as a ball-handler, he's going to take off at the next level. (CBS Sports Big Board)",
+   rankings:{espn:7,cbs:8,br:5},proj:'Top 8-10 — Multiple lottery teams (projected)'},
+  {rank:8,name:'Mikel Brown Jr.',pos:'PG/SG',school:'Louisville',yr:'Freshman',ht:"6'5\"",wt:'200 lbs',age:'19',hometown:'Columbus, OH',grade:'B',
+   highlights:['Smooth shooting mechanics','84.3% FT shooter','3-level scorer'],
+   note:'Divisive stock — high ceiling but varied results. Key combine evaluation target.',
+   stats:{pts:16.8,reb:3.7,ast:4.2,fg:'45.9',fg3:'36.5',ft:'84.3',gp:30},
+   strengths:['Smooth, repeatable shooting mechanics from three and mid-range','Step-back shooters that extend beyond the arc with confidence','Strong 6\'5" build with reliable handle and floor vision','Good passing IQ in half-court sets','Elite free-throw shooting (84.3%) projects well to next level','Versatile — can play on or off the ball effectively'],
+   weaknesses:['Shot-making fearlessness can turn into questionable shot selection','Below-average assist-to-turnover ratio in key games','Ancillary skill set — doesn\'t always impact games in multiple ways','Needs to add strength to guard athletic NBA guards consistently'],
+   comparison:'Jordan Poole / Austin Reaves',
+   overview:"Brown had glimpses that could have you falling head over heels for his long-term outlook. A 6'5\" lead guard with smooth shooting mechanics and shot-making fearlessness that is impossible to ignore. Brown's draft stock is inherently divisive — he boasts a largely ancillary skill set with a potentially lower ceiling by some estimates, but the shooting and scoring ability are undeniable. The NBA Draft Combine (May 10-17) will be an important evaluation window. (Bleacher Report / CBS Sports)",
+   rankings:{espn:8,cbs:7,br:9},proj:'Pick 9-15 — Multiple teams in range (projected)'},
+];
+
+/* ════════════════════════════════════════════
+   KEY DATES DATA
+════════════════════════════════════════════ */
+const KEY_DATES=[
+  // WIZARDS
+  {team:'Wizards',league:'NBA',primary:'#002B5C',secondary:'#E31837',date:'2026-05-10',label:'🎰 Draft Lottery — WON!',desc:"Wizards claimed the #1 overall pick with 14% odds. John Wall represented the franchise on stage in Chicago. First #1 pick since John Wall in 2010.",status:'completed'},
+  {team:'Wizards',league:'NBA',primary:'#002B5C',secondary:'#E31837',date:'2026-05-10',label:'🏟️ NBA Draft Combine Opens',desc:'Wintrust Arena & Marriott Marquis, Chicago. All 30 teams evaluating prospects through workouts, interviews, and medical reports.',status:'today'},
+  {team:'Wizards',league:'NBA',primary:'#002B5C',secondary:'#E31837',date:'2026-05-17',label:'🏟️ NBA Draft Combine Closes',desc:'Final day of workouts and medical evaluations. Teams finalize draft boards before the NCAA withdrawal deadline.',status:'upcoming'},
+  {team:'Wizards',league:'NBA',primary:'#002B5C',secondary:'#E31837',date:'2026-05-27',label:'📋 NCAA Withdrawal Deadline',desc:'Last chance for college players to return to school without losing eligibility (11:59 PM ET). Draft board finalizes.',status:'upcoming'},
+  {team:'Wizards',league:'NBA',primary:'#002B5C',secondary:'#E31837',date:'2026-06-23',label:'🏀 NBA Draft — Round 1',desc:"Barclays Center, Brooklyn NY — Wizards pick #1 overall. ESPN/ABC, 8 PM ET. AJ Dybantsa consensus projection.",status:'upcoming'},
+  {team:'Wizards',league:'NBA',primary:'#002B5C',secondary:'#E31837',date:'2026-06-24',label:'🏀 NBA Draft — Round 2',desc:'Wizards pick #51 overall (via Minnesota Timberwolves). Jaden Bradley, PG/SG, Arizona currently projected. (ESPN post-lottery mock)',status:'upcoming'},
+  {team:'Wizards',league:'NBA',primary:'#002B5C',secondary:'#E31837',date:'2026-06-30',label:'💰 NBA Free Agency Opens',desc:'Moratorium period begins at 6 PM ET. Wizards have flexibility to build around their new core of Young, Davis and the #1 pick.',status:'upcoming'},
+  // COMMANDERS
+  {team:'Commanders',league:'NFL',primary:'#7A1B1B',secondary:'#FFB612',date:'2026-05-27',label:'📋 OTAs Begin',desc:'Voluntary Organized Team Activities — Commanders Park, Ashburn VA. No pads, no contact allowed. Coaches evaluate depth.',status:'upcoming'},
+  {team:'Commanders',league:'NFL',primary:'#7A1B1B',secondary:'#FFB612',date:'2026-06-15',label:'🏈 Mandatory Minicamp',desc:'Three-day mandatory minicamp — first required activity for all players. Fines for absence.',status:'upcoming'},
+  {team:'Commanders',league:'NFL',primary:'#7A1B1B',secondary:'#FFB612',date:'2026-07-22',label:'🏕️ Training Camp Opens',desc:'Full pads and contact begin at Commanders Park, Ashburn VA. Roster battles and scheme installation.',status:'upcoming'},
+  {team:'Commanders',league:'NFL',primary:'#7A1B1B',secondary:'#FFB612',date:'2026-09-10',label:'🏈 NFL Season Opener',desc:'2026-27 NFL Regular Season — Week 1 schedule to be announced by the NFL.',status:'upcoming'},
+  // NATIONALS
+  {team:'Nationals',league:'MLB',primary:'#AB0003',secondary:'#14225A',date:'2026-07-13',label:'⭐ MLB All-Star Break',desc:'MLB All-Star Game activities — New York City. Nats roster representatives TBD.',status:'upcoming'},
+  {team:'Nationals',league:'MLB',primary:'#AB0003',secondary:'#14225A',date:'2026-07-31',label:'⚾ MLB Trade Deadline',desc:'Non-waiver trade deadline at 6 PM ET. Washington in a rebuild — expect activity as potential sellers.',status:'upcoming'},
+  // CAPITALS
+  {team:'Capitals',league:'NHL',primary:'#C8102E',secondary:'#041E42',date:'2026-06-27',label:'🏒 NHL Draft — Round 1',desc:'2026 NHL Draft. Capitals look to add to their prospect pipeline after a rebuilding season.',status:'upcoming'},
+  {team:'Capitals',league:'NHL',primary:'#C8102E',secondary:'#041E42',date:'2026-07-01',label:'💰 NHL Free Agency Opens',desc:'NHL free agent market opens at Noon ET. Capitals have cap flexibility to be active.',status:'upcoming'},
+  // MYSTICS
+  {team:'Mystics',league:'WNBA',primary:'#002B5C',secondary:'#E31837',date:'2026-05-16',label:'🏀 WNBA Season Tips Off',desc:'2026 WNBA Season begins league-wide. Mystics open their campaign.',status:'upcoming'},
+  // SPIRIT
+  {team:'Spirit',league:'NWSL',primary:'#001C4E',secondary:'#F5A800',date:'2026-05-17',label:'⚽ NWSL Matchday',desc:'Washington Spirit continue their 2026 NWSL campaign.',status:'upcoming'},
+  // TOTTENHAM
+  {team:'Tottenham',league:'EPL',primary:'#132257',secondary:'#00B2F8',date:'2026-05-11',label:'⚽ vs Leeds United — TONIGHT',desc:'Crucial relegation 6-pointer at Tottenham Hotspur Stadium. 4 PM ET / 21:00 BST. Spurs 1 point above West Ham with 3 games left.',status:'today'},
+  {team:'Tottenham',league:'EPL',primary:'#132257',secondary:'#00B2F8',date:'2026-05-18',label:'🏁 EPL Final Day',desc:'Premier League season concludes simultaneously across all grounds. Spurs must secure survival. West Ham are the immediate threat.',status:'upcoming'},
+  {team:'Tottenham',league:'EPL',primary:'#132257',secondary:'#00B2F8',date:'2026-06-10',label:'📋 Summer Transfer Window',desc:'Transfer window opens. Major squad rebuild expected under Roberto De Zerbi regardless of relegation outcome.',status:'upcoming'},
+];
+
+/* ════════════════════════════════════════════
+   STATE
+════════════════════════════════════════════ */
+let allCards=[],prevScores={},activeLeague='all',allNews=[],activeDraftTab='prospects';
+let activeDatesFilter='all',isOnline=true,countdownSec=60,lastRefreshTime=null;
+const DRAFT_DATE=new Date('2026-06-23T20:00:00-04:00');
+
+/* ════════════════════════════════════════════
+   CLOCK & COUNTDOWN
+════════════════════════════════════════════ */
+function updateClock(){document.getElementById('clock').textContent=new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+setInterval(updateClock,1000);updateClock();
+
+function tickCountdown(){
+  countdownSec--;
+  if(countdownSec<=0){countdownSec=60;fetchAll()}
+  document.getElementById('countdownFill').style.width=(countdownSec/60*100)+'%';
+  updateDraftCountdown();
+}
+function resetCountdown(){countdownSec=60;document.getElementById('countdownFill').style.width='100%'}
+setInterval(tickCountdown,1000);
+
+function updateDraftCountdown(){
+  const el=document.getElementById('draft-countdown');if(!el)return;
+  const diff=DRAFT_DATE-Date.now();
+  if(diff<=0){el.innerHTML='<span style="color:var(--cmd-gold);font-family:\'Barlow Condensed\',sans-serif;font-size:18px;font-weight:700">🏀 DRAFT IS LIVE!</span>';return}
+  const d=Math.floor(diff/86400000),h=Math.floor((diff%86400000)/3600000),m=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);
+  el.innerHTML=`<span class="countdown-label">Draft Night</span><div class="countdown-units">
+    <div class="cd-unit"><div class="cd-num">${String(d).padStart(2,'0')}</div><div class="cd-lbl">Days</div></div>
+    <span class="cd-sep">:</span>
+    <div class="cd-unit"><div class="cd-num">${String(h).padStart(2,'0')}</div><div class="cd-lbl">Hours</div></div>
+    <span class="cd-sep">:</span>
+    <div class="cd-unit"><div class="cd-num">${String(m).padStart(2,'0')}</div><div class="cd-lbl">Min</div></div>
+    <span class="cd-sep">:</span>
+    <div class="cd-unit"><div class="cd-num">${String(s).padStart(2,'0')}</div><div class="cd-lbl">Sec</div></div>
+  </div>`;
+}
+
+/* ════════════════════════════════════════════
+   TAB SWITCHING
+════════════════════════════════════════════ */
+function switchTab(id,el){
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.main-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  el.classList.add('active');
+}
+
+/* ════════════════════════════════════════════
+   SCORES — FETCH & RENDER
+════════════════════════════════════════════ */
+async function fetchAll(){
+  setSpinning(true);
+  try{
+    const results=await Promise.allSettled(LEAGUES.map(l=>fetchLeague(l)));
+    allCards=[];results.forEach(r=>{if(r.status==='fulfilled')allCards.push(...r.value)});
+    updateGlobalStatus();updateSidebarBadges();updateSidebarStats();renderCards();
+    setOnline(true);lastRefreshTime=new Date();
+    document.getElementById('lastRefresh').textContent='Last refresh: '+lastRefreshTime.toLocaleTimeString();
+  }catch(e){setOnline(false)}
+  finally{setSpinning(false);resetCountdown()}
+}
+
+async function fetchLeague(league){
+  const res=await fetch(league.url,{signal:AbortSignal.timeout(8000)});
+  if(!res.ok)throw new Error('HTTP '+res.status);
+  const data=await res.json();
+  const events=data.events||[];const cards=[];
+  for(const evt of events){
+    const comps=evt.competitions||[];
+    for(const comp of comps){
+      const competitors=comp.competitors||[];
+      const dcTeams=league.teams;
+      const isDC=dcTeams.some(t=>{
+        if(!t.id)return competitors.some(c=>c.team&&c.team.abbreviation===t.abbr);
+        return competitors.some(c=>c.team&&(c.team.id===t.id||String(c.team.id)===String(t.id)));
+      });
+      if(!isDC)continue;
+      const away=competitors.find(c=>c.homeAway==='away')||competitors[0]||{};
+      const home=competitors.find(c=>c.homeAway==='home')||competitors[1]||{};
+      const awayT=away.team||{},homeT=home.team||{};
+      const status=comp.status||{},stype=status.type||{};
+      const state=stype.state||'pre';
+      const awayScore=away.score||'—',homeScore=home.score||'—';
+      const gameId=evt.id||comp.id||Math.random().toString();
+      const prev=prevScores[gameId];
+      let scoreChanged=false;
+      if(state==='in'&&prev&&(prev.away!==awayScore||prev.home!==homeScore))scoreChanged=true;
+      prevScores[gameId]={away:awayScore,home:homeScore};
+      const dcCfg=dcTeams.find(t=>{
+        if(!t.id)return awayT.abbreviation===t.abbr||homeT.abbreviation===t.abbr;
+        return awayT.id===t.id||String(awayT.id)===String(t.id)||homeT.id===t.id||String(homeT.id)===String(t.id);
+      })||dcTeams[0];
+      let clockStr='';
+      if(state==='in'){const d=status.displayClock||'',p=stype.shortDetail||'';clockStr=[p,d].filter(Boolean).join(' · ')}
+      else if(state==='pre'){clockStr=evt.date?new Date(evt.date).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZoneName:'short'}):''}
+      else{clockStr=stype.shortDetail||'Final'}
+      const awayRec=(away.records&&away.records[0]&&away.records[0].summary)||'';
+      const homeRec=(home.records&&home.records[0]&&home.records[0].summary)||'';
+      cards.push({
+        league:league.id,leagueLabel:league.label,gameId,state,
+        awayTeam:{name:awayT.displayName||awayT.name||'Away',abbr:awayT.abbreviation||'?',record:awayRec},
+        homeTeam:{name:homeT.displayName||homeT.name||'Home',abbr:homeT.abbreviation||'?',record:homeRec},
+        awayScore,homeScore,
+        awayLeading:state!=='pre'&&parseInt(awayScore)>parseInt(homeScore),
+        homeLeading:state!=='pre'&&parseInt(homeScore)>parseInt(awayScore),
+        clockStr,venue:(comp.venue&&comp.venue.fullName)||'',teamCfg:dcCfg,scoreChanged
+      });
+    }
+  }
+  return cards;
+}
+
+function renderCards(){
+  const filtered=activeLeague==='all'?allCards:allCards.filter(c=>c.league===activeLeague);
+  const el=document.getElementById('scores-content');
+  if(!filtered.length){el.innerHTML='<div class="cards-grid"><div class="empty-state">📡 No DC team games found for today. Check back closer to game time.</div></div>';return}
+  const leagues=activeLeague==='all'?[...new Set(filtered.map(c=>c.league))]:[activeLeague];
+  let html='';
+  for(const lid of leagues){
+    const cards=filtered.filter(c=>c.league===lid);if(!cards.length)continue;
+    const live=cards.filter(c=>c.state==='in').length;
+    html+=`<div class="league-block"><div class="sec-hdr"><span class="sec-title">${lid}</span><span class="sec-line"></span>${live?`<span class="status-pill s-live">${live} Live</span>`:''}<span class="sec-count">${cards.length} game${cards.length!==1?'s':''}</span></div><div class="cards-grid">${cards.map(renderCard).join('')}</div></div>`;
+  }
+  el.innerHTML=html;
+  filtered.filter(c=>c.scoreChanged).forEach(c=>{const e=document.getElementById('gc-'+c.gameId);if(e){e.classList.remove('flashed');void e.offsetWidth;e.classList.add('flashed')}});
+}
+
+function renderCard(c){
+  const t=c.teamCfg;
+  const spill=c.state==='in'?`<span class="status-pill s-live">LIVE</span>`:c.state==='post'?`<span class="status-pill s-final">FINAL</span>`:`<span class="status-pill s-pre">UPCOMING</span>`;
+  const show=c.state!=='pre';
+  const aScore=show?`<span class="team-score ${c.awayLeading?'lead':c.homeLeading?'trail':''}">${c.awayScore}</span>`:`<span class="team-score ns">—</span>`;
+  const hScore=show?`<span class="team-score ${c.homeLeading?'lead':c.awayLeading?'trail':''}">${c.homeScore}</span>`:`<span class="team-score ns">—</span>`;
+  const ls=`background:${t.primary};color:${t.secondary};`;
+  return `<div class="game-card ${t.cls}" id="gc-${c.gameId}">
+    <div class="card-top"><span class="league-tag ${t.tag}">${c.leagueLabel}</span>${spill}</div>
+    <div class="matchup">
+      <div class="team-row"><div class="team-info"><div class="team-logo" style="${ls}">${esc(c.awayTeam.abbr.slice(0,3))}</div><div><div class="team-name">${esc(c.awayTeam.name)}</div>${c.awayTeam.record?`<div class="team-rec">${esc(c.awayTeam.record)}</div>`:''}</div></div>${aScore}</div>
+      <div class="vs-divider"></div>
+      <div class="team-row"><div class="team-info"><div class="team-logo" style="${ls}">${esc(c.homeTeam.abbr.slice(0,3))}</div><div><div class="team-name">${esc(c.homeTeam.name)}</div>${c.homeTeam.record?`<div class="team-rec">${esc(c.homeTeam.record)}</div>`:''}</div></div>${hScore}</div>
+    </div>
+    <div class="card-foot"><span class="game-clock">${esc(c.clockStr)}</span>${c.venue?`<span class="game-venue" title="${esc(c.venue)}">${esc(c.venue)}</span>`:''}</div>
+  </div>`;
+}
+
+/* ════════════════════════════════════════════
+   SIDEBAR
+════════════════════════════════════════════ */
+function updateGlobalStatus(){
+  const live=allCards.filter(c=>c.state==='in').length;
+  const el=document.getElementById('globalStatus'),txt=document.getElementById('globalStatusText');
+  el.className='global-status';
+  if(!isOnline){el.classList.add('offline');txt.textContent='OFFLINE';return}
+  if(live>0){txt.textContent=live+' GAME'+(live>1?'S':'')+' LIVE'}
+  else{el.classList.add('quiet');txt.textContent='NO LIVE GAMES'}
+}
+function updateSidebarBadges(){
+  ['all','NFL','NBA','MLB','NHL','WNBA','NWSL','EPL'].forEach(lid=>{
+    const rel=lid==='all'?allCards:allCards.filter(c=>c.league===lid);
+    const live=rel.filter(c=>c.state==='in').length;
+    const el=document.getElementById('b-'+lid);if(!el)return;
+    el.textContent=rel.length>0?rel.length:'—';
+    el.className='nav-badge'+(live>0?' live':'');
+  });
+}
+function updateSidebarStats(){
+  document.getElementById('stat-live').textContent=allCards.filter(c=>c.state==='in').length;
+  document.getElementById('stat-final').textContent=allCards.filter(c=>c.state==='post').length;
+  document.getElementById('stat-up').textContent=allCards.filter(c=>c.state==='pre').length;
+}
+function filterLeague(lid,el){
+  activeLeague=lid;
+  document.querySelectorAll('.nav-item[data-league]').forEach(n=>n.classList.remove('active'));
+  el.classList.add('active');renderCards();
+}
+function setOnline(on){
+  isOnline=on;
+  const el=document.getElementById('netStatus'),txt=document.getElementById('netTxt');
+  el.className='net-status '+(on?'net-online':'net-offline');
+  txt.textContent=on?'Online':'Offline…';updateGlobalStatus();
+}
+
+/* ════════════════════════════════════════════
+   NEWS
+════════════════════════════════════════════ */
+const NEWS_SOURCES=[
+  {label:'Commanders',league:'NFL',tag:'tag-nfl',primary:'#7A1B1B',secondary:'#FFB612',url:'https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?team=28&limit=5'},
+  {label:'Wizards',league:'NBA',tag:'tag-nba',primary:'#002B5C',secondary:'#E31837',url:'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/news?team=27&limit=6'},
+  {label:'Nationals',league:'MLB',tag:'tag-mlb',primary:'#AB0003',secondary:'#14225A',url:'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/news?team=21&limit=5'},
+  {label:'Capitals',league:'NHL',tag:'tag-nhl',primary:'#C8102E',secondary:'#041E42',url:'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/news?team=15&limit=5'},
+  {label:'Mystics',league:'WNBA',tag:'tag-wnba',primary:'#002B5C',secondary:'#E31837',url:'https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/news?team=20&limit=4'},
+  {label:'Tottenham',league:'EPL',tag:'tag-epl',primary:'#132257',secondary:'#00B2F8',url:'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/news?team=367&limit=5'},
+];
+
+async function fetchNews(){
+  try{
+    const results=await Promise.allSettled(NEWS_SOURCES.map(async s=>{
+      const r=await fetch(s.url,{signal:AbortSignal.timeout(8000)});
+      if(!r.ok)return[];
+      const d=await r.json();
+      return(d.articles||[]).map(a=>({...s,id:a.dataSourceIdentifier||Math.random().toString(),headline:a.headline||'',desc:a.description||'',published:a.published||'',link:(a.links&&a.links.web&&a.links.web.href)||'',img:(a.images&&a.images[0]&&a.images[0].url)||''}));
+    }));
+    allNews=[];results.forEach(r=>{if(r.status==='fulfilled')allNews.push(...r.value)});
+    allNews.sort((a,b)=>new Date(b.published)-new Date(a.published));
+    renderNews();
+  }catch(e){document.getElementById('news-grid').innerHTML='<div class="empty-state" style="grid-column:1/-1">📡 Could not load news. Check your connection.</div>'}
+}
+
+function renderNews(){
+  const grid=document.getElementById('news-grid');
+  const count=document.getElementById('news-count');
+  if(!allNews.length){grid.innerHTML='<div class="empty-state" style="grid-column:1/-1">📰 No news articles found.</div>';return}
+  if(count)count.textContent=allNews.length+' articles';
+  grid.innerHTML=allNews.map(n=>{
+    const img=n.img?`<img class="news-img" src="${esc(n.img)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling&&(this.nextElementSibling.style.display='flex')">`:'';
+    const ph=`<div class="news-nophoto" style="${!n.img?'':'display:none'}">📰</div>`;
+    const ts=`background:${n.primary}33;color:${n.secondary};`;
+    const la=n.link?`href="${esc(n.link)}" target="_blank" rel="noopener"`:'';
+    return `<a class="news-card" style="border-left-color:${n.primary}" ${la}>${img}${ph}<div class="news-body"><div class="news-meta"><span class="news-tag" style="${ts}">${esc(n.label)}</span><span class="news-time">${ago(n.published)}</span></div><div class="news-headline">${esc(n.headline)}</div>${n.desc?`<div class="news-desc">${esc(n.desc)}</div>`:''}</div></a>`;
+  }).join('');
+}
+
+/* ════════════════════════════════════════════
+   DRAFT SECTION
+════════════════════════════════════════════ */
+const WIZ_DRAFT={
+  pickNum:1,
+  draftDate:'June 23–24, 2026 — Barclays Center, Brooklyn, NY',
+  picks:[{r:1,n:1,own:true,note:'WON LOTTERY — 14% odds'},{r:2,n:51,own:true,note:'Via Minnesota Timberwolves'}],
+  desc:"The Washington Wizards WON the 2026 NBA Draft Lottery on May 10 — picking #1 overall for the first time since John Wall in 2010. Washington went 17-65 (worst record in the NBA), then lost 26 of their final 27 games to maximize lottery positioning. John Wall represented the franchise on stage in Chicago. With Trae Young and Anthony Davis already acquired at the trade deadline, adding the #1 pick gives Washington a legitimate foundation to compete in the East."
+};
+
+async function fetchDraftData(){
+  let fromAPI=[];
+  try{
+    const r=await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/draft/prospects?limit=20',{signal:AbortSignal.timeout(6000)});
+    if(r.ok){const d=await r.json();const al=d.athletes||d.prospects||[];if(al.length)fromAPI=al.slice(0,8).map((a,i)=>({rank:a.ranking||(i+1),name:a.displayName||'Prospect',pos:(a.position&&a.position.abbreviation)||'—',school:a.college?.name||'—',ht:a.displayHeight||'—',wt:a.displayWeight||'—',age:'—',hometown:'—',yr:'Freshman',grade:i<2?'A':i<5?'B+':'B',highlights:[],note:'',stats:{},strengths:[],weaknesses:[],comparison:'—',overview:'See ESPN.com for full scouting report.',rankings:{espn:i+1,cbs:'—',br:'—'},proj:'TBD'}))}
+  }catch(e){}
+  // Always use curated data if available
+  window._draftProspects=fromAPI.length>0?fromAPI:PROSPECTS;
+  // Fetch draft news
+  try{
+    const r2=await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/news?team=27&limit=8',{signal:AbortSignal.timeout(6000)});
+    if(r2.ok){const d2=await r2.json();window._draftNews=(d2.articles||[]).filter(a=>/draft|pick|prospect|lottery|dybantsa|peterson|boozer|wilson|combine/i.test((a.headline||'')+(a.description||''))).slice(0,5)}
+  }catch(e){}
+  renderDraft();
+}
+
+function renderDraft(){
+  const info=WIZ_DRAFT;
+  const chips=info.picks.map(p=>`<span class="chip ${p.own?'own':''}">${p.own?'★ ':''}Rd ${p.r} · Pick #${p.n} — ${p.note}</span>`).join('');
+  const tabs=`<div class="draft-tabs"><div class="dtab ${activeDraftTab==='prospects'?'active':''}" onclick="switchDraftTab('prospects')">Top Prospects</div><div class="dtab ${activeDraftTab==='news'?'active':''}" onclick="switchDraftTab('news')">Draft News</div></div>`;
+  const prosp=window._draftProspects||PROSPECTS;
+  const prospHtml=`<div class="dpanel ${activeDraftTab==='prospects'?'active':''}" id="dpanel-prospects">
+    <div style="margin-bottom:10px;font-size:12px;color:var(--text-dim)">★ = Wizards projected target · Rankings: ESPN · CBS Sports · Bleacher Report · Post-lottery May 11 2026 · Click any card for detailed scouting report</div>
+    <div class="prospects-grid">${prosp.map((p,i)=>renderProspectCard(p,i)).join('')}</div>
+  </div>`;
+  const news=window._draftNews||[];
+  const newsHtml=`<div class="dpanel ${activeDraftTab==='news'?'active':''}" id="dpanel-news">
+    ${news.length?news.map(a=>{const lnk=(a.links&&a.links.web&&a.links.web.href)||'';return`<a class="draft-news-item" href="${esc(lnk)}" target="_blank" rel="noopener"><div class="dni-hl">${esc(a.headline||'')}</div><div class="dni-desc">${esc((a.description||'').slice(0,180))}${(a.description||'').length>180?'…':''}</div><div class="dni-time">${ago(a.published)}</div></a>`}).join(''):'<div class="empty-state">📰 No draft-specific news found. Check the News tab for recent Wizards coverage.</div>'}
+  </div>`;
+  document.getElementById('draft-content').innerHTML=`
+    <div class="draft-hero">
+      <div class="pick-badge"><div class="pick-num">#${info.pickNum}</div><div class="pick-lbl">Overall</div></div>
+      <div class="draft-info">
+        <div class="draft-title">Washington Wizards — 2026 NBA Draft</div>
+        <div class="draft-date-str">📅 ${info.draftDate}</div>
+        <div class="draft-desc">${info.desc}</div>
+        <div class="draft-chips">${chips}</div>
+      </div>
+    </div>
+    <div class="countdown-hero" id="draft-countdown"></div>
+    <div class="combine-banner">🏟️ <strong style="color:var(--cmd-gold)">NBA Draft Combine in progress</strong> — May 10–17 · Wintrust Arena &amp; Marriott Marquis, Chicago · NCAA Withdrawal Deadline: <strong style="color:var(--cmd-gold)">May 27</strong> · Prospects data sourced from ESPN · CBS Sports · Bleacher Report (May 11, 2026)</div>
+    ${tabs}${prospHtml}${newsHtml}`;
+  updateDraftCountdown();
+}
+
+function renderProspectCard(p,idx){
+  const isTarget=p.rank===1;
+  const gradeClass=p.grade==='A'?'gA':p.grade==='A-'?'gAm':p.grade==='B+'?'gBp':'gB';
+  const attrs=(p.highlights||[]).map((h,i)=>`<span class="attr ${i===0?'hi':''}">${esc(h)}</span>`).join('');
+  return `<div class="prospect-card" onclick="openModal(${idx})" ${isTarget?'style="border-color:rgba(255,182,18,.35)"':''}>
+    <div class="p-grade ${gradeClass}">${esc(p.grade||'')}</div>
+    <div class="p-rank">${isTarget?'★ WIZ TARGET':'#'+p.rank+' Overall'}</div>
+    <div class="p-name">${esc(p.name)}</div>
+    <div class="p-meta"><span class="p-pos">${esc(p.pos)}</span>${p.school&&p.school!=='—'?' · '+esc(p.school):''}${p.ht&&p.ht!=='—'?' · '+esc(p.ht):''}</div>
+    ${attrs?`<div class="p-attrs">${attrs}</div>`:''}
+    ${p.note?`<div class="p-note">${esc(p.note)}</div>`:''}
+    <div class="p-view-more">View scouting report →</div>
+  </div>`;
+}
+
+function switchDraftTab(tab){activeDraftTab=tab;renderDraft()}
+
+/* ════════════════════════════════════════════
+   PROSPECT MODAL
+════════════════════════════════════════════ */
+function openModal(idx){
+  const prosp=window._draftProspects||PROSPECTS;
+  const p=prosp[idx];if(!p)return;
+  const gradeClass=p.grade==='A'?'gA':p.grade==='A-'?'gAm':p.grade==='B+'?'gBp':'gB';
+  const st=p.stats||{};
+  const statGrid=[
+    {v:st.pts||'—',l:'PPG'},{v:st.reb||'—',l:'RPG'},{v:st.ast||'—',l:'APG'},{v:st.gp||'—',l:'GP'},
+    {v:st.fg?st.fg+'%':'—',l:'FG%'},{v:st.fg3?st.fg3+'%':'—',l:'3P%'},{v:st.ft?st.ft+'%':'—',l:'FT%'},
+  ].map(s=>`<div class="stat-box"><div class="stat-val">${esc(String(s.v))}</div><div class="stat-lbl">${s.l}</div></div>`).join('');
+  const strs=(p.strengths||[]).map(s=>`<li>${esc(s)}</li>`).join('');
+  const wks=(p.weaknesses||[]).map(w=>`<li>${esc(w)}</li>`).join('');
+  const rnks=p.rankings||{};
+  document.getElementById('modalCard').innerHTML=`
+    <div class="modal-hdr">
+      <button class="modal-close" onclick="document.getElementById('prospectModal').classList.remove('open')">✕</button>
+      <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+        <div class="modal-player-name">${esc(p.name)}</div>
+        <span class="p-grade ${gradeClass}" style="font-size:24px;position:static">${esc(p.grade||'')}</span>
+      </div>
+      <div class="modal-player-sub"><span style="color:var(--cmd-gold);font-weight:600">${esc(p.pos)}</span> · ${esc(p.school||'—')} · ${esc(p.yr||'Freshman')} · ${esc(p.ht||'—')}, ${esc(p.wt||'—')}</div>
+      <div class="modal-rank-row">
+        <span class="rank-chip proj">${esc(p.proj||'TBD')}</span>
+        ${rnks.espn?`<span class="rank-chip src">ESPN #${rnks.espn}</span>`:''}
+        ${rnks.cbs?`<span class="rank-chip src">CBS #${rnks.cbs}</span>`:''}
+        ${rnks.br?`<span class="rank-chip src">BR #${rnks.br}</span>`:''}
+        ${p.comparison?`<span class="rank-chip src">Comp: ${esc(p.comparison)}</span>`:''}
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-left">
+        <div class="modal-section-title">Season Stats (College)</div>
+        <div class="stat-grid">${statGrid}</div>
+        <div class="modal-section-title">Measurements</div>
+        <table class="phys-table"><tbody>
+          <tr><td>Height</td><td>${esc(p.ht||'—')}</td></tr>
+          <tr><td>Weight</td><td>${esc(p.wt||'—')}</td></tr>
+          <tr><td>Age</td><td>${esc(p.age||'—')}</td></tr>
+          <tr><td>Hometown</td><td>${esc(p.hometown||'—')}</td></tr>
+          <tr><td>School</td><td>${esc(p.school||'—')}</td></tr>
+        </tbody></table>
+        <div class="comparison-badge" style="margin-top:12px">🏀 Comp: ${esc(p.comparison||'—')}</div>
+        ${(rnks.espn||rnks.cbs||rnks.br)?`<div class="modal-section-title" style="margin-top:14px">Multi-Source Rankings</div>
+        <div class="rank-row-modal">
+          ${rnks.espn?`<div class="rank-src"><div class="rank-src-num">#${rnks.espn}</div><div class="rank-src-lbl">ESPN</div></div>`:''}
+          ${rnks.cbs?`<div class="rank-src"><div class="rank-src-num">#${rnks.cbs}</div><div class="rank-src-lbl">CBS</div></div>`:''}
+          ${rnks.br?`<div class="rank-src"><div class="rank-src-num">#${rnks.br}</div><div class="rank-src-lbl">BR</div></div>`:''}
+        </div>`:''}
+      </div>
+      <div class="modal-right">
+        ${strs?`<div class="modal-section-title">Strengths</div><ul class="str-list" style="list-style:none;margin-bottom:14px">${strs}</ul>`:''}
+        ${wks?`<div class="modal-section-title">Areas to Develop</div><ul class="wk-list" style="list-style:none;margin-bottom:14px">${wks}</ul>`:''}
+        ${p.overview?`<div class="modal-section-title">Scouting Overview</div><div class="modal-overview">${esc(p.overview)}</div>`:''}
+      </div>
+    </div>`;
+  document.getElementById('prospectModal').classList.add('open');
+}
+
+function closeModal(e){
+  if(e.target===document.getElementById('prospectModal'))document.getElementById('prospectModal').classList.remove('open');
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('prospectModal').classList.remove('open')});
+
+/* ════════════════════════════════════════════
+   KEY DATES
+════════════════════════════════════════════ */
+function renderDates(){
+  const teams=[...new Set(KEY_DATES.map(d=>d.team))];
+  const filters=document.getElementById('dates-filters');
+  const allBtn=`<button class="date-filter ${activeDatesFilter==='all'?'active':''}" onclick="filterDates('all',this)">All Teams</button>`;
+  const teamBtns=teams.map(t=>{const d=KEY_DATES.find(k=>k.team===t);return`<button class="date-filter ${activeDatesFilter===t?'active':''}" onclick="filterDates('${t}',this)" style="${activeDatesFilter===t?`border-color:${d.primary};color:${d.primary};background:${d.primary}18;`:''}">${t}</button>`}).join('');
+  filters.innerHTML=allBtn+teamBtns;
+
+  const now=new Date();now.setHours(0,0,0,0);
+  const filtered=activeDatesFilter==='all'?KEY_DATES:KEY_DATES.filter(d=>d.team===activeDatesFilter);
+  document.getElementById('dates-count').textContent=filtered.length+' events';
+
+  const sorted=[...filtered].sort((a,b)=>{
+    const order={completed:0,today:1,upcoming:2};
+    if(order[a.status]!==order[b.status])return order[a.status]-order[b.status];
+    return new Date(a.date)-new Date(b.date);
+  });
+
+  document.getElementById('dates-list').innerHTML=sorted.map(d=>{
+    const dt=new Date(d.date+'T12:00:00');
+    const mon=dt.toLocaleString('en-US',{month:'short'}).toUpperCase();
+    const day=dt.getDate();
+    const yr=dt.getFullYear();
+    const diffDays=Math.round((dt-now)/86400000);
+    let statusHtml='',daysHtml='';
+    if(d.status==='completed'){statusHtml=`<span class="date-status ds-done">Done</span>`;daysHtml=''}
+    else if(d.status==='today'){statusHtml=`<span class="date-status ds-today">TODAY</span>`;daysHtml=''}
+    else if(diffDays<=7){statusHtml=`<span class="date-status ds-soon">Soon</span>`;daysHtml=`<div class="days-away">${diffDays}d away</div>`}
+    else{statusHtml=`<span class="date-status ds-upcoming">Upcoming</span>`;daysHtml=`<div class="days-away">${diffDays}d away</div>`}
+    const ts=`background:${d.primary}28;color:${d.secondary};`;
+    return `<div class="date-card ${d.status==='completed'?'completed':''}" style="border-left-color:${d.primary}">
+      <div class="date-left"><div class="date-month">${mon}</div><div class="date-day">${day}</div><div class="date-year">${yr}</div></div>
+      <div class="date-right">
+        <span class="date-team-tag" style="${ts}">${d.team} · ${d.league}</span>
+        <div class="date-label">${d.label}</div>
+        <div class="date-desc">${esc(d.desc)}</div>
+        ${daysHtml}
+      </div>
+      <div class="date-badge">${statusHtml}</div>
+    </div>`;
+  }).join('');
+}
+
+function filterDates(team,el){
+  activeDatesFilter=team;
+  document.querySelectorAll('.date-filter').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');renderDates();
+}
+
+/* ════════════════════════════════════════════
+   UTILS
+════════════════════════════════════════════ */
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function ago(dateStr){
+  if(!dateStr)return'';const diff=Date.now()-new Date(dateStr).getTime();
+  const m=Math.floor(diff/60000);
+  if(m<1)return'just now';if(m<60)return m+'m ago';
+  const h=Math.floor(m/60);if(h<24)return h+'h ago';
+  return Math.floor(h/24)+'d ago';
+}
+function setSpinning(on){document.getElementById('refreshBtn').classList.toggle('spinning',on)}
+function manualRefresh(){resetCountdown();fetchAll();fetchNews();fetchDraftData()}
+
+/* ════════════════════════════════════════════
+   INIT
+════════════════════════════════════════════ */
+window.addEventListener('online',()=>setOnline(true));
+window.addEventListener('offline',()=>setOnline(false));
+fetchAll();
+fetchNews();
+fetchDraftData();
+renderDates();
+</script>
+</body>
+</html>
