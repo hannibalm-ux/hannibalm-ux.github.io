@@ -268,7 +268,8 @@ function buildMap(){
   for (let y=34;y<MH;y++) for (let x=30;x<MW;x++){ const dx=(x-50)/13.5, dy=(y-45.5)/7; if (dx*dx+dy*dy<=1) set(x,y,T.WATER); }
   for (let y=33;y<MH;y++) for (let x=30;x<MW;x++){ if (get(x,y)!==T.GRASS) continue; let near=false; for (let j=-1;j<=1;j++) for (let i=-1;i<=1;i++) if (get(x+i,y+j)===T.WATER && y+j>=37) near=true; if (near) set(x,y,T.SAND); }
   // bridge (the old bridge)
-  BRIDGE_TILES=[]; for (const y of [20,21]) for (let x=44;x<58;x++) if (get(x,y)===T.WATER){ set(x,y,T.BRIDGE); BRIDGE_TILES.push([x,y]); }
+  BRIDGE_TILES=[]; { const xs=[]; for (const y of [20,21]) for (let x=44;x<58;x++) if (get(x,y)===T.WATER) xs.push(x); const x0=Math.min(...xs)-1, x1=Math.max(...xs)+1;
+    for (const y of [20,21]) for (let x=x0;x<=x1;x++){ set(x,y,T.BRIDGE); BRIDGE_TILES.push([x,y]); } }
   // NE mountains
   for (let y=0;y<=9;y++) for (let x=60;x<MW;x++){ const n = (x-60)/20 + (9-y)/12 + (hashf(x,y,5)-0.5)*0.5; if (n>0.75) set(x,y,T.ROCK); }
   // forests
@@ -1064,11 +1065,15 @@ function castVote(c, p){
   const F = clamp(wallet / Math.max(income, 50), -1, 1);
   const wF = (c.traits.includes('Frugal')||c.traits.includes('Greedy')) ? 1.5 : 1;
   let rNum=0, rDen=0; const influencedBy=[];
-  p.votes.forEach(v => { const r=c.rel[v.citizenId]; if (!r || r.affinity<=20 || v.choice==='Abstain') return; const w=(r.affinity/100)*r.trust; rNum += w*(v.choice==='Yes'?1:-1); rDen += w; influencedBy.push(v.citizenId); });
+  p.votes.forEach(v => { const r=c.rel[v.citizenId]; if (!r || r.affinity<=40 || v.choice==='Abstain') return; const w=(r.affinity/100)*r.trust; rNum += w*(v.choice==='Yes'?1:-1); rDen += w; influencedBy.push(v.citizenId); });
   const R = rDen ? rNum/rDen : 0;
   const tbl = VALUE_TABLE[p.category] || {plus:[],minus:[]};
   let V = 0; c.values.forEach(v=>{ if (tbl.plus.includes(v)) V+=.5; if (tbl.minus.includes(v)) V-=.5; });
   if ((p.key==='lumber_tax'||p.key==='fish_limit'||p.key==='meat_tax') && c.values.includes('Nature')) V += .5;
+  // political stance sharpens the values term (Pixel Town addition to the TDD fallback)
+  const P = c.politics;
+  if (p.category==='PublicOrder') V += 0.6*P.orderLeaning;
+  if (p.category==='Taxation' || p.category==='Subsidy' || p.category==='PriceControl') V -= 0.6*P.economicLeaning;
   V = clamp(V,-1,1);
   const tF = 0.5*F*wF, tR = 0.3*R, tV = 0.2*V;
   let score = tF + tR + tV;
@@ -1103,7 +1108,7 @@ function governanceTick(){
   const p = S.gov.proposals.find(p=>p.status==='Debating'||p.status==='Voting');
   if (!p) return;
   if (p.status==='Debating' && S.minute>=p.voting.townHallAtMinute){
-    p.status='Voting'; S.gov.voteOrder = [p.proposerId].concat(S.citizens.map(c=>c.id).filter(id=>id!==p.proposerId));
+    p.status='Voting'; S.gov.voteOrder = [p.proposerId].concat(S.citizens.map(c=>c.id).filter(id=>id!==p.proposerId).sort((a,b)=>hash(a+p.proposalId)-hash(b+p.proposalId)));
     S.gov.voteTimes = S.gov.voteOrder.map((id,i)=>p.voting.townHallAtMinute + 3 + Math.floor(i*1.15));
     chronicle(`The town hall meeting on the ${p.title} has begun.`, 5, '🏛️', 'law');
   }
@@ -1137,7 +1142,7 @@ function tally(p){
 function dailyGovernance(){
   const d = dayOf(S.minute);
   S.gov.proposals.forEach(p=>{
-    if (p.status==='Enacted' && p.expiresAtMinute && S.minute>=p.expiresAtMinute){ p.status='Expired'; chronicle(`The ${p.title} has expired.`, 6, '📜', 'law'); }
+    if (p.status==='Enacted' && p.expiresAtMinute && S.minute>=p.expiresAtMinute){ p.status='Expired'; S.gov.cooldown[p.key]=dayOf(S.minute); chronicle(`The ${p.title} has expired.`, 6, '📜', 'law'); }
   });
   S.gov.proposals.forEach(p=>{
     if (p.status==='Passed'){ p.status='Enacted'; p.enactedAtMinute=S.minute; p.expiresAtMinute = p.durationDays ? S.minute + p.durationDays*DAY : null;
@@ -1363,7 +1368,7 @@ function dirtTile(season, v){
   const p = new Pix(16,16), s=900+v*13;
   for (let y=0;y<16;y++) for (let x=0;x<16;x++){ const n=hashf(x,y,s); p.set(x,y, n<0.15?DIRT_R[1]:n>0.88?DIRT_R[3]:DIRT_R[2]); }
   for (let i=0;i<4;i++){ const x=1+Math.floor(hashf(i,1,s)*13), y=1+Math.floor(hashf(i,2,s)*13); p.set(x,y,DIRT_R[4]); p.set(x+1,y,DIRT_R[3]); p.set(x,y+1,DIRT_R[1]); p.set(x+1,y+1,DIRT_R[0]); }
-  if (season===3) for (let y=0;y<16;y++) for (let x=0;x<16;x++) if (hashf(x,y,s+1)<0.35) p.set(x,y, hashf(x,y,s+2)<0.5?'#e2e9f1':'#c8d2de');
+  if (season===3) for (let y=0;y<16;y++) for (let x=0;x<16;x++){ const rut = (x===4||x===5||x===11||x===12); p.set(x,y, rut ? (hashf(x,y,s+1)<0.15?'#c8d0dc':'#d6dde8') : (hashf(x,y,s+2)<0.1?'#d4dce8':'#e6ecf4')); }
   return p.done();
 }
 function cobbleTile(season, v){
@@ -1373,7 +1378,7 @@ function cobbleTile(season, v){
     while (x<16){ const w=4+Math.floor(hashf(x+20,row,s)*3); const bl = 0.35+hashf(x,row,s)*0.35;
       for (let yy=0;yy<3;yy++) for (let xx=0;xx<w-1;xx++){ const px=x+xx; if (px<0||px>15) continue; let l=bl + (yy===0?0.2:0) + (xx===0?0.1:0) - (yy===2?0.15:0) - (xx===w-2?0.12:0); p.set(px,y0+yy,STONE_R[1+dith(l,px,y0+yy,5)]); }
       x+=w; } }
-  if (season===3) for (let y=0;y<16;y++) for (let x=0;x<16;x++) if (hashf(x,y,s+3)<0.2) p.set(x,y,'#e6edf4');
+  if (season===3){ const d=p.d; for (let y=0;y<16;y++) for (let x=0;x<16;x++){ const i=(y*16+x)*4; if (d[i]===rgb(STONE_R[0])[0] && d[i+1]===rgb(STONE_R[0])[1]) p.set(x,y,'#dfe6f0'); else if (y%4===0) p.set(x,y,'#eef2f8'); } }
   return p.done();
 }
 function soilTile(x0,y0){
@@ -1389,7 +1394,7 @@ function fieldTile(season, x0, y0){
     else { for (let cy=3;cy<16;cy+=6) for (let cx=3;cx<16;cx+=6) blob(p,[{x:cx+0.5,y:cy+0.5,r:2.8}],['#1e4a28','#2e6a34','#4a8c44','#70b058','#a0d070'],{noise:.2,seed:s}); }
   } else if (season===2){
     for (let y=2;y<16;y+=4) for (let x=0;x<16;x+=2) { p.set(x,y,'#b09048'); p.set(x,y-1,'#c8a858'); }
-    if (hashf(x0,y0,3)<0.3) blob(p,[{x:8,y:9,r:3.5}],['#8a3a10','#b85a18','#e07a20','#f09a38','#f8c060'],{seed:s});
+    if (!wheat && hashf(x0,y0,3)<0.35) [[5,6],[11,12]].forEach(([px,py],k)=>{ if (hashf(x0+k,y0,4)<0.6){ blob(p,[{x:px,y:py,r:2.3}],['#7a3010','#b05418','#e07a20','#f09a38','#f8c060'],{}); p.set(px,py-3,'#4a6a2a'); p.set(px+1,py-3,'#6a8a3a'); p.set(px-2,py-2,'#4a7a3a'); } });
   } else { for (let y=0;y<16;y++) for (let x=0;x<16;x++) p.set(x,y, y%4===0?'#b8c4d2':hashf(x,y,s)<0.1?'#ffffff':'#e2e9f1'); }
   return p.done();
 }
@@ -1490,7 +1495,8 @@ function makeBuilding(b, season){
       if (thatch){ l = 0.85 - t*0.45 + (hashf(x,0,s)-0.5)*0.35 + (hashf(x,y,s)<0.1?-0.2:0); }
       else { const gap = (x + (row%2)*3)%6===0; l = 0.9 - t*0.5 + (pos===0?0.12:0) - (pos===2?0.1:0) - (gap?0.28:0) + (hashf(x,y,s)-0.5)*0.12; }
       if (side) l -= 0.18;
-      if (winter && (y<roofTop+4+(hashf(x,1,s)*3|0) || (pos===0 && hashf(x,y,s)<0.35))){ p.set(x,y, l>0.6?'#ffffff':'#dfe8f2'); continue; }
+      const capH = Math.round((roofBot-roofTop)*0.45 + Math.sin(x*0.45+s)*1.5);
+      if (winter && (y<roofTop+capH || (y===roofTop+capH && x%3===0))){ p.set(x,y, side ? '#c6d2e2' : (y===roofTop+capH-1 ? '#d8e2ee' : '#f4f8fc')); continue; }
       p.set(x,y,roofR[dith(l,x,y,5)]);
     }
   }
@@ -1817,6 +1823,7 @@ function buildGround(){
       if (season===3){ g.fillStyle='#ffffff'; if (horiz) g.fillRect(X,Y+5,16,1); }
     }
   }
+  smoothShores();
   for (let x=18;x<=34;x++){ const X=x*TILE, Y=34*TILE-4; g.fillStyle=WOOD_R[3]; g.fillRect(X,Y,16,2); g.fillStyle=WOOD_R[1]; g.fillRect(X,Y+2,16,1); if (x%2===0){ g.fillStyle=WOOD_R[2]; g.fillRect(X+2,Y-3,3,8); } }
   RAIL_TILES.forEach(([x,y])=>{ const X=x*TILE,Y=y*TILE; g.fillStyle=WOOD_R[1]; for (let k=1;k<16;k+=4) g.fillRect(X+2,Y+k,12,2); g.fillStyle='#8a8a98'; g.fillRect(X+3,Y,2,16); g.fillRect(X+11,Y,2,16); g.fillStyle='#b8b8c8'; g.fillRect(X+3,Y,1,16); g.fillRect(X+11,Y,1,16); });
   g.drawImage(ART.fountain, FOUNTAIN[0]*TILE, FOUNTAIN[1]*TILE);
@@ -1840,6 +1847,32 @@ function buildGround(){
   [[19,28],[33,28],[36,36],[42,36]].forEach(([x,y])=>{ if (tileAt(x,y)!==T.BUILD) push(ART.crate, x*TILE+2, y*TILE+3, y*TILE+14); });
   push(ART.cart, 71*TILE, 10*TILE+2, 10*TILE+14);
   drawMiniBase();
+}
+// round off stair-stepped river and lake corners with a foam-edged arc
+function smoothShores(){
+  const img = gctx.getImageData(0,0,WW,WH), d = img.data, src = new Uint8ClampedArray(d);
+  const isW = t => t===T.WATER || t===T.BRIDGE || t===T.DOCK;
+  const R = 7, foam = rgb('#d4ecff'), foam2 = rgb(WATER_R[4]);
+  const copy = (px,py,sx,sy) => { if (sx<0||sy<0||sx>=WW||sy>=WH) return; const i=(py*WW+px)*4, j=(sy*WW+sx)*4; d[i]=src[j]; d[i+1]=src[j+1]; d[i+2]=src[j+2]; };
+  const put = (px,py,c) => { const i=(py*WW+px)*4; d[i]=c[0]; d[i+1]=c[1]; d[i+2]=c[2]; };
+  for (let y=0;y<MH;y++) for (let x=0;x<MW;x++){
+    const t = MAP[y][x]; if (t===T.BRIDGE || t===T.DOCK) continue;
+    const water = t===T.WATER;
+    for (const [dx,dy] of [[-1,-1],[1,-1],[-1,1],[1,1]]){
+      const a=tileAt(x+dx,y), b=tileAt(x,y+dy), c=tileAt(x+dx,y+dy);
+      if (a===-1||b===-1||c===-1 || a===T.BRIDGE||b===T.BRIDGE||a===T.DOCK||b===T.DOCK||c===T.BRIDGE||c===T.DOCK) continue;
+      const aw=isW(a), bw=isW(b), cw=isW(c);
+      if (water ? (aw||bw||cw) : !(aw&&bw&&cw)) continue;
+      const X=x*TILE, Y=y*TILE, cx = dx<0?X:X+TILE, cy = dy<0?Y:Y+TILE, ox = cx-dx*R, oy = cy-dy*R;
+      for (let py=Math.min(cy,oy); py<Math.max(cy,oy); py++) for (let px=Math.min(cx,ox); px<Math.max(cx,ox); px++){
+        const dist = Math.hypot(px+0.5-ox, py+0.5-oy);
+        if (dist > R+0.5) copy(px,py, px+dx*TILE, py);
+        else if (dist > R-0.6) put(px,py, foam);
+        else if (water && dist > R-1.6) put(px,py, foam2);
+      }
+    }
+  }
+  gctx.putImageData(img,0,0);
 }
 // --- animals in the pasture (cosmetic; counts follow S.herd) ---
 const ANIMALS = [];
