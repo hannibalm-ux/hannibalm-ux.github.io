@@ -520,6 +520,8 @@ function lookFor(prof, r, skin, hair, style, beard){
     Journalist:{shirt:['#d8d0b8','#8a8aa0'], pants:'#3a3440', hat:'cap', hatCol:'#4a4a54', coat:'#6a5a44'},
     Teacher:{shirt:['#5a7a4a','#7a4a5a'], pants:'#3a3440', coat:'#4a5a7a', trim:true},
     Constable:{shirt:['#2a3a6a'], pants:'#1e2440', hat:'helmet', coat:'#2a3a6a', trim:true},
+    Proprietor:{shirt:['#f4f0e6'], pants:'#2a2230', coat:'#5a1a3a', hat:'tricorn', hatCol:'#1e1a24', trim:true},
+    Investor:{shirt:['#f4f0e6'], pants:'#1e1a24', coat:'#1e3a5a', hat:'tricorn', hatCol:'#2a2230', trim:true},
     Doctor:{shirt:['#dfe8f6'], pants:'#3a3a4a', coat:'#f4f6fa'},
     Merchant:{shirt:['#6a3aa0','#2a6a6a'], pants:'#2e2a30', hat:'tricorn', hatCol:'#3a2050', coat:null, trim:true},
     Unemployed:{shirt:['#4a7ab0','#8a5a3a','#6a6a4a'], pants:'#3a3a4a', trim:true},
@@ -788,6 +790,24 @@ function buildPlan(c, day){
   const watch = !prot && !playing && wantsToWatch(c, day);
   const curfew = lawQuery.curfew('loc_tavern');
   const tavernClose = curfew ? curfew[0] : 23*60;
+  if (GENTRY.includes(c.profession)){
+    const office = c.profession==='Proprietor' && c.work && LOC[c.work] ? c.work : 'loc_market';
+    add(Math.max(t, 10*60),'Leisure',home,'A leisurely morning');
+    add(13*60,'Work',office, c.profession==='Proprietor' ? `Managing ${LOC[office].name}` : 'Doing deals at the market');
+    const tv = tavernFor(c, day);
+    add(t+60,'Eat',tv,`Lunch at ${LOC[tv].name}`,'svc_hot_meal');
+    if (c.profession==='Proprietor') add(16*60,'Work',office,`Checking on ${LOC[office].name}`);
+    if (hall){ add(17*60+45,'Leisure','loc_town_square','Heading to the town hall'); add(19*60+30,'AttendTownHall','loc_town_hall','Town hall meeting'); }
+    const th = bizList('theater'), bh = bizList('bathhouse');
+    if (!hall && !storm && (th.length||bh.length) && hash(c.id+day)%2===0){ const show = th.length && (!bh.length || hash(c.id+day+'s')%2===0); const L = (show?th:bh)[hash(c.id+day)%(show?th:bh).length];
+      add(Math.max(t+30,17*60),'Leisure','loc_town_square','An afternoon stroll'); add(t+120, show?'Socialize':'Leisure', L.id, show?`A night at ${L.name}`:`Soaking at ${L.name}`, show?'svc_show':'svc_bath'); }
+    else if (!storm) add(Math.max(t+30,19*60),'Socialize',tv,`Holding court at ${LOC[tv].name}`,'svc_hot_meal');
+    add(Math.max(t, 20*60+30),'Leisure',home,'Relaxing at home');
+    add(t+45,'Eat',home,'A proper supper at home');
+    add(23*60,'Leisure',home,'Reading by the fire');
+    add(DAY,'Sleep',home,'Sleeping');
+    return {day, by:'Fallback', blocks:B};
+  }
   if (c.profession==='Musician' && !striking){
     const gig = gigFor(c, day), band = teamsOf(c,'band')[0];
     add(11*60,'Leisure',home, band ? `Rehearsing with ${band.name}` : 'Practising a new tune');
@@ -807,7 +827,7 @@ function buildPlan(c, day){
     add(15*60+30,'Eat',tv,'Quick bite in the back');
     if (hall){ add(17*60+45,'Work',tv,'Serving the afternoon crowd'); add(19*60+30,'AttendTownHall','loc_town_hall','Town hall meeting'); }
     add(close,'Work',tv, curfew && c.profession==='TavernKeeper' ? 'Serving until the curfew bell' : serve);
-    add(tavernClose+30,'Leisure',home,'Counting the till');
+    add(Math.max(t+30, tavernClose+30),'Eat',home,'A late supper');
     add(DAY,'Sleep',home,'Sleeping');
     return {day, by:'Fallback', blocks:B};
   }
@@ -921,7 +941,7 @@ function arrive(c, b){
 function doMeal(c,b){
   if (c.needs.hunger>85) return;
   if (b.target==='svc_hot_meal'){ const p=buyService(c,'svc_hot_meal',b.loc); if (p){ if (hash(c.id+S.minute)%9===0) remember(c, `Had a hot meal at ${LOC[b.loc]?LOC[b.loc].name:'the tavern'}. ${p.name} served it.`, 2, [p.id]); return; } }
-  if (!eatSomething(c)) remember(c, 'Skipped a meal; there was nothing I could afford.', 4);
+  if (!eatSomething(c)) remember(c, c.wallet >= 30 ? 'Skipped a meal; the market had sold out of food.' : 'Skipped a meal; there was nothing I could afford.', 4);
 }
 function foodValue(g){ return S.goods[g].price / GD[g].need.hunger; }
 function eatSomething(c){
@@ -931,7 +951,34 @@ function eatSomething(c){
   const order = FOODS.filter(g=>listed(g)>0).sort((a,b)=>foodValue(a)-foodValue(b));
   for (let k=0;k<3 && c.needs.hunger<72;k++){ let got=false; for (const g of order){ if (buy(c,g,1)){ consume(c,g); got=ate=true; break; } } if (!got) break; }
   if (!order.length) recordDemand('good_bread',1);
+  // sold out at the market: those with money buy straight from a producer's own stock, at a premium
+  if (c.needs.hunger<72 && c.wallet>=60) ate = buyDirect(c) || ate;
+  stockPantry(c);
   return ate;
+}
+function pantrySize(c){ return FOODS.reduce((a,g)=>a+(c.inventory[g]||0),0); }
+// villagers who can afford it keep a few days of food at home; the richer, the fuller the larder
+function stockPantry(c){
+  if (!isAdult(c) || c.wallet<120) return;
+  const want = c.wallet>=1000 ? 6 : c.wallet>=400 ? 4 : 2;
+  const order = ['good_eggs','good_vegetables','good_bread','good_meat','good_fish','good_milk'].filter(g=>listed(g)>4);
+  for (const g of order){ if (pantrySize(c)>=want || c.wallet < 100) break; buy(c, g, 1); }
+}
+function buyDirect(c){
+  for (const o of S.citizens){
+    if (o===c || !isAdult(o)) continue;
+    const keep = o.profession==='TavernKeeper' ? 2 : 0;
+    const g = FOODS.find(g=>(o.inventory[g]||0) > (g==='good_bread' && o.profession==='Baker' ? 1 : keep));
+    if (!g) continue;
+    const price = Math.ceil(S.goods[g].price*1.5);
+    if (c.wallet < price) return false;
+    c.wallet -= price; o.wallet += price; today(c).exp += price; today(o).inc += price;
+    o.inventory[g]--; if (!o.inventory[g]) delete o.inventory[g];
+    c.inventory[g] = (c.inventory[g]||0)+1; consume(c, g);
+    if (hash(c.id+S.minute)%6===0) remember(c, `The market was empty, so I paid ${o.name} ${price}¢ for ${GD[g].name.toLowerCase()} from their own stores.`, 3, [o.id]);
+    return true;
+  }
+  return false;
 }
 function clinicVisit(c){
   const p = buyService(c,'svc_medical_checkup');
@@ -1416,7 +1463,7 @@ function updateClasses(){
   const ws = ad.map(netWorth).sort((a,b)=>a-b); const q = f=>ws[Math.min(ws.length-1, Math.floor(f*ws.length))];
   const p90=q(0.9), p65=q(0.65), p20=q(0.2);
   ad.forEach(c=>{ const w=netWorth(c); c.worth=w; const was=c.cls;
-    c.cls = w>=Math.max(1500,p90) ? 'Wealthy' : w>=Math.max(600,p65) ? 'Upper' : (w<Math.max(100,p20) || w<60) ? 'Poor' : 'Middle';
+    c.cls = w>=Math.max(1500,p90) && c.wallet>=300 ? 'Wealthy' : w>=Math.max(600,p65) ? 'Upper' : (w<Math.max(100,p20) || w<60) ? 'Poor' : 'Middle';
     if (was && was!==c.cls && (c.cls==='Wealthy' || was==='Wealthy')){ chronicle(c.cls==='Wealthy' ? `${c.name} has joined the ranks of the wealthy (worth ${w}¢).` : `${c.name} is no longer among the wealthy.`, 5, c.cls==='Wealthy'?'💎':'📉', 'class'); remember(c, c.cls==='Wealthy'?'I am one of the richest people in Pixel Town now.':'I have lost my place among the rich.', 7); }
     if (was==='Middle' && c.cls==='Poor') remember(c, 'Money is tight. I have fallen on hard times.', 6);
   });
@@ -1639,10 +1686,12 @@ function openedRival(owner, type, rec){
 }
 // hire someone to staff a new business: an unemployed villager if possible, otherwise the poorest adult without a business
 function hireStaff(bid, prof, owner){
-  const pool = S.citizens.filter(c=>isAdult(c) && !c.office && c!==owner && !propsOf(c).some(p=>p.kind==='business') && c.work!==bid);
+  const pool = S.citizens.filter(c=>isAdult(c) && !c.office && c!==owner && !propsOf(c).some(p=>p.kind==='business') && c.work!==bid && !GENTRY.includes(c.profession) && !retiresFromManual(c));
   const count = pr => S.citizens.filter(o=>o.profession===pr && isAdult(o)).length;
-  const pickC = pool.filter(c=>c.profession==='Unemployed').sort((a,b)=>a.wallet-b.wallet)[0] || pool.filter(c=>c.cls==='Poor' && !['Doctor','TavernKeeper','Hotelier','Bathkeeper','Showman'].includes(c.profession) && count(c.profession)>=4).sort((a,b)=>a.wallet-b.wallet)[0];
-  const pick2 = pickC || pool.filter(c=>!['Doctor','TavernKeeper','Hotelier','Bathkeeper','Showman','Child'].includes(c.profession) && count(c.profession)>=5).sort((a,b)=>a.wallet-b.wallet)[0];
+  const nAd = Math.max(1, S.citizens.filter(isAdult).length);
+  const spare = pr => !PROF_WANT[pr] || count(pr)/nAd > PROF_WANT[pr]*1.25;
+  const pickC = pool.filter(c=>c.profession==='Unemployed').sort((a,b)=>a.wallet-b.wallet)[0] || pool.filter(c=>c.cls==='Poor' && !['Doctor','TavernKeeper','Hotelier','Bathkeeper','Showman'].includes(c.profession) && count(c.profession)>=4 && spare(c.profession)).sort((a,b)=>a.wallet-b.wallet)[0];
+  const pick2 = pickC || pool.filter(c=>!['Doctor','TavernKeeper','Hotelier','Bathkeeper','Showman','Child'].includes(c.profession) && count(c.profession)>=5 && spare(c.profession)).sort((a,b)=>a.wallet-b.wallet)[0];
   if (!pick2) return null;
   return employ(pick2, bid, prof);
 }
@@ -1650,7 +1699,7 @@ function employ(pickC, bid, prof){
   const was = pickC.profession;
   pickC.profession = prof; pickC.work = bid;
   pickC.look = lookFor(prof, mapRand(hash(pickC.id+prof)), pickC.look.skin, pickC.look.hair, pickC.look.style, pickC.look.beard); delete ART.people[pickC.id]; delete THUMBS[pickC.id];
-  chronicle(`${pickC.name} (${profLabel(was).toLowerCase()}) was hired to work at ${LOC[bid].name} as a ${profLabel(prof).toLowerCase()}.`, 5, '🧑‍🍳', 'business');
+  chronicle(`${pickC.name} (${profLabel(was).toLowerCase()}) was hired to work at ${LOC[bid].name} as ${an(profLabel(prof).toLowerCase())}.`, 5, '🧑‍🍳', 'business');
   remember(pickC, `I have a new job at ${LOC[bid].name}.`, 7);
   return pickC;
 }
@@ -1768,7 +1817,8 @@ function neededProfession(){
 }
 function comeOfAge(c){
   const par = c.parents.map(alive).filter(Boolean);
-  const prof = par.length && rnd()<0.5 ? par[0].profession : neededProfession();
+  const richKid = par.some(p=>p.cls==='Wealthy');
+  const prof = richKid ? ['Merchant','Doctor','Journalist','Teacher'][hash(c.id)%4] : par.length && rnd()<0.5 && !GENTRY.includes(par[0].profession) ? par[0].profession : neededProfession();
   c.profession = prof; c.work = WORKPLACE[prof]||null;
   c.look = lookFor(prof, mapRand(hash(c.id+'grown')), c.look.skin, c.look.hair, c.look.style, false);
   delete ART.people[c.id]; delete THUMBS[c.id];
@@ -2207,6 +2257,9 @@ function townNeeds(){
   const glut = listed('good_wheat')>60 && listed('good_bread')<10, perCap = count('Baker')/n;
   add(glut ? 'Baker' : 'Farmer', hungry>=4 ? 0.3+hungry*0.04 : 0, glut ? 'wheat was piling up while people went hungry for bread' : 'people were going hungry', c=>c.needs.hunger<40);
   if (!glut && hungry<4 && perCap < 0.06 && n>=50) add('Baker', 0.35, 'there were not enough bakers for a town this size', c=>c.needs.hunger<50);
+  const mouths = n + kids*0.6;
+  ['Farmer','Fisher','Rancher','Baker','Butcher','TavernKeeper','Miner','Woodcutter'].forEach(pr=>{ if (out.some(x=>x.prof===pr)) return; const short = PROF_WANT[pr] - count(pr)/mouths;
+    if (short > PROF_WANT[pr]*0.2) add(pr, 0.3 + short*4, `the town was short of ${profLabel(pr).toLowerCase()}s`, c=>c.wallet<150 || c.needs.hunger<50); });
   add('Carpenter', projects().length>=3 && count('Carpenter')<6 ? 0.35 : 0, 'the building sites were short of hands', ()=>false);
   NEEDS_CACHE = {day:d, list:out.sort((a,b)=>b.score-a.score)};
   return NEEDS_CACHE.list;
@@ -2220,6 +2273,7 @@ const FIT = {
   Doctor: c=>mindOf(c).wit*.7+(c.values.includes('Community')?.2:0)-.25,
   Farmer: c=>.2+(c.values.includes('Tradition')?.1:0),
   Baker: c=>.25+(c.values.includes('Community')?.1:0),
+  Fisher: c=>.2+(c.values.includes('Nature')?.1:0), Rancher: c=>.2+(c.values.includes('Nature')?.1:0), Butcher: c=>.2, TavernKeeper: c=>.15+c.personality.extraversion*.3, Miner: c=>.15, Woodcutter: c=>.15,
   Carpenter: c=>.2+(c.values.includes('Craftsmanship')?.2:0)
 };
 const ESSENTIAL = ['Farmer','Baker','TavernKeeper','Fisher','Miner','Woodcutter','Rancher','Butcher','Blacksmith','Carpenter','Doctor'];
@@ -2236,9 +2290,9 @@ function careersDaily(){
   const needs = townNeeds(); if (!needs.length) return;
   const d = dayOf(S.minute), ad = S.citizens.filter(isAdult), count = p=>ad.filter(c=>c.profession===p).length;
   const scored = [];
-  ad.forEach(c=>{ const m=mindOf(c); if (c.age>60 || c.office || d-m.careerDay<21) return; if (ESSENTIAL.includes(c.profession) && (count(c.profession)<=2 || count(c.profession)/Math.max(1,ad.length) < (PROF_WANT[c.profession]||0)*1.15)) return;
+  ad.forEach(c=>{ const m=mindOf(c); if (c.age>60 || c.office || d-m.careerDay<21 || GENTRY.includes(c.profession)) return; if (ESSENTIAL.includes(c.profession) && (count(c.profession)<=2 || count(c.profession)/Math.max(1,ad.length) < (PROF_WANT[c.profession]||0)*1.15)) return;
     const dis = dissatisfaction(c); if (dis<0.25) return;
-    needs.forEach(nd=>{ if (nd.prof===c.profession) return; if (!(m.wit>0.55 || nd.test(c))) return;
+    needs.forEach(nd=>{ if (nd.prof===c.profession) return; if (!(m.wit>0.55 || nd.test(c))) return; if (retiresFromManual(c) && (MANUAL.includes(nd.prof) || nd.prof==='Athlete' || nd.prof==='Constable')) return;
       scored.push([nd.score*dis*(0.5+FIT[nd.prof](c))*(0.6+m.wit*0.6), c, nd]); }); });
   scored.sort((a,b)=>b[0]-a[0]);
   const used = new Set(), filled = new Set(); let n = 0;
@@ -2259,6 +2313,63 @@ function changeCareer(c, prof, why){
   if (prof==='Journalist' && !S.papers[c.id]) S.papers[c.id] = Object.keys(S.papers).length ? `The ${surnameOf(c)} ${pick(['Courier','Crier','Herald','Observer'])}` : 'The Pixel Gazette';
   if (prof==='Athlete') sportsClubs();
   if (prof==='Musician') bands();
+}
+
+// ---------- the wealthy leave manual work: they manage their businesses or live off investments ----------
+const MANUAL = ['Farmer','Rancher','Woodcutter','Miner','Fisher','Butcher','Baker','Carpenter','Blacksmith','TavernKeeper','Hotelier','Bathkeeper','Showman','Unemployed'];
+const GENTRY = ['Proprietor','Investor'];
+Object.assign(WORKPLACE, {Proprietor:null, Investor:null});
+Object.assign(PROF_BIO, {Proprietor:'Owns and manages a business; others do the hands-on work', Investor:'Lives off rents and investments and spends the day making deals'});
+// rich in cash, not just in land: a farmer whose house has gone up in value still farms
+// a rich villager with no local replacement advertises the job and a newcomer arrives to take it
+function recruitFor(c, prof, work){
+  if (S.citizens.length >= POP_CAP-5 || dayOf(S.minute) - (S.lastAdvert??-99) < 4) return null;
+  const room = homeBuildings().some(b=>residentsOf(b.id).length===0) || BUILDINGS.some(b=>isLodging(b.id) && residentsOf(b.id).filter(x=>x.work!==b.id).length < lodgingCap(b.id));
+  if (!room) return null;
+  S.lastAdvert = dayOf(S.minute);
+  const r = mapRand(hash('hire'+c.id+S.minute));
+  const sur = SURNAMES.concat(['Ashgrove','Bellweather','Corrin','Dray','Esker','Fallow','Grist','Harrow','Ingle','Jessop','Kell','Larch'])[Math.floor(r()*33)];
+  const d = newcomerDef(r, sur, {prof}); d.wallet = 30 + Math.floor(r()*60);
+  const n = makeCitizen(d); settleNewcomer(n);
+  if (work && LOC[work] && bizType(work)) n.work = work;
+  chronicle(`${c.name} advertised for ${an(profLabel(prof).toLowerCase())} on the King's Road. ${n.name} answered and has arrived to take over the work.`, 5, '📯', 'class');
+  return n;
+}
+function retiresFromManual(c){ return (c.cls==='Wealthy' && c.wallet>=300) || (c.cls==='Upper' && c.wallet>=1000); }
+function gentryDaily(){
+  const ad = S.citizens.filter(isAdult), count = p=>ad.filter(o=>o.profession===p).length;
+  let advertised = 0; // at most one job advertised on the King's Road a day
+  ad.forEach(c=>{
+    const m = mindOf(c);
+    if (MANUAL.includes(c.profession) && retiresFromManual(c) && !c.strikeUntil){
+      const was = c.profession, oldWork = c.work;
+      // nobody walks away from a trade until someone takes it over
+      const kidsN = S.citizens.filter(k=>k.profession==='Child').length, mouths = ad.length + kidsN*0.6;
+      // only a critical shortage keeps them at work; a mild one is left for job-seekers and newcomers to fill
+      const plenty = !PROF_WANT[was] || (count(was)-1 >= 2 && (count(was)-1)/mouths >= PROF_WANT[was]*0.7);
+      if (was!=='Unemployed' && !plenty){ const heir = hireStaff(oldWork && LOC[oldWork] ? oldWork : (WORKPLACE[was] || 'loc_town_square'), was, c); if (!heir && !(advertised<1 && recruitFor(c, was, oldWork) && ++advertised)){ if (!m.noHeir){ m.noHeir=true; think(c, `I could stop working, but nobody would take over as ${an(profLabel(was).toLowerCase())}.`); } return; } }
+      const biz = propsOf(c).filter(p=>p.kind==='business' && p.bid && LOC[p.bid] && p.status!=='construction').sort((a,b)=>(b.bid===oldWork)-(a.bid===oldWork) || b.value-a.value)[0];
+      const prof = biz ? 'Proprietor' : 'Investor';
+      c.profession = prof; c.work = biz ? biz.bid : null; m.careerDay = dayOf(S.minute); m.oldProf = was==='Unemployed' ? null : was;
+      c.look = lookFor(prof, mapRand(hash(c.id+prof)), c.look.skin, c.look.hair, c.look.style, c.look.beard); delete ART.people[c.id]; delete THUMBS[c.id];
+      const why = biz ? `to manage ${LOC[biz.bid].name}` : `to live off ${propsOf(c).some(p=>p.kind==='home' && residentsOf(p.bid).some(r=>r.id!==c.id)) ? 'rents' : 'investments'}`;
+      chronicle(`${c.name} is rich enough to stop working as ${an(profLabel(was).toLowerCase())} and has hung up their apron ${why}.`, 5, '🎩', 'class');
+      remember(c, `I don't need to do ${profLabel(was).toLowerCase()} work any more. I ${biz?'run the business now':'let my money work for me'}.`, 7); feel(c,'pride',0.2);
+      S.week.society.push(`${c.name} left ${profLabel(was).toLowerCase()} work (${biz?'proprietor':'investor'})`);
+    }
+    // fortunes fall: the idle rich who go broke have to find work again
+    else if (GENTRY.includes(c.profession) && c.wallet<80 && weekSum(c,'inc') <= weekSum(c,'exp')){
+      const prof = m.oldProf || neededProfession(); const was = c.profession;
+      const own = propsOf(c).find(p=>p.kind==='business' && p.bid && LOC[p.bid] && BUILD_TYPES[p.type] && BUILD_TYPES[p.type].trade===prof);
+      c.profession = prof; c.work = own ? own.bid : WORKPLACE[prof]||null; m.careerDay = dayOf(S.minute);
+      c.look = lookFor(prof, mapRand(hash(c.id+prof)), c.look.skin, c.look.hair, c.look.style, c.look.beard); delete ART.people[c.id]; delete THUMBS[c.id];
+      chronicle(`${c.name}'s money has run out. The former ${profLabel(was).toLowerCase()} has gone back to work as ${an(profLabel(prof).toLowerCase())}.`, 6, '📉', 'class');
+      feel(c,'shame',0.3,'I never thought I would have to work with my hands again.');
+    }
+    else if (c.profession==='Proprietor' && (!c.work || !LOC[c.work] || !propOf(c.work) || propOf(c.work).owner!==c.id)){
+      const biz = propsOf(c).find(p=>p.kind==='business' && p.bid && LOC[p.bid]); if (biz) c.work = biz.bid; else { c.profession='Investor'; c.work=null; }
+    }
+  });
 }
 
 // ---------- music ----------
@@ -2759,6 +2870,7 @@ function societyDaily(){
   S.citizens.filter(c=>c.profession==='Athlete').forEach(c=>{ const m=mindOf(c); m.fit = +Math.min(1, m.fit + (c.workAcc>60?0.02:0.008)).toFixed(3); c.workAcc = 0; });
   papersDaily();
   romanceDaily();
+  gentryDaily();
   careersDaily();
   sportsClubs(); bands();
   pursueGoals();
