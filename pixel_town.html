@@ -1,0 +1,1713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixel Town</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#12131c; --panel:#1b1d2a; --panel-2:#23263a; --line:#33374f; --text:#e9e6da; --muted:#9a9cb3;
+  --accent:#f2c14e; --accent-2:#7fd1ae; --bad:#e46a6a; --good:#7fd17f; --link:#8fb8ff;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+button,select,input{font:inherit;color:inherit}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:10px 16px;border-bottom:2px solid var(--line);background:var(--panel)}
+h1{font:14px/1 "Press Start 2P",monospace;margin:0;color:var(--accent);letter-spacing:1px}
+#clock{font:22px/1 VT323,monospace;display:flex;gap:14px;flex-wrap:wrap;align-items:baseline}
+#clock b{color:var(--accent);font-weight:normal;font-size:26px}
+.speed{display:flex;gap:4px;margin-left:auto}
+.speed button,.btn{background:var(--panel-2);border:2px solid var(--line);border-radius:4px;padding:4px 9px;cursor:pointer}
+.speed button.on,.btn.on{border-color:var(--accent);color:var(--accent)}
+.btn:hover,.speed button:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);color:#1a1405;border-color:var(--accent)}
+main{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:0;min-height:calc(100vh - 56px)}
+#stage{position:relative;min-width:0;padding:12px 16px;display:flex;flex-direction:column;gap:8px}
+#view{width:100%;aspect-ratio:384/216;image-rendering:pixelated;image-rendering:crisp-edges;border:2px solid var(--line);border-radius:4px;background:#000;cursor:crosshair;display:block}
+#tip{position:absolute;pointer-events:none;background:rgba(15,16,26,.94);border:1px solid var(--line);padding:5px 8px;border-radius:4px;font-size:13px;display:none;max-width:240px;z-index:3}
+#ticker{font:19px/1.2 VT323,monospace;color:var(--muted);min-height:24px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#ticker span{color:var(--accent)}
+.stats{display:flex;flex-wrap:wrap;gap:8px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:6px 10px;min-width:110px}
+.stat small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.stat strong{font:22px/1.1 VT323,monospace}
+aside{border-left:2px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0;max-height:calc(100vh - 56px);position:sticky;top:0}
+.tabs{display:flex;flex-wrap:wrap;border-bottom:2px solid var(--line)}
+.tabs button{flex:1;background:none;border:0;border-bottom:3px solid transparent;padding:9px 4px;cursor:pointer;color:var(--muted);font:10px/1 "Press Start 2P",monospace}
+.tabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
+.panel{display:none;overflow:auto;padding:12px 14px;flex:1}
+.panel.on{display:block}
+h2{font:11px/1.4 "Press Start 2P",monospace;color:var(--accent-2);margin:14px 0 8px}
+h2:first-child{margin-top:0}
+.muted{color:var(--muted)}
+.ev{display:grid;grid-template-columns:62px 22px 1fr;gap:4px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:14px}
+.ev time{font:17px/1.1 VT323,monospace;color:var(--muted)}
+.ev.major{color:#fff}.ev.major time{color:var(--accent)}
+.week{border:1px solid var(--line);border-radius:6px;margin-bottom:12px;background:var(--panel-2)}
+.week summary{cursor:pointer;padding:10px 12px;list-style:none}
+.week summary::-webkit-details-marker{display:none}
+.week summary b{font:10px/1.5 "Press Start 2P",monospace;color:var(--accent)}
+.week .body{padding:0 12px 12px;font-size:14px}
+.week ul{margin:4px 0 8px;padding-left:18px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{padding:4px 5px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{color:var(--muted);font-weight:normal;font-size:11px;text-transform:uppercase}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.up{color:var(--bad)}.down{color:var(--good)}
+.cit{display:flex;gap:8px;align-items:center;padding:6px;border-radius:4px;cursor:pointer;border:1px solid transparent}
+.cit:hover{background:var(--panel-2)}
+.cit.sel{border-color:var(--accent);background:var(--panel-2)}
+.cit canvas{image-rendering:pixelated;width:24px;height:36px;flex:none}
+.cit .who{flex:1;min-width:0}
+.cit .who small{display:block;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{height:7px;background:#0d0e16;border-radius:3px;overflow:hidden;margin:2px 0 6px}
+.bar i{display:block;height:100%}
+.needs{display:grid;grid-template-columns:70px 1fr 34px;gap:0 8px;font-size:12px;align-items:center}
+.chip{display:inline-block;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:1px 8px;margin:2px 3px 2px 0;font-size:12px}
+.law{border:1px solid var(--line);border-left:4px solid var(--accent-2);border-radius:4px;padding:8px 10px;margin-bottom:8px;background:var(--panel-2);font-size:14px}
+.law.pending{border-left-color:var(--accent)}
+.law.rej{border-left-color:var(--bad);opacity:.8}
+.vote{font-size:13px;padding:3px 0;border-bottom:1px dashed var(--line)}
+.Yes{color:var(--good)}.No{color:var(--bad)}.Abstain{color:var(--muted)}
+.card{border:1px solid var(--line);border-radius:6px;padding:10px;margin-bottom:10px;background:var(--panel-2);font-size:14px}
+.card pre{white-space:pre-wrap;font:13px/1.4 ui-monospace,monospace;background:#0f1018;padding:8px;border-radius:4px;margin:6px 0;max-height:160px;overflow:auto}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+input[type=text],select{background:#0f1018;border:1px solid var(--line);border-radius:4px;padding:5px 7px}
+input[type=text]{flex:1;min-width:140px}
+a{color:var(--link)}
+#overlay{position:fixed;inset:0;background:rgba(8,9,14,.82);display:none;align-items:center;justify-content:center;z-index:10;padding:16px}
+#overlay .box{background:var(--panel);border:2px solid var(--accent);border-radius:8px;padding:18px 20px;max-width:560px;width:100%;max-height:85vh;overflow:auto}
+#overlay h3{font:12px/1.5 "Press Start 2P",monospace;color:var(--accent);margin:0 0 10px}
+.prog{height:10px;background:#0d0e16;border-radius:4px;overflow:hidden}.prog i{display:block;height:100%;background:var(--accent);width:0}
+@media (max-width:980px){
+  main{grid-template-columns:minmax(0,1fr)}
+  aside{border-left:0;border-top:2px solid var(--line);max-height:none;position:static}
+  .speed{margin-left:0}
+  #stage{padding:10px 16px}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>PIXEL TOWN</h1>
+  <div id="clock"></div>
+  <div class="speed" id="speed"></div>
+</header>
+<main>
+  <section id="stage">
+    <canvas id="view" width="384" height="216"></canvas>
+    <div id="tip"></div>
+    <div id="ticker"></div>
+    <div class="stats" id="stats"></div>
+  </section>
+  <aside>
+    <div class="tabs" id="tabs">
+      <button data-p="chron" class="on">Log</button>
+      <button data-p="weeks">Weekly</button>
+      <button data-p="people">People</button>
+      <button data-p="market">Market</button>
+      <button data-p="laws">Laws</button>
+      <button data-p="music">Music</button>
+    </div>
+    <div class="panel on" id="p-chron"></div>
+    <div class="panel" id="p-weeks"></div>
+    <div class="panel" id="p-people"></div>
+    <div class="panel" id="p-market"></div>
+    <div class="panel" id="p-laws"></div>
+    <div class="panel" id="p-music"></div>
+  </aside>
+</main>
+<div id="overlay"><div class="box" id="overlayBox"></div></div>
+
+<script>
+'use strict';
+/* =====================================================================
+   Pixel Town — browser build of the Technical Design Document.
+   One authoritative clock at 24x: 2.5 real s = 1 game minute.
+   Deterministic per-minute pipeline: Time(100) → Governance(200) →
+   Agents(300) → Economy(400). Laws are data pulled through lawQuery.
+   Every decision uses the TDD's deterministic fallback path (no LLM).
+   ===================================================================== */
+
+// ---------- storage (may be unavailable) ----------
+const store = {
+  get(k){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); return true; }catch(e){ return false; } },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){} }
+};
+const SAVE_KEY = 'pixeltown.save.v1', MUSIC_KEY = 'pixeltown.music.v1';
+
+// ---------- constants ----------
+const TILE = 8, MW = 48, MH = 27, W = MW*TILE, H = MH*TILE;
+const MS_PER_GAME_MIN = 2500;
+const DAY = 1440, WEEK = 7*DAY;
+const SEASONS = ['Spring','Summer','Fall','Winter'];
+const WEEKDAYS = ['Moonday','Tideday','Windsday','Thornsday','Fireday','Starday','Hallday'];
+const T = {GRASS:0,PATH:1,WATER:2,BRIDGE:3,TREE:4,BUILD:5,FIELD:6,PLAZA:7,ROCK:8,FOUNTAIN:9,FLOWER:10};
+const WALK = new Set([T.GRASS,T.PATH,T.BRIDGE,T.PLAZA,T.FIELD,T.FLOWER]);
+const clamp = (v,a,b) => v<a?a:v>b?b:v;
+const pad2 = n => String(n).padStart(2,'0');
+
+// ---------- seeded RNG (state lives in the save) ----------
+const RNG = { s: 20260926,
+  next(){ let t = (this.s = (this.s + 0x6D2B79F5) | 0); t = Math.imul(t ^ (t>>>15), t|1); t ^= t + Math.imul(t ^ (t>>>7), t|61); return ((t ^ (t>>>14))>>>0) / 4294967296; } };
+const rnd = () => RNG.next();
+const rint = (a,b) => a + Math.floor(rnd()*(b-a+1));
+const pick = arr => arr[Math.floor(rnd()*arr.length)];
+function hash(str){ let h = 2166136261; for (let i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h,16777619); } return h>>>0; }
+function mapRand(seed){ let s = seed; return () => { let t = (s = (s + 0x6D2B79F5)|0); t = Math.imul(t^(t>>>15),t|1); t ^= t + Math.imul(t^(t>>>7),t|61); return ((t^(t>>>14))>>>0)/4294967296; }; }
+
+// ---------- map ----------
+const BUILDINGS = [
+  {id:'loc_clinic',    name:'Clinic',             x:4, y:3, w:4,h:3, roof:'#b5484a', wall:'#e7dcc2', kind:'shop'},
+  {id:'loc_bakery',    name:'Marsh Bakery',       x:10,y:3, w:4,h:3, roof:'#c98b3a', wall:'#efe0bf', kind:'shop'},
+  {id:'bld_town_hall', name:'Town Hall',          x:17,y:1, w:6,h:4, roof:'#465c8c', wall:'#d9d4c7', kind:'hall'},
+  {id:'loc_tavern',    name:'The Tipsy Lantern',  x:26,y:3, w:5,h:4, roof:'#7a3f2a', wall:'#caa878', kind:'shop'},
+  {id:'loc_carpentry', name:'Holt & Finch Carpentry', x:9,y:10,w:4,h:3, roof:'#8a6a3a', wall:'#d8c09a', kind:'shop'},
+  {id:'loc_smithy',    name:'Brandt Smithy',      x:27,y:15,w:4,h:3, roof:'#555a66', wall:'#9a9690', kind:'shop'},
+  {id:'loc_mine',      name:'Old Mine',           x:42,y:19,w:3,h:2, roof:'#6d6a70', wall:'#4a474e', kind:'mine'},
+  {id:'loc_house_01',  name:'Holt House',         x:2, y:10,w:3,h:3, roof:'#9b5d3a', wall:'#e2d2b0', kind:'house'},
+  {id:'loc_house_02',  name:'Finch House',        x:2, y:14,w:3,h:3, roof:'#5d7b4a', wall:'#e6d8b8', kind:'house'},
+  {id:'loc_house_03',  name:'Reed Farmhouse',     x:14,y:22,w:3,h:3, roof:'#a8743a', wall:'#e9dcb9', kind:'house'},
+  {id:'loc_house_04',  name:'Vale House',         x:18,y:22,w:3,h:3, roof:'#6a4a8a', wall:'#e0d6c8', kind:'house'},
+  {id:'loc_house_05',  name:'Stone House',        x:22,y:22,w:3,h:3, roof:'#6b6b6b', wall:'#d6ccb8', kind:'house'},
+  {id:'loc_house_06',  name:'Brandt House',       x:26,y:22,w:3,h:3, roof:'#8a3a3a', wall:'#d9c9ad', kind:'house'},
+  {id:'loc_house_07',  name:'Cole House',         x:30,y:9, w:3,h:3, roof:'#3a6a7a', wall:'#e3d5b5', kind:'house'},
+  {id:'loc_house_08',  name:'Ashby House',        x:30,y:22,w:3,h:3, roof:'#4a6a3a', wall:'#dccfb0', kind:'house'}
+];
+BUILDINGS.forEach(b => b.door = [b.x + Math.floor(b.w/2), b.y + b.h]);
+const LOC = {};
+BUILDINGS.forEach(b => { if (!b.id.startsWith('bld_')) LOC[b.id] = {id:b.id, name:b.name, indoor:true, door:b.door, b}; });
+Object.assign(LOC, {
+  loc_town_square: {id:'loc_town_square', name:'Town Square', indoor:false, c:[20,12], r:4},
+  loc_market:      {id:'loc_market',      name:'Market',      indoor:false, c:[20,16], r:3},
+  loc_farm:        {id:'loc_farm',        name:'Reed Farm',   indoor:false, c:[7,22],  r:4},
+  loc_east_grove:  {id:'loc_east_grove',  name:'East Grove',  indoor:false, c:[41,12], r:2},
+  loc_town_hall:   {id:'loc_town_hall',   name:'Town Hall Steps', indoor:false, c:[20,7], r:3}
+});
+const LAMPS = [[15,6],[25,6],[15,15],[25,15],[33,11],[36,14],[23,16],[8,8],[13,14],[31,19]];
+
+const MAP = [];      // tile types
+const TVAR = [];     // per-tile variation
+function buildMap(){
+  const mr = mapRand(77);
+  for (let y=0;y<MH;y++){ MAP[y]=[]; TVAR[y]=[]; for (let x=0;x<MW;x++){ MAP[y][x]=T.GRASS; TVAR[y][x]=mr(); } }
+  const set = (x,y,t) => { if (x>=0&&y>=0&&x<MW&&y<MH) MAP[y][x]=t; };
+  for (let y=0;y<MH;y++){ set(34,y,T.WATER); set(35,y,T.WATER); }
+  set(34,12,T.BRIDGE); set(35,12,T.BRIDGE); set(34,13,T.BRIDGE); set(35,13,T.BRIDGE);
+  for (let y=0;y<=18;y++) for (let x=37;x<MW;x++){ const d=Math.hypot(x-41,y-12); if (d>2.6 && mr()<0.72) set(x,y,T.TREE); }
+  for (let y=22;y<MH;y++) for (let x=38;x<MW;x++) if (mr()<0.8) set(x,y,T.ROCK);
+  for (let y=0;y<MH;y++) for (let x=0;x<3;x++) if (y<9 && mr()<0.5) set(x,y,T.TREE);
+  for (let y=19;y<=25;y++) for (let x=2;x<=12;x++) set(x,y,T.FIELD);
+  for (let y=6;y<=15;y++) for (let x=15;x<=25;x++) set(x,y,T.PLAZA);
+  set(19,10,T.FOUNTAIN); set(20,10,T.FOUNTAIN); set(19,11,T.FOUNTAIN); set(20,11,T.FOUNTAIN);
+  BUILDINGS.forEach(b => { for (let y=b.y;y<b.y+b.h;y++) for (let x=b.x;x<b.x+b.w;x++) set(x,y,T.BUILD); });
+  for (let y=17;y<=18;y++) for (let x=17;x<=22;x++) set(x,y,T.BUILD); // market stalls
+  // carved routes east of the river
+  for (let x=36;x<=41;x++) set(x,12,T.PATH);
+  for (let y=12;y<=21;y++) set(36,y,T.PATH);
+  for (let x=36;x<=43;x++) set(x,21,T.PATH);
+  for (let x=36;x<=41;x++) set(x,13,MAP[13][x]===T.TREE?T.GRASS:MAP[13][x]);
+  // auto-roads: route every door to the square and lay a path
+  const targets = BUILDINGS.map(b => b.door).concat([[7,18],[20,16],[33,12]]);
+  targets.forEach(d => { const p = astarRaw(d[0],d[1],20,15,true); if (p) p.forEach(([x,y]) => { if (MAP[y][x]===T.GRASS||MAP[y][x]===T.FLOWER) MAP[y][x]=T.PATH; }); });
+  for (let x=33;x>=26;x--) if (MAP[12][x]===T.GRASS) MAP[12][x]=T.PATH;
+  BUILDINGS.forEach(b => { const [x,y]=b.door; if (MAP[y][x]!==T.PLAZA) MAP[y][x]=T.PATH; });
+  for (let y=0;y<MH;y++) for (let x=0;x<MW;x++) if (MAP[y][x]===T.GRASS && TVAR[y][x]<0.07) MAP[y][x]=T.FLOWER;
+}
+function walkable(x,y,opts){
+  if (x<0||y<0||x>=MW||y>=MH) return false;
+  const t = MAP[y][x];
+  if (t===T.BRIDGE && opts && opts.bridgeClosed) return false;
+  return WALK.has(t);
+}
+function tileCost(x,y){ const t=MAP[y][x]; return (t===T.PATH||t===T.PLAZA||t===T.BRIDGE)?1:t===T.FIELD?2.2:1.8; }
+function astarRaw(sx,sy,tx,ty,building,opts){
+  const key = (x,y)=>y*MW+x;
+  const open = [[sx,sy]], g = new Map([[key(sx,sy),0]]), came = new Map(), f = new Map([[key(sx,sy),Math.abs(sx-tx)+Math.abs(sy-ty)]]);
+  const closed = new Set();
+  while (open.length){
+    let bi=0; for (let i=1;i<open.length;i++) if (f.get(key(...open[i]))<f.get(key(...open[bi]))) bi=i;
+    const [cx,cy] = open.splice(bi,1)[0]; const ck=key(cx,cy);
+    if (cx===tx&&cy===ty){ const path=[[cx,cy]]; let k=ck; while (came.has(k)){ k=came.get(k); path.push([k%MW,Math.floor(k/MW)]); } return path.reverse(); }
+    closed.add(ck);
+    for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+      const nx=cx+dx, ny=cy+dy, nk=key(nx,ny);
+      if (closed.has(nk)) continue;
+      const isGoal = nx===tx&&ny===ty;
+      if (!isGoal && !(building ? (nx>=0&&ny>=0&&nx<MW&&ny<MH&&WALK.has(MAP[ny][nx])) : walkable(nx,ny,opts))) continue;
+      const ng = g.get(ck) + (building ? (MAP[ny]&&MAP[ny][nx]===T.PATH?0.6:1) : tileCost(nx,ny) + ((opts&&opts.blocked&&opts.blocked.has(nk))?999:0));
+      if (!g.has(nk) || ng < g.get(nk)){ g.set(nk,ng); came.set(nk,ck); f.set(nk, ng + Math.abs(nx-tx)+Math.abs(ny-ty)); if (!open.some(o=>o[0]===nx&&o[1]===ny)) open.push([nx,ny]); }
+    }
+  }
+  return null;
+}
+const pathCache = new Map();
+function findPath(sx,sy,tx,ty){
+  const k = `${sx},${sy}>${tx},${ty}|${S.bridge.closed?1:0}`;
+  if (pathCache.has(k)) return pathCache.get(k).slice();
+  const p = astarRaw(sx,sy,tx,ty,false,{bridgeClosed:S.bridge.closed});
+  if (pathCache.size>3000) pathCache.clear();
+  pathCache.set(k, p||null);
+  return p ? p.slice() : null;
+}
+const SPOTS = {};
+function spotsFor(locId){
+  if (SPOTS[locId]) return SPOTS[locId];
+  const L = LOC[locId]; const out=[];
+  for (let y=L.c[1]-L.r;y<=L.c[1]+L.r;y++) for (let x=L.c[0]-L.r;x<=L.c[0]+L.r;x++){
+    if (Math.hypot(x-L.c[0],y-L.c[1])<=L.r+0.3 && walkable(x,y)) out.push([x,y]);
+  }
+  return SPOTS[locId]=out;
+}
+function spotFor(c,locId){ const L=LOC[locId]; if (L.indoor) return L.door; const sp=spotsFor(locId); return sp[hash(c.id+locId)%sp.length]; }
+
+// ---------- goods (8 resources + 3 services) ----------
+const GOOD_DEFS = [
+  {id:'good_wheat',     name:'Wheat',     kind:'Resource', cat:'Crop',    unit:'sheaf', base:3,  floor:1,  ceil:9,   e:0.6, a:0.25, perish:14, by:['Farmer']},
+  {id:'good_vegetables',name:'Vegetables',kind:'Resource', cat:'Crop',    unit:'basket',base:4,  floor:1,  ceil:12,  e:0.6, a:0.25, perish:5,  by:['Farmer'], need:{hunger:35}},
+  {id:'good_timber',    name:'Timber',    kind:'Resource', cat:'Timber',  unit:'log',   base:12, floor:4,  ceil:40,  e:0.7, a:0.25, by:['Woodcutter']},
+  {id:'good_ore',       name:'Iron Ore',  kind:'Resource', cat:'Ore',     unit:'chunk', base:10, floor:3,  ceil:35,  e:0.6, a:0.25, by:['Miner']},
+  {id:'good_bread',     name:'Bread',     kind:'Resource', cat:'Food',    unit:'loaf',  base:6,  floor:2,  ceil:20,  e:0.8, a:0.3,  perish:3,  by:['Baker'], recipe:{good_wheat:1}, need:{hunger:45}},
+  {id:'good_ale',       name:'Ale',       kind:'Resource', cat:'Drink',   unit:'mug',   base:5,  floor:2,  ceil:16,  e:0.6, a:0.25, by:['TavernKeeper'], recipe:{good_wheat:1}, need:{fun:20,social:8}},
+  {id:'good_tools',     name:'Iron Tools',kind:'Resource', cat:'Crafted', unit:'set',   base:40, floor:15, ceil:120, e:0.5, a:0.2,  by:['Blacksmith'], recipe:{good_ore:2,good_timber:1}},
+  {id:'good_furniture', name:'Furniture', kind:'Resource', cat:'Crafted', unit:'piece', base:60, floor:20, ceil:180, e:0.5, a:0.2,  by:['Carpenter'], recipe:{good_timber:2,good_ore:1}, need:{comfort:30}},
+  {id:'svc_medical_checkup',name:'Medical Checkup',kind:'Service',cat:'Care',unit:'visit',base:20,floor:8,ceil:60,e:0.5,a:0.2, by:['Doctor'], svc:{prof:'Doctor',dur:30,cap:8,loc:'loc_clinic'}, need:{comfort:20}},
+  {id:'svc_hot_meal',   name:'Hot Meal',  kind:'Service', cat:'Hospitality',unit:'plate',base:8,floor:3,ceil:24,e:0.6,a:0.25, by:['TavernKeeper'], svc:{prof:'TavernKeeper',dur:30,cap:20,loc:'loc_tavern'}, need:{hunger:50,social:10}},
+  {id:'svc_home_repair',name:'Home Repair',kind:'Service',cat:'Labor',  unit:'hour',  base:15, floor:5,  ceil:45,  e:0.5, a:0.2,  by:['Carpenter'], svc:{prof:'Carpenter',dur:60,cap:4,loc:null}, need:{comfort:22}}
+];
+const GD = Object.fromEntries(GOOD_DEFS.map(g=>[g.id,g]));
+
+// ---------- citizens ----------
+const CIT_DEFS = [
+  {id:'cit_mara_holt',  name:'Mara Holt',  age:34, prof:'Carpenter',   home:'loc_house_01', traits:['Frugal','Hardworking','Honest'],   values:['Craftsmanship','Family'],   p:[.5,.8,.4,.6,.4], pol:[.3,.1,.6],  wallet:220, hair:'#5a3a22', skin:'#e8b890', bio:'Runs the carpentry shop with Ada and builds most of the town\'s furniture. Suspects Oren undercuts her on purpose.'},
+  {id:'cit_ada_finch',  name:'Ada Finch',  age:29, prof:'Carpenter',   home:'loc_house_02', traits:['Generous','Gossip','Charismatic'], values:['Community','Craftsmanship'], p:[.7,.5,.8,.8,.3], pol:[-.2,-.1,.7], wallet:180, hair:'#c8702a', skin:'#f0c8a0', bio:'Mara\'s partner at the workbench. Knows everyone\'s business and forgives most of it.'},
+  {id:'cit_oren_vale',  name:'Oren Vale',  age:47, prof:'Merchant',    home:'loc_house_04', traits:['Cunning','Ambitious','Stubborn'],  values:['Nature','Prosperity','Order'], p:[.6,.7,.5,.3,.4], pol:[.6,.5,.9], wallet:400, hair:'#2a2a2a', skin:'#c89870', bio:'Runs the market stalls and takes a cut of every sale. Grew up by the east grove and wants it protected.'},
+  {id:'cit_wren_ashby', name:'Wren Ashby', age:26, prof:'Woodcutter',  home:'loc_house_08', traits:['Reckless','Ambitious','Hardworking'], values:['Prosperity','Freedom'], p:[.4,.5,.6,.4,.5], pol:[.7,-.6,.4], wallet:150, hair:'#3a2a1a', skin:'#d8a878', bio:'The town\'s only full-time woodcutter. Crosses the old bridge twice a day and hates being told how many trees to fell.'},
+  {id:'cit_finn_ashby', name:'Finn Ashby', age:19, prof:'Unemployed',  home:'loc_house_08', traits:['Lazy','Romantic','Shy'],          values:['Freedom','Family'],        p:[.8,.2,.3,.7,.6], pol:[-.1,-.7,.15], wallet:40, hair:'#3a2a1a', skin:'#e0b080', bio:'Wren\'s younger brother. Does odd jobs in the grove when he feels like it and writes poems he never shows anyone.'},
+  {id:'cit_tobias_reed',name:'Tobias Reed',age:52, prof:'Farmer',      home:'loc_house_03', traits:['Hardworking','Stubborn','Honest'], values:['Tradition','Family'],     p:[.3,.8,.4,.5,.3], pol:[.2,.6,.5],  wallet:200, hair:'#8a8a8a', skin:'#d09a70', bio:'Third-generation farmer. Believes the old ways were fine and says so at every town hall.'},
+  {id:'cit_lila_reed',  name:'Lila Reed',  age:49, prof:'Farmer',      home:'loc_house_03', traits:['Generous','Cautious'],             values:['Family','Community','Nature'], p:[.5,.7,.5,.8,.4], pol:[-.4,.3,.6], wallet:160, hair:'#a05a3a', skin:'#e8b890', bio:'Tobias\'s wife. Keeps the farm\'s books and quietly slips bread to anyone who looks hungry.'},
+  {id:'cit_hugo_brandt',name:'Hugo Brandt',age:41, prof:'Blacksmith',  home:'loc_house_06', traits:['Stubborn','Greedy','Hardworking'], values:['Craftsmanship','Prosperity'], p:[.3,.8,.3,.3,.5], pol:[.8,.2,.45], wallet:260, hair:'#1a1a1a', skin:'#b88060', bio:'Forges every tool in town and charges accordingly. Distrusts anything the treasury touches.'},
+  {id:'cit_bram_stone', name:'Bram Stone', age:37, prof:'Miner',       home:'loc_house_05', traits:['Honest','Reckless'],               values:['Freedom','Prosperity'],    p:[.4,.5,.5,.6,.3], pol:[.4,-.4,.3], wallet:130, hair:'#6a4a2a', skin:'#c89068', bio:'Works the old mine past the river. Cheerful, loud, and first to the tavern.'},
+  {id:'cit_pell_marsh', name:'Pell Marsh', age:31, prof:'Baker',       home:'loc_bakery',   traits:['Charismatic','Generous','Romantic'], values:['Community','Tradition'], p:[.6,.6,.7,.7,.3], pol:[-.3,.2,.55], wallet:190, hair:'#e0c070', skin:'#f0c8a0', bio:'Lives above the bakery and is up before anyone. The whole town runs on Pell\'s bread.'},
+  {id:'cit_greta_cole', name:'Greta Cole', age:44, prof:'TavernKeeper',home:'loc_house_07', traits:['Gossip','Charismatic','Cunning'],  values:['Prosperity','Freedom','Community'], p:[.6,.6,.9,.5,.3], pol:[.5,-.5,.6], wallet:300, hair:'#8a2a2a', skin:'#e8b890', bio:'Owns the Tipsy Lantern. Hears every secret in town and sells ale to whoever is telling it.'},
+  {id:'cit_iris_vance', name:'Iris Vance', age:55, prof:'Doctor',      home:'loc_clinic',   traits:['Cautious','Honest','Frugal'],      values:['Order','Community'],       p:[.7,.9,.3,.7,.5], pol:[-.2,.8,.8], wallet:350, hair:'#d0d0d0', skin:'#d8a880', bio:'The town doctor. Lives above the clinic and thinks most injuries start at the tavern.'}
+];
+const WORKPLACE = {Carpenter:'loc_carpentry',Woodcutter:'loc_east_grove',Miner:'loc_mine',Blacksmith:'loc_smithy',Baker:'loc_bakery',TavernKeeper:'loc_tavern',Doctor:'loc_clinic',Merchant:'loc_market',Farmer:'loc_farm',Unemployed:null};
+const SHIRT = {Farmer:'#c8a040',Woodcutter:'#a8433a',Miner:'#6a6a78',Blacksmith:'#3a3a44',Carpenter:'#b0703a',Baker:'#f0efe6',TavernKeeper:'#8a2a5a',Doctor:'#dfe8ff',Merchant:'#6a3aa0',Unemployed:'#4a7ab0'};
+const INIT_RELS = [
+  ['cit_mara_holt','cit_ada_finch',72,.8,['Friend','Coworker']],
+  ['cit_mara_holt','cit_oren_vale',-40,.2,['Rival']],
+  ['cit_tobias_reed','cit_lila_reed',90,.95,['Spouse','Family']],
+  ['cit_wren_ashby','cit_finn_ashby',60,.8,['Family']],
+  ['cit_greta_cole','cit_pell_marsh',55,.6,['Friend']],
+  ['cit_hugo_brandt','cit_bram_stone',40,.5,['Coworker']],
+  ['cit_iris_vance','cit_greta_cole',20,.4,['Neighbor']],
+  ['cit_oren_vale','cit_wren_ashby',-30,.25,['Rival']],
+  ['cit_ada_finch','cit_greta_cole',45,.6,['Friend']],
+  ['cit_lila_reed','cit_pell_marsh',35,.6,[]]
+];
+
+// ---------- production ----------
+const PROD = {
+  Farmer:{every:15, tool:true}, Woodcutter:{every:55, make:'good_timber', tool:true}, Miner:{every:40, make:'good_ore', tool:true},
+  Baker:{every:30, make:'good_bread'}, TavernKeeper:{every:60, make:'good_ale'},
+  Blacksmith:{every:220, make:'good_tools', cap:3}, Carpenter:{every:150, make:'good_furniture', cap:4},
+  Unemployed:{every:95, make:'good_timber'}
+};
+
+// ---------- state ----------
+let S = null;
+function newState(){
+  RNG.s = 20260926;
+  const st = {
+    v:1, minute: 6*60, founded: Date.now(), memCounter:0,
+    treasury:140, bridge:{health:62, closed:false},
+    weather:'Clear', festival:false,
+    goods:{}, listings:[], citizens:[],
+    gov:{proposals:[], nextId:1, cooldown:{}},
+    chronicle:[], weeks:[], week:null
+  };
+  GOOD_DEFS.forEach(g => st.goods[g.id] = {price:g.base, dem:new Array(24).fill(0), sup:new Array(24).fill(0), unmet:new Array(24).fill(0), hist:[g.base]});
+  CIT_DEFS.forEach(d => {
+    const c = {
+      id:d.id, name:d.name, age:d.age, bio:d.bio, profession:d.prof, home:d.home, work:WORKPLACE[d.prof],
+      personality:{openness:d.p[0],conscientiousness:d.p[1],extraversion:d.p[2],agreeableness:d.p[3],neuroticism:d.p[4]},
+      traits:d.traits.slice(), values:d.values.slice(),
+      politics:{economicLeaning:d.pol[0],orderLeaning:d.pol[1],civicEngagement:d.pol[2]},
+      mood:{valence:.3,arousal:.4,stress:.2,emotion:'Content',emoUntil:0,emoForced:null},
+      needs:{hunger:80,energy:80,social:60,comfort:70,fun:60},
+      wallet:d.wallet, days:[newDayBucket()], inventory:{}, rel:{},
+      memory:{records:[],since:0,lastReflection:0},
+      plan:null, rt:{state:'Sleeping',loc:d.home,x:0,y:0,ox:0,oy:0,path:null,blockIdx:-1,since:0,did:false},
+      tool:70+Math.floor(hash(d.id)%30), sick:0, workAcc:0, svcUsed:0, lastTry:{}, partner:null, courtingSince:0,
+      look:{hair:d.hair,skin:d.skin,shirt:SHIRT[d.prof]}
+    };
+    const [x,y] = LOC[c.home].door; c.rt.x=c.rt.ox=x; c.rt.y=c.rt.oy=y;
+    st.citizens.push(c);
+  });
+  const byId = Object.fromEntries(st.citizens.map(c=>[c.id,c]));
+  st.citizens.forEach(a => st.citizens.forEach(b => { if (a!==b) a.rel[b.id] = {affinity:8, trust:.4, familiarity:.3, tags:['Neighbor'], last:0}; }));
+  INIT_RELS.forEach(([a,b,aff,tr,tags]) => { [[a,b],[b,a]].forEach(([p,q]) => { byId[p].rel[q] = {affinity:aff, trust:tr, familiarity:.8, tags:tags.slice(), last:0}; }); });
+  byId.cit_finn_ashby.rel.cit_pell_marsh.tags.push('Crush'); byId.cit_finn_ashby.rel.cit_pell_marsh.affinity = 48;
+  byId.cit_tobias_reed.partner = 'cit_lila_reed'; byId.cit_lila_reed.partner = 'cit_tobias_reed';
+  return st;
+}
+function newDayBucket(){ return {inc:0,exp:0,tax:0,bought:{},sold:{}}; }
+const cById = id => S.citizens.find(c=>c.id===id);
+
+// ---------- calendar ----------
+const dayOf = m => Math.floor(m/DAY);
+const modOf = m => ((m%DAY)+DAY)%DAY;
+const seasonOf = d => Math.floor(d/28)%4;
+const yearOf = d => Math.floor(d/112)+1;
+function phaseOf(mod){ return mod<300?'Night':mod<420?'Dawn':mod<1080?'Day':mod<1260?'Dusk':'Night'; }
+function fmtClock(m){ const mod=modOf(m); return pad2(Math.floor(mod/60))+':'+pad2(mod%60); }
+function fmtDate(d){ return `${WEEKDAYS[d%7]}, ${SEASONS[seasonOf(d)]} ${d%28+1}, Year ${yearOf(d)}`; }
+function fmtStamp(m){ const d=dayOf(m); return `Day ${d+1} ${fmtClock(m)}`; }
+const weekNo = d => Math.floor(d/7)+1;
+
+// ---------- chronicle + memory ----------
+function chronicle(text, imp, icon, kind){
+  S.chronicle.push({t:S.minute, imp, icon:icon||'•', text, kind:kind||'event'});
+  if (S.chronicle.length>800) S.chronicle.splice(0, S.chronicle.length-800);
+  if (S.week) S.week.events.push({t:S.minute, imp, icon:icon||'•', text});
+  ui.dirty = true;
+}
+function remember(c, text, imp, subj, kind){
+  const rec = {id:'mem_'+String(++S.memCounter).padStart(6,'0'), kind:kind||'Observation', t:S.minute, imp, text, subj:subj||[]};
+  const recs = c.memory.records; recs.push(rec);
+  if (recs.length>60){ let wi=0; for (let i=1;i<recs.length-5;i++) if (recs[i].imp<recs[wi].imp) wi=i; recs.splice(wi,1); }
+  c.memory.since += imp;
+}
+function setEmotion(c, emo, minutes){ c.mood.emoForced = emo; c.mood.emoUntil = S.minute + minutes; }
+
+// ---------- law query (pull-based modifiers) ----------
+function activeLaws(){ return S.gov.proposals.filter(p=>p.status==='Enacted'); }
+function effects(){ const out=[]; activeLaws().forEach(p=>p.effects.forEach(e=>out.push(e))); return out; }
+function effTargets(e,g){ return e.targetGoodId===g || (e.targetCategory && GD[g].cat===e.targetCategory); }
+const lawQuery = {
+  priceMultiplier(g){ let m=1; effects().forEach(e=>{ if (e.effectType==='PriceMultiplier' && effTargets(e,g)) m*=e.magnitude; }); return m; },
+  salesTax(g){ let r=0; effects().forEach(e=>{ if (e.effectType==='SalesTax' && effTargets(e,g)) r+=e.magnitude; }); return Math.min(.3,r); },
+  subsidy(prof){ let s=0; effects().forEach(e=>{ if (e.effectType==='Subsidy' && e.targetProfession===prof) s+=e.magnitude; }); return s; },
+  curfew(loc){ const e = effects().find(e=>e.effectType==='Curfew' && e.targetZoneId===loc); return e ? [e.startMinuteOfDay, e.endMinuteOfDay] : null; },
+  isRestricted(loc, mod){ const w=this.curfew(loc); if (!w) return false; const [s,e]=w; return s<e ? (mod>=s&&mod<e) : (mod>=s||mod<e); }
+};
+
+// ---------- economy ----------
+function hourIdx(){ return Math.floor(modOf(S.minute)/60); }
+function recordDemand(g,q){ S.goods[g].dem[hourIdx()] += q; }
+function recordUnmet(g,q){ S.goods[g].unmet[hourIdx()] += q; }
+function recordSupply(g,q){ S.goods[g].sup[hourIdx()] += q; }
+const sum = a => a.reduce((x,y)=>x+y,0);
+const today = c => c.days[c.days.length-1];
+function merchant(){ return S.citizens.find(c=>c.profession==='Merchant'); }
+function pay(buyer, seller, g, price){
+  const tax = Math.round(price * lawQuery.salesTax(g));
+  const m = merchant(); const fee = (GD[g].kind==='Resource' && m && seller!==m && buyer!==m) ? Math.max(0, Math.round(price*0.08)) : 0;
+  buyer.wallet -= price + tax;
+  seller.wallet += price - fee; if (fee) { m.wallet += fee; today(m).inc += fee; S.week.income[m.id]=(S.week.income[m.id]||0)+fee; }
+  S.treasury += tax;
+  const bb = today(buyer), sb = today(seller);
+  bb.exp += price+tax; bb.tax += tax; bb.bought[g] = (bb.bought[g]||0)+1;
+  sb.inc += price-fee; sb.sold[g] = (sb.sold[g]||0)+1;
+  S.week.trades++; S.week.volume += price; S.week.taxes += tax;
+  S.week.income[seller.id] = (S.week.income[seller.id]||0) + price - fee;
+  S.week.spent[buyer.id] = (S.week.spent[buyer.id]||0) + price + tax;
+}
+function buy(c, g, qty){
+  recordDemand(g, qty);
+  let got = 0;
+  while (got < qty){
+    const L = S.listings.find(l => l.g===g && l.qty>0 && l.seller!==c.id);
+    if (!L) break;
+    const price = S.goods[g].price, tax = Math.round(price*lawQuery.salesTax(g));
+    if (c.wallet < price + tax) break;
+    const seller = cById(L.seller);
+    pay(c, seller, g, price);
+    L.qty--; got++;
+    c.inventory[g] = (c.inventory[g]||0) + 1;
+  }
+  if (got < qty) recordUnmet(g, qty-got);
+  return got;
+}
+function list(c, g, qty){
+  if (qty<=0) return;
+  c.inventory[g] -= qty; if (c.inventory[g]<=0) delete c.inventory[g];
+  const last = S.listings.find(l=>l.g===g && l.seller===c.id && l.at===dayOf(S.minute));
+  if (last) last.qty += qty;
+  else S.listings.push({g, seller:c.id, qty, at:dayOf(S.minute)});
+  recordSupply(g, qty);
+}
+function providerAvailable(p, svc){
+  const spec = GD[svc].svc;
+  if (p.profession!==spec.prof || p.rt.state!=='Working' || p.rt.path) return false;
+  if (spec.loc && p.rt.loc!==spec.loc) return false;
+  return p.svcUsed < spec.cap;
+}
+function buyService(c, svc){
+  recordDemand(svc, 1);
+  const prov = S.citizens.find(p => p!==c && providerAvailable(p, svc));
+  const price = S.goods[svc].price, tax = Math.round(price*lawQuery.salesTax(svc));
+  if (!prov || c.wallet < price+tax){ recordUnmet(svc,1); return false; }
+  pay(c, prov, svc, price); prov.svcUsed++;
+  applyNeeds(c, GD[svc].need);
+  return prov;
+}
+function applyNeeds(c, need){ if (!need) return; for (const k in need) c.needs[k] = clamp(c.needs[k]+need[k],0,100); }
+function consume(c, g){ c.inventory[g]--; if (c.inventory[g]<=0) delete c.inventory[g]; applyNeeds(c, GD[g].need); }
+function reprice(){
+  const k = 5;
+  GOOD_DEFS.forEach(def => {
+    const st = S.goods[def.id];
+    const D = sum(st.dem), Sp = sum(st.sup) + (def.kind==='Resource' ? S.listings.filter(l=>l.g===def.id).reduce((a,l)=>a+l.qty,0)*0.25 : 0);
+    const target = def.base * Math.pow((D+k)/(Sp+k), def.e) * lawQuery.priceMultiplier(def.id);
+    st.price = clamp(Math.round(st.price + def.a*(target - st.price)), def.floor, def.ceil);
+    st.hist.push(st.price); if (st.hist.length>168) st.hist.shift();
+  });
+  const h = (hourIdx()+1)%24;
+  GOOD_DEFS.forEach(def => { const st=S.goods[def.id]; st.dem[h]=0; st.sup[h]=0; st.unmet[h]=0; });
+  S.listings = S.listings.filter(l=>l.qty>0);
+}
+
+// ---------- planning (deterministic fallback planner) ----------
+function isTownHallDay(d){ return d%7===6; }
+function buildPlan(c, day){
+  const B=[]; let t=0; const home=c.home, work=c.work||'loc_town_square';
+  const add=(end,act,loc,note,target)=>{ end=Math.min(DAY,Math.round(end)); if (end<=t) return; B.push({s:t,d:end-t,act,loc,note,target}); t=end; };
+  const has = tr => c.traits.includes(tr);
+  const jit = hash(c.id+day)%25;
+  const hall = isTownHallDay(day) && hasHallBusiness(day);
+  const outdoor = ['Farmer','Woodcutter','Unemployed'].includes(c.profession);
+  const storm = S.weather==='Storm';
+  const bridgeOut = S.bridge.closed && ['Woodcutter','Miner','Unemployed'].includes(c.profession);
+  let wake = {Baker:270, Farmer:330, TavernKeeper:480}[c.profession] || 360;
+  if (has('Lazy')) wake += 60; if (has('Hardworking')) wake -= 20; wake += jit;
+  add(wake,'Sleep',home,'Sleeping');
+  add(t+30,'Eat',home,'Breakfast at home');
+  if (c.sick && c.profession!=='Doctor') add(t+60,'Trade','loc_clinic','Seeing Dr. Vance','svc_medical_checkup');
+  const workLoc = c.profession==='Unemployed' ? (bridgeOut ? 'loc_town_square' : 'loc_east_grove') : work;
+  const cantWork = (storm && outdoor) || bridgeOut;
+  const workNote = cantWork ? (storm ? 'Sheltering from the storm' : 'The bridge is out; stuck on this side') : ({Farmer:'Tending the fields',Woodcutter:'Felling timber in the east grove',Miner:'Digging ore',Blacksmith:'Working the forge',Carpenter:'At the workbench',Baker:'Baking bread',TavernKeeper:'Running the tavern',Doctor:'Seeing patients',Merchant:'Minding the market stalls',Unemployed:'Odd jobs chopping wood'}[c.profession]);
+  const workAct = cantWork ? 'Leisure' : (c.profession==='Unemployed' && has('Lazy') && hash(c.id+day+'l')%3===0 ? 'Leisure' : 'Work');
+  const wLoc = cantWork ? home : workLoc;
+  const curfew = lawQuery.curfew('loc_tavern');
+  const tavernClose = curfew ? curfew[0] : 23*60;
+  if (c.profession==='TavernKeeper'){
+    add(15*60, 'Work','loc_tavern','Opening up the Tipsy Lantern');
+    add(15*60+30,'Eat','loc_tavern','Quick bite in the kitchen');
+    if (hall){ add(17*60+45,'Work','loc_tavern','Serving the afternoon crowd'); add(19*60+30,'AttendTownHall','loc_town_hall','Town hall meeting'); }
+    add(tavernClose,'Work','loc_tavern', curfew ? 'Serving until the curfew bell' : 'Serving the evening crowd');
+    add(tavernClose+30,'Leisure',home,'Counting the till');
+    add(DAY,'Sleep',home,'Sleeping');
+    return {day, by:'Fallback', blocks:B};
+  }
+  const endMorning = c.profession==='Baker' ? 11*60 : 12*60;
+  add(endMorning, workAct, wLoc, workNote);
+  if (has('Frugal') || c.wallet<25) add(t+60,'Eat',home,'Cheap lunch at home');
+  else add(t+60,'Eat','loc_tavern','Lunch at the Tipsy Lantern','svc_hot_meal');
+  let endWork = c.profession==='Baker' ? 15*60 : has('Hardworking') ? 18*60 : has('Lazy') ? 16*60+30 : 17*60+30;
+  if (hall) endWork = Math.min(endWork, 17*60+30);
+  add(endWork, workAct, wLoc, workNote);
+  const civicSkip = c.politics.civicEngagement < .25 && hash(c.id+day+'h')%2===0;
+  if (hall && !civicSkip){ add(17*60+45,'Leisure','loc_town_square','Heading to the town hall'); add(19*60+30,'AttendTownHall','loc_town_hall','Town hall meeting'); }
+  const social = c.personality.extraversion>.45 || has('Gossip') || has('Charismatic');
+  if (S.festival){ add(16*60,'Leisure',home,'Getting ready for the festival'); add(21*60+30,'Socialize','loc_town_square','Season festival on the square'); }
+  else if (social && !storm){
+    const end = Math.min(tavernClose, 21*60 + (has('Reckless')?120:30));
+    if (end > t+30) add(end,'Socialize','loc_tavern','Evening at the tavern','svc_hot_meal');
+  } else {
+    if (!storm) add(Math.max(t,19*60),'Leisure','loc_town_square','Evening stroll by the fountain');
+    add(t+45,'Eat',home,'Supper at home');
+  }
+  add(c.profession==='Baker'?20*60+30:22*60+ (has('Reckless')?60:0),'Leisure',home,'Winding down at home');
+  add(DAY,'Sleep',home,'Sleeping');
+  return {day, by:'Fallback', blocks:B};
+}
+function currentBlockIdx(c, mod){ const b=c.plan.blocks; for (let i=0;i<b.length;i++) if (mod>=b[i].s && mod<b[i].s+b[i].d) return i; return b.length-1; }
+
+// ---------- agents ----------
+const STATE_FOR = {Sleep:'Sleeping',Eat:'Consuming',Work:'Working',Socialize:'Socializing',Leisure:'Idle',Trade:'Trading',AttendTownHall:'AttendingTownHall',Travel:'Traveling',Idle:'Idle'};
+function agentTick(c){
+  const mod = modOf(S.minute);
+  const n = c.needs, awake = c.rt.state!=='Sleeping';
+  n.hunger = clamp(n.hunger - 0.062, 0, 100);
+  n.energy = clamp(n.energy + (awake ? -(c.sick?0.1:0.058) : 0.21), 0, 100);
+  n.social = clamp(n.social - 0.035*(0.6+c.personality.extraversion), 0, 100);
+  n.fun    = clamp(n.fun - 0.03, 0, 100);
+  n.comfort= clamp(n.comfort + (awake ? -0.024 : 0.028), 0, 100);
+  const idx = currentBlockIdx(c, mod);
+  if (idx !== c.rt.blockIdx){ c.rt.blockIdx = idx; startBlock(c, c.plan.blocks[idx]); }
+  const b = c.plan.blocks[idx];
+  if (c.rt.path){ step(c); if (!c.rt.path) arrive(c, b); return; }
+  activity(c, b, mod);
+  if (n.hunger < 12 && !c.rt.path && awake && (S.minute - (c.lastTry.hunger||-999)) > 120){
+    c.lastTry.hunger = S.minute;
+    if (!eatSomething(c)){
+      const broke = c.wallet < Math.min(S.goods.good_bread.price, S.goods.good_vegetables.price);
+      if (!S.week.hungry.includes(c.name)) { S.week.hungry.push(c.name); chronicle(broke ? `${c.name} is going hungry and can't afford food.` : `${c.name} is going hungry: the market has run out of food.`, 6, '🍞', 'need'); remember(c, broke ? 'I went hungry today. I could not afford a meal.' : 'I went hungry today. There was no food left at the market.', 7, [], 'Observation'); setEmotion(c,'Anxious',240); }
+      if (broke) charity(c);
+    }
+  }
+}
+function startBlock(c, b){
+  c.rt.did = false;
+  const [tx,ty] = spotFor(c, b.loc);
+  c.rt.dest = b.loc;
+  if (c.rt.x===tx && c.rt.y===ty){ c.rt.path=null; arrive(c,b); return; }
+  const p = findPath(c.rt.x, c.rt.y, tx, ty);
+  if (!p){ c.rt.path=null; c.rt.state='Idle'; c.rt.note='Can\'t get there'; return; }
+  p.shift(); c.rt.path = p; c.rt.state='Traveling'; c.rt.loc=null;
+}
+function step(c){
+  c.rt.ox = c.rt.x; c.rt.oy = c.rt.y;
+  for (let i=0;i<2 && c.rt.path && c.rt.path.length;i++){
+    const [nx,ny] = c.rt.path.shift();
+    if (MAP[ny][nx]===T.BRIDGE && S.bridge.closed){ c.rt.path=null; break; }
+    c.rt.x=nx; c.rt.y=ny;
+  }
+  if (c.rt.path && !c.rt.path.length) c.rt.path = null;
+}
+function arrive(c, b){
+  c.rt.ox=c.rt.x; c.rt.oy=c.rt.y;
+  c.rt.loc = b.loc; c.rt.state = STATE_FOR[b.act]||'Idle'; c.rt.since = S.minute;
+  if (b.act==='Eat' && !c.rt.did){ c.rt.did=true; doMeal(c,b); }
+  if (b.act==='Trade' && b.target==='svc_medical_checkup' && !c.rt.did){ c.rt.did=true; clinicVisit(c); }
+  if (b.act==='Socialize' && b.loc==='loc_tavern' && !c.rt.did){
+    c.rt.did=true;
+    if (c.needs.hunger<70){ const p=buyService(c,'svc_hot_meal'); if (!p) eatSomething(c); }
+    if (c.needs.fun<85 && buy(c,'good_ale',1)) consume(c,'good_ale');
+  }
+}
+function doMeal(c,b){
+  if (c.needs.hunger>85) return;
+  if (b.target==='svc_hot_meal'){ const p=buyService(c,'svc_hot_meal'); if (p){ if (hash(c.id+S.minute)%9===0) remember(c, `Had a hot meal at the Tipsy Lantern. ${p.name} served it.`, 2, [p.id]); return; } }
+  if (!eatSomething(c)) remember(c, 'Skipped a meal; there was nothing I could afford.', 4);
+}
+function eatSomething(c){
+  for (const g of ['good_bread','good_vegetables']) if (c.inventory[g]){ consume(c,g); return true; }
+  const order = S.goods.good_vegetables.price < S.goods.good_bread.price*0.7 ? ['good_vegetables','good_bread'] : ['good_bread','good_vegetables'];
+  let ate=false;
+  for (let k=0;k<3 && c.needs.hunger<72;k++){ let got=false; for (const g of order){ if (buy(c,g,1)){ consume(c,g); got=ate=true; break; } } if (!got) break; }
+  return ate;
+}
+function clinicVisit(c){
+  const p = buyService(c,'svc_medical_checkup');
+  if (p){ c.sick=0; chronicle(`Dr. ${p.name.split(' ')[1]} treated ${c.name}, who is on the mend.`, 5, '🩺', 'health'); remember(c, `${p.name} treated me at the clinic. I feel better already.`, 5, [p.id]); adjustRel(c,p,6); }
+  else remember(c, 'I went to the clinic but could not get seen.', 4);
+}
+function charity(c){
+  const donor = S.citizens.filter(d => d!==c && (d.traits.includes('Generous') || (d.rel[c.id].affinity>60)) && d.wallet>150 && d.rel[c.id].affinity>10).sort((a,b)=>b.rel[c.id].affinity-a.rel[c.id].affinity)[0];
+  if (!donor) return;
+  const amt = 20; donor.wallet -= amt; c.wallet += amt;
+  chronicle(`${donor.name} gave ${c.name} ${amt} coins for food.`, 4, '🤝', 'social');
+  remember(c, `${donor.name} gave me coins when I was hungry. I won't forget it.`, 7, [donor.id]);
+  remember(donor, `I helped ${c.name} buy food.`, 4, [c.id]);
+  adjustRel(c, donor, 14); adjustRel(donor, c, 5);
+}
+function activity(c, b, mod){
+  const n=c.needs;
+  switch (b.act){
+    case 'Sleep': if (c.rt.state!=='Sleeping') c.rt.state='Sleeping'; break;
+    case 'Work': work(c); break;
+    case 'Socialize': n.social=clamp(n.social+0.32,0,100); n.fun=clamp(n.fun+0.14,0,100);
+      if ((mod+hash(c.id))%20===0) socialize(c);
+      if (c.traits.includes('Reckless') && b.loc==='loc_tavern' && (mod%90===0) && n.fun<95 && buy(c,'good_ale',1)) consume(c,'good_ale');
+      break;
+    case 'Leisure': n.fun=clamp(n.fun+0.16,0,100); if (!LOC[b.loc].indoor && (mod+hash(c.id))%30===0) socialize(c); break;
+    case 'AttendTownHall': n.social=clamp(n.social+0.1,0,100); break;
+  }
+  if (c.rt.state==='Working' && b.act==='Work' && mod%60===17){
+    if ((n.comfort<40 && c.wallet > S.goods.good_furniture.price*1.6) || (n.comfort<68 && c.wallet>450)){ if (buy(c,'good_furniture',1)){ consume(c,'good_furniture'); remember(c,'Bought a new piece of furniture for the house.',3,['good_furniture'],'Transaction'); } }
+    else if (n.comfort<30 && !c.rt.did2){ c.rt.did2=true; if (buyService(c,'svc_home_repair')) remember(c,'Paid a carpenter to fix up the house.',3); }
+  }
+}
+function work(c){
+  const P = PROD[c.profession]; if (!P) return;
+  if (c.profession==='Doctor'||c.profession==='Merchant') return;
+  let every = P.every;
+  if (c.profession==='Farmer'){ if (S.weather==='Snow') every*=2; if (S.weather==='Rain') every*=0.85; if (seasonOf(dayOf(S.minute))===3) every*=1.4; }
+  if (P.tool){ c.tool = Math.max(0, c.tool - 0.02); if (c.tool<10){ every*=2; if (S.minute-(c.lastTry.tools||-999)>180){ c.lastTry.tools=S.minute; if (buy(c,'good_tools',1)){ c.inventory.good_tools--; if (!c.inventory.good_tools) delete c.inventory.good_tools; c.tool=100; remember(c,'Bought a new set of iron tools.',3,['good_tools'],'Transaction'); } else if (hash(c.id+dayOf(S.minute))%4===0 && !c.lastTry.toolLog){ c.lastTry.toolLog=1; remember(c,'My tools are worn out and I can\'t replace them.',5); } } } }
+  const make = c.profession==='Farmer' ? (hash(c.id+S.minute)%100<55?'good_wheat':'good_vegetables') : P.make;
+  const def = GD[make];
+  if (P.cap && S.listings.filter(l=>l.g===make).reduce((a,l)=>a+l.qty,0) >= P.cap) return; // crafted goods made to demand
+  if (S.listings.filter(l=>l.g===make && l.seller===c.id).reduce((a,l)=>a+l.qty,0) >= 24) return; // unsold stock piles up: stop producing
+  if (def.recipe){
+    for (const g in def.recipe){
+      if ((c.inventory[g]||0) < def.recipe[g]){
+        if (S.minute-(c.lastTry[g]||-999) >= 30){ c.lastTry[g]=S.minute; buy(c, g, def.recipe[g]*2); }
+        if ((c.inventory[g]||0) < def.recipe[g]) return;
+      }
+    }
+  }
+  c.workAcc++;
+  c.needs.energy = clamp(c.needs.energy-0.015,0,100);
+  if (c.workAcc < every) return;
+  c.workAcc = 0;
+  if (def.recipe) for (const g in def.recipe){ c.inventory[g]-=def.recipe[g]; if (c.inventory[g]<=0) delete c.inventory[g]; }
+  c.inventory[make] = (c.inventory[make]||0)+1;
+  const keep = make==='good_bread' ? 2 : 0;
+  if (c.inventory[make] > keep) list(c, make, c.inventory[make]-keep);
+}
+function adjustRel(a, b, delta){
+  const r = a.rel[b.id]; const before = r.affinity;
+  r.affinity = clamp(Math.round(r.affinity+delta), -100, 100);
+  r.trust = clamp(r.trust + (delta>0?0.01:-0.02), 0, 1);
+  r.familiarity = clamp(r.familiarity+0.02,0,1); r.last = S.minute;
+  if (before<50 && r.affinity>=50 && !r.tags.includes('Friend') && !r.tags.includes('Family')){
+    r.tags.push('Friend'); r.tags = r.tags.filter(t=>t!=='Rival');
+    const rb = b.rel[a.id]; if (rb.affinity>=35 && !rb.tags.includes('Friend')){ rb.tags.push('Friend'); rb.tags=rb.tags.filter(t=>t!=='Rival'); chronicle(`${a.name} and ${b.name} have become friends.`, 6, '🤝', 'social'); S.week.rels.push(`${a.name} & ${b.name} became friends`); remember(a,`${b.name} has become a real friend.`,6,[b.id]); remember(b,`${a.name} has become a real friend.`,6,[a.id]); }
+  }
+  if (before>-50 && r.affinity<=-50 && !r.tags.includes('Rival')){
+    r.tags.push('Rival'); r.tags = r.tags.filter(t=>t!=='Friend');
+    chronicle(`${a.name} now considers ${b.name} a rival.`, 6, '⚔️', 'social'); S.week.rels.push(`${a.name} turned against ${b.name}`);
+    remember(a,`I can't stand ${b.name} anymore.`,6,[b.id]);
+  }
+}
+function socialize(c){
+  const here = S.citizens.filter(o => o!==c && !o.rt.path && o.rt.loc===c.rt.loc && ['Socializing','Idle','Working','AttendingTownHall'].includes(o.rt.state));
+  if (!here.length) return;
+  const o = here[Math.floor(rnd()*here.length)];
+  const ra = c.rel[o.id];
+  const shared = c.values.filter(v=>o.values.includes(v)).length;
+  let delta = 0.5 + (c.personality.agreeableness + o.personality.agreeableness - 1)*1.2 + shared*0.6 + rnd()*2 - 1;
+  if (delta>0) delta *= Math.max(0.15, 1 - ra.affinity/110);
+  const rival = ra.tags.includes('Rival');
+  if (rival) delta -= 4;
+  const quarrelChance = (rival?0.1:0.012) + (c.traits.includes('Stubborn')?0.03:0) + (o.traits.includes('Stubborn')?0.03:0) + (c.traits.includes('Reckless')&&c.rt.loc==='loc_tavern'?0.04:0);
+  const place = placeName(c.rt.loc);
+  if (rnd() < quarrelChance){
+    delta = -9 - rnd()*8;
+    S.week.quarrels++;
+    const topic = pick(['the price of timber','an unpaid debt','the east grove','who gets the corner table','last week\'s vote','a borrowed cart']);
+    chronicle(`${c.name} and ${o.name} argued about ${topic} at ${place}.`, rival?5:4, '💢', 'social');
+    remember(c,`Argued with ${o.name} about ${topic}.`,5,[o.id]); remember(o,`${c.name} picked a fight with me about ${topic}.`,5,[c.id]);
+    setEmotion(c,'Angry',180); setEmotion(o,'Angry',120);
+    S.bubbles.push({id:c.id, text:'!!', until:performance.now()+2500, gm:S.minute});
+  } else if (hash(c.id+S.minute)%6===0) {
+    remember(c,`Chatted with ${o.name} at ${place}.`,2,[o.id],'Dialogue');
+  }
+  adjustRel(c,o,delta); adjustRel(o,c,delta*0.8);
+  // gossip spreads memories
+  if (c.traits.includes('Gossip') && rnd()<0.3){
+    const juicy = c.memory.records.filter(m=>m.imp>=5 && m.kind!=='Reflection' && !m.subj.includes(o.id) && S.minute-m.t<3*DAY).sort((a,b)=>b.imp-a.imp)[0];
+    if (juicy) remember(o, `${c.name.split(' ')[0]} told me: "${juicy.text}"`, 3, [c.id], 'Dialogue');
+  }
+  romance(c,o);
+}
+function romance(a,b){
+  const ra=a.rel[b.id], rb=b.rel[a.id];
+  if (a.partner || b.partner) return;
+  if (ra.tags.includes('Family') || a.age<18 || b.age<18) return;
+  const romantic = a.traits.includes('Romantic') || b.traits.includes('Romantic');
+  if (romantic && ra.affinity>72 && !ra.tags.includes('Crush') && Math.abs(a.age-b.age)<=12){ ra.tags.push('Crush'); chronicle(`${a.name} has a crush on ${b.name}.`, 5, '💘', 'romance'); remember(a,`I think I'm falling for ${b.name}.`,7,[b.id]); }
+  if (ra.tags.includes('Crush') && rb.tags.includes('Crush') && ra.affinity>85 && rb.affinity>80 && !a.courting && !b.courting){
+    a.courting=b.id; b.courting=a.id; a.courtingSince=b.courtingSince=S.minute;
+    chronicle(`${a.name} and ${b.name} are courting! The whole tavern is talking about it.`, 8, '💞', 'romance'); S.week.rels.push(`${a.name} & ${b.name} started courting`);
+    remember(a,`${b.name} and I are together now.`,9,[b.id]); remember(b,`${a.name} and I are together now.`,9,[a.id]);
+  }
+}
+function hasHallBusiness(day){ return true; }
+function placeName(loc){ const n = LOC[loc] ? LOC[loc].name : 'town'; return n.startsWith('The ') ? n : 'the '+n; }
+
+// ---------- governance ----------
+const CANDIDATES = {
+  lumber_tax: {title:'Lumber Tax', category:'Taxation', durationDays:28,
+    summary:'Adds a 15% sales tax on all timber. Revenue goes to the town treasury to repair the bridge.',
+    effects:[{effectType:'SalesTax', targetGoodId:'good_timber', magnitude:0.15}],
+    rationale:'Woodcutters are stripping the east grove and the bridge is failing.',
+    proposer: ()=> bestBy(c=> (c.values.includes('Nature')?2:0)+c.politics.civicEngagement),
+    trigger: ()=> { const h=S.goods.good_timber.hist; const ch=(h[h.length-1]-h[Math.max(0,h.length-168)])/h[Math.max(0,h.length-168)]; return (S.bridge.health<70 && S.treasury<250 ? 0.6:0) + (ch>0.15?0.5:0); }},
+  bread_subsidy: {title:'Bread Subsidy', category:'Subsidy', durationDays:14,
+    summary:'Pays bakers 8 coins a day from the treasury so bread stays affordable.',
+    effects:[{effectType:'Subsidy', targetProfession:'Baker', magnitude:8}],
+    rationale:'Neighbours are going hungry. Bread should never be a luxury.',
+    proposer: ()=> bestBy(c=> (c.values.includes('Community')?1:0) + (100-c.needs.hunger)/100 + c.politics.civicEngagement*.5),
+    trigger: ()=> (S.week.hungry.length>=1?0.7:0) + (S.goods.good_bread.price>GD.good_bread.base*1.4?0.5:0) + (sum(S.goods.good_bread.unmet)>=4?0.4:0) },
+  tavern_curfew: {title:'Tavern Curfew', category:'PublicOrder', durationDays:14,
+    summary:'Closes the Tipsy Lantern from 22:00 to 05:00. Nobody may linger there after dark.',
+    effects:[{effectType:'Curfew', targetZoneId:'loc_tavern', magnitude:1, startMinuteOfDay:22*60, endMinuteOfDay:5*60}],
+    rationale:'Every brawl in this town starts at the tavern after dark.',
+    proposer: ()=> bestBy(c=> c.politics.orderLeaning + c.politics.civicEngagement*.5),
+    trigger: ()=> S.week.quarrels>=3 ? 0.4 + S.week.quarrels*0.1 : 0 },
+  timber_cap: {title:'Timber Price Cap', category:'PriceControl', durationDays:14,
+    summary:'Holds the market price of timber at 75% of what supply and demand would set.',
+    effects:[{effectType:'PriceMultiplier', targetGoodId:'good_timber', magnitude:0.75}],
+    rationale:'Carpenters and smiths cannot work if timber costs a fortune.',
+    proposer: ()=> bestBy(c=> (['Carpenter','Blacksmith'].includes(c.profession)?1:0)+c.politics.civicEngagement),
+    trigger: ()=> S.goods.good_timber.price >= GD.good_timber.base*1.5 ? 0.9 : 0 },
+  market_levy: {title:'Craft Market Levy', category:'Taxation', durationDays:21,
+    summary:'A 8% sales tax on crafted goods (tools and furniture) to refill the treasury.',
+    effects:[{effectType:'SalesTax', targetCategory:'Crafted', magnitude:0.08}],
+    rationale:'The treasury is empty and the bridge will not fix itself.',
+    proposer: ()=> bestBy(c=> c.politics.orderLeaning*.5 - c.politics.economicLeaning*.5 + c.politics.civicEngagement),
+    trigger: ()=> (S.treasury<80?0.6:0) + (S.bridge.health<40?0.5:0) },
+  farm_subsidy: {title:'Farmers\' Relief', category:'Subsidy', durationDays:14,
+    summary:'Pays each farmer 6 coins a day while grain prices sit at rock bottom.',
+    effects:[{effectType:'Subsidy', targetProfession:'Farmer', magnitude:6}],
+    rationale:'Wheat sells for less than it costs to grow. The farm will not survive another season like this.',
+    proposer: ()=> bestBy(c=> (c.profession==='Farmer'?1.5:0)+c.politics.civicEngagement),
+    trigger: ()=> S.goods.good_wheat.price<=GD.good_wheat.floor+0 ? 0.55 : 0 }
+};
+function bestBy(f){ return S.citizens.slice().sort((a,b)=>f(b)-f(a))[0]; }
+function validateProposal(p){
+  if (!p.effects.length || p.effects.length>3) return 'An act may carry one to three effects.';
+  if (activeLaws().length>=5) return 'Five laws are already in force.';
+  for (const e of p.effects){
+    if (e.effectType==='PriceMultiplier' && (e.magnitude<0.5||e.magnitude>2)) return 'Price multiplier out of range.';
+    if (e.effectType==='SalesTax' && (e.magnitude<0||e.magnitude>0.3)) return 'Sales tax out of range.';
+    if (e.effectType==='Subsidy' && (e.magnitude<1||e.magnitude>50)) return 'Subsidy out of range.';
+    if (e.effectType==='Curfew'){ let len=e.endMinuteOfDay-e.startMinuteOfDay; if (len<=0) len+=DAY; if (len<120||len>480) return 'Curfew window must be 2 to 8 hours.'; }
+  }
+  return null;
+}
+function draftProposal(){
+  const d = dayOf(S.minute);
+  if (S.gov.proposals.some(p=>p.status==='Debating'||p.status==='Voting')) return;
+  let key = null;
+  if (d < 7 && !S.gov.proposals.length) key = 'lumber_tax';   // scripted first proposal (build step 5)
+  else {
+    const activeKeys = new Set(S.gov.proposals.filter(p=>['Enacted','Passed'].includes(p.status)).map(p=>p.key));
+    let best=0;
+    for (const k in CANDIDATES){
+      if (activeKeys.has(k)) continue;
+      if (S.gov.cooldown[k] && d - S.gov.cooldown[k] < 7) continue;
+      const s = CANDIDATES[k].trigger() + rnd()*0.15;
+      if (s>best && s>0.45){ best=s; key=k; }
+    }
+  }
+  if (!key) return;
+  const C = CANDIDATES[key]; const proposer = C.proposer();
+  const hallDay = d + (6 - d%7);
+  const p = {
+    schemaVersion:1, proposalId:'law_'+String(S.gov.nextId++).padStart(4,'0'), key, title:C.title, summary:C.summary, category:C.category,
+    proposerId:proposer.id, proposerRationale:C.rationale, proposedAtMinute:S.minute,
+    triggeringIndicators:[{indicator:'price.good_timber', value:S.goods.good_timber.price, atMinute:S.minute},{indicator:'treasury.balance', value:S.treasury, atMinute:S.minute}],
+    effects:JSON.parse(JSON.stringify(C.effects)), durationDays:C.durationDays,
+    voting:{townHallAtMinute:hallDay*DAY+18*60, quorumFraction:0.5, passThreshold:0.5, eligibleVoterIds:S.citizens.map(c=>c.id)},
+    votes:[], status:'Draft', enactedAtMinute:null, expiresAtMinute:null
+  };
+  const err = validateProposal(p);
+  if (err){ p.status='Rejected'; p.rejectReason=err; S.gov.proposals.push(p); chronicle(`The clerk refused "${p.title}": ${err}`, 4, '📜', 'law'); return; }
+  p.status='Debating'; S.gov.proposals.push(p);
+  chronicle(`${proposer.name} proposed the ${p.title}: "${C.rationale}" Town hall vote on ${WEEKDAYS[6]} at 18:00.`, 7, '📜', 'law');
+  S.citizens.forEach(c => remember(c, `${proposer.name} proposed the ${p.title}. We vote at the town hall on ${WEEKDAYS[6]}.`, c===proposer?6:3, [proposer.id,p.proposalId], 'Observation'));
+}
+function weekSum(c, field, g){ let s=0; c.days.forEach(d=>{ s += g ? ((d[field]||{})[g]||0) : (d[field]||0); }); return s; }
+function projectedImpact(c, p){
+  let coins = 0;
+  for (const e of p.effects){
+    const goods = GOOD_DEFS.filter(g=>effTargets(e,g.id)).map(g=>g.id);
+    if (e.effectType==='SalesTax') goods.forEach(g=>{ coins -= e.magnitude*S.goods[g].price*weekSum(c,'bought',g); coins -= 0.5*e.magnitude*S.goods[g].price*weekSum(c,'sold',g); });
+    if (e.effectType==='PriceMultiplier') goods.forEach(g=>{ const d=(1-e.magnitude)*S.goods[g].price; coins += d*weekSum(c,'bought',g) - d*weekSum(c,'sold',g); });
+    if (e.effectType==='Subsidy' && c.profession===e.targetProfession) coins += e.magnitude*7;
+    if (e.effectType==='Curfew' && c.profession==='TavernKeeper') coins -= 0.3*S.goods.good_ale.price*weekSum(c,'sold','good_ale') + 0.2*S.goods.svc_hot_meal.price*weekSum(c,'sold','svc_hot_meal');
+  }
+  return Math.round(coins);
+}
+const VALUE_TABLE = {
+  Taxation:{plus:['Community','Order'], minus:['Prosperity','Freedom']},
+  Subsidy:{plus:['Community','Family'], minus:['Freedom']},
+  PriceControl:{plus:['Community','Family'], minus:['Prosperity','Freedom']},
+  PublicOrder:{plus:['Order','Tradition','Family'], minus:['Freedom']},
+  Zoning:{plus:['Order','Nature'], minus:['Freedom']},
+  Labor:{plus:['Community','Family'], minus:['Prosperity']}
+};
+function castVote(c, p){
+  const income = weekSum(c,'inc');
+  const wallet = projectedImpact(c,p);
+  const F = clamp(wallet / Math.max(income, 50), -1, 1);
+  const wF = (c.traits.includes('Frugal')||c.traits.includes('Greedy')) ? 1.5 : 1;
+  let rNum=0, rDen=0; const influencedBy=[];
+  p.votes.forEach(v => { const r=c.rel[v.citizenId]; if (!r || r.affinity<=20 || v.choice==='Abstain') return; const w=(r.affinity/100)*r.trust; rNum += w*(v.choice==='Yes'?1:-1); rDen += w; influencedBy.push(v.citizenId); });
+  const R = rDen ? rNum/rDen : 0;
+  const tbl = VALUE_TABLE[p.category] || {plus:[],minus:[]};
+  let V = 0; c.values.forEach(v=>{ if (tbl.plus.includes(v)) V+=.5; if (tbl.minus.includes(v)) V-=.5; });
+  if (p.key==='lumber_tax' && c.values.includes('Nature')) V += .5;
+  V = clamp(V,-1,1);
+  const tF = 0.5*F*wF, tR = 0.3*R, tV = 0.2*V;
+  let score = tF + tR + tV;
+  if (c.id===p.proposerId) score = Math.max(score, 0.6);
+  const choice = score>0.1?'Yes':score<-0.1?'No':'Abstain';
+  const terms = [['Financial',Math.abs(tF)],['Relationships',Math.abs(tR)],['Values',Math.abs(tV)]].sort((a,b)=>b[1]-a[1]);
+  let motivation = choice==='Abstain' ? 'Indifference' : terms[0][0];
+  const rival = S.citizens.find(o=>o.id===p.proposerId && c.rel[o.id] && c.rel[o.id].tags.includes('Rival'));
+  if (rival && choice==='No' && motivation==='Relationships') motivation='Spite';
+  const ally = influencedBy.map(cById).sort((a,b)=>c.rel[b.id].affinity-c.rel[a.id].affinity)[0];
+  const statement = voteStatement(c, p, choice, motivation, wallet, ally, rival);
+  const v = {citizenId:c.id, choice, confidence:+Math.min(1,Math.abs(score)).toFixed(2), primaryMotivation:motivation, publicStatement:statement, castAtMinute:S.minute, decidedBy:'Fallback', influencedBy:influencedBy.slice(0,5), walletImpact:wallet};
+  p.votes.push(v);
+  remember(c, `I voted ${choice} on the ${p.title}. ${choice==='Abstain'?'It barely touches me.':motivation==='Financial'?`It would ${wallet>=0?'help':'cost'} me about ${Math.abs(wallet)} coins a week.`:motivation==='Values'?'It is about what kind of town we are.':ally?`I stood with ${ally.name}.`:'I followed my gut.'}`, 5, [p.proposalId], 'Vote');
+  S.bubbles.push({id:c.id, text:choice==='Yes'?'AYE':choice==='No'?'NAY':'...', until:performance.now()+4000, gm:S.minute, long:statement});
+}
+function voteStatement(c,p,choice,mot,wallet,ally,rival){
+  const v = c.values[0];
+  if (c.id===p.proposerId) return p.proposerRationale;
+  if (choice==='Abstain') return pick(['Doesn\'t touch me much either way.','I\'ll leave this one to the rest of you.','Wake me when it\'s over.']);
+  if (mot==='Financial') return choice==='Yes' ? pick([`That's coin back in my pocket. Aye.`,`Good for business. Aye.`,`My purse says yes.`]) : pick([`I can't afford this. Nay.`,`That's ${Math.abs(wallet)} coins a week out of my pocket. No.`,`We can't afford it.`]);
+  if (mot==='Relationships') return choice==='Yes' ? `I stand with ${ally?ally.name.split(' ')[0]:'my friends'} on this.` : `If ${ally?ally.name.split(' ')[0]:'my friends'} says no, so do I.`;
+  if (mot==='Spite') return `Anything ${rival?rival.name.split(' ')[0]:'that lot'} wants, I don't.`;
+  const lines = {
+    Community:['Good for the whole town.','We look after each other here.'], Nature:['The grove won\'t last another season.','Leave the trees be.'],
+    Order:['Rules keep us safe.','A town needs order.'], Tradition:['My father would have voted the same.','It\'s how things were done.'],
+    Freedom:['Nobody tells me what to do with my own coin.','Stop meddling in our lives.'], Prosperity:['Taxes choke trade.','Let the market decide.'],
+    Family:['I\'m thinking of my family.','For the children.'], Craftsmanship:['Good work deserves a fair price.','Craft needs materials.']
+  };
+  return pick(lines[v] || ['So be it.']);
+}
+function governanceTick(){
+  const d = dayOf(S.minute), mod = modOf(S.minute);
+  const p = S.gov.proposals.find(p=>p.status==='Debating'||p.status==='Voting');
+  if (!p) return;
+  if (p.status==='Debating' && S.minute>=p.voting.townHallAtMinute){
+    p.status='Voting'; S.gov.voteOrder = [p.proposerId].concat(S.citizens.map(c=>c.id).filter(id=>id!==p.proposerId));
+    S.gov.voteTimes = S.gov.voteOrder.map((id,i)=>p.voting.townHallAtMinute + 5 + i*4 + (hash(id+d)%3));
+    chronicle(`The town hall meeting on the ${p.title} has begun.`, 5, '🏛️', 'law');
+  }
+  if (p.status==='Voting'){
+    S.gov.voteOrder.forEach((id,i)=>{
+      if (S.gov.voteTimes[i]!==S.minute) return;
+      const c = cById(id);
+      if (c.rt.loc==='loc_town_hall' && !c.rt.path) castVote(c,p);
+    });
+    if (S.minute >= p.voting.townHallAtMinute + 60) tally(p);
+  }
+}
+function tally(p){
+  const yes=p.votes.filter(v=>v.choice==='Yes').length, no=p.votes.filter(v=>v.choice==='No').length, ab=p.votes.filter(v=>v.choice==='Abstain').length;
+  const eligible = p.voting.eligibleVoterIds.length;
+  const quorum = (yes+no) >= p.voting.quorumFraction*eligible;
+  const passed = quorum && yes/(yes+no||1) > p.voting.passThreshold;
+  p.status = passed ? 'Passed' : 'Rejected';
+  p.tally = {yes,no,abstain:ab,absent:eligible-p.votes.length,quorum};
+  if (!passed) S.gov.cooldown[p.key] = dayOf(S.minute);
+  const msg = passed ? `The ${p.title} PASSED ${yes}–${no}${ab?` (${ab} abstained)`:''}. It takes effect at dawn.` : `The ${p.title} was REJECTED ${yes}–${no}${ab?` (${ab} abstained)`:''}${quorum?'':' (no quorum)'}.`;
+  chronicle(msg, 8, passed?'✅':'❌', 'law');
+  S.week.townHall = {title:p.title, id:p.proposalId, result:p.status, yes, no, abstain:ab, absent:p.tally.absent, proposer:cById(p.proposerId).name,
+    statements:p.votes.slice(0,12).map(v=>({name:cById(v.citizenId).name, choice:v.choice, text:v.publicStatement, why:v.primaryMotivation}))};
+  p.votes.forEach(v=>{ const c=cById(v.citizenId); const won=(v.choice==='Yes')===passed; if (v.choice==='Abstain') return;
+    c.mood.valence = clamp(c.mood.valence + (won?0.1:-0.1),-1,1);
+    if (!won && v.confidence>0.5) setEmotion(c,'Resentful',DAY/2); else if (won && v.confidence>0.5) setEmotion(c,'Proud',DAY/3); });
+}
+function dailyGovernance(){
+  const d = dayOf(S.minute);
+  S.gov.proposals.forEach(p=>{
+    if (p.status==='Enacted' && p.expiresAtMinute && S.minute>=p.expiresAtMinute){ p.status='Expired'; chronicle(`The ${p.title} has expired.`, 6, '📜', 'law'); }
+  });
+  S.gov.proposals.forEach(p=>{
+    if (p.status==='Passed'){ p.status='Enacted'; p.enactedAtMinute=S.minute; p.expiresAtMinute = p.durationDays ? S.minute + p.durationDays*DAY : null;
+      chronicle(`The ${p.title} is now law${p.durationDays?` for ${p.durationDays} days`:''}.`, 7, '⚖️', 'law');
+      S.citizens.forEach(c=>remember(c, `The ${p.title} became law today.`, 4, [p.proposalId]));
+    }
+  });
+  if (d%7===1 || (d%7<=4 && d%7>=1 && !S.gov.proposals.some(p=>p.status==='Debating'))) draftProposal();
+  // subsidies
+  S.citizens.forEach(c=>{ const s=lawQuery.subsidy(c.profession); if (!s) return; if (S.treasury>=s){ S.treasury-=s; c.wallet+=s; today(c).inc+=s; } else if (!S.week.subsidyFail){ S.week.subsidyFail=1; chronicle(`The treasury is too empty to pay the ${c.profession.toLowerCase()} subsidy.`, 5, '💸', 'economy'); } });
+}
+
+// ---------- day / hour / minute pipeline ----------
+function rollWeather(season){
+  const r = rnd();
+  const t = [[['Clear',.5],['Cloudy',.2],['Rain',.25],['Storm',.05]],[['Clear',.65],['Cloudy',.15],['Rain',.1],['Storm',.1]],[['Cloudy',.3],['Rain',.25],['Fog',.25],['Clear',.15],['Storm',.05]],[['Snow',.4],['Cloudy',.3],['Clear',.2],['Fog',.1]]][season];
+  let a=0; for (const [w,p] of t){ a+=p; if (r<a) return w; } return 'Clear';
+}
+function dayStarted(){
+  const d = dayOf(S.minute), season = seasonOf(d);
+  if (d%7===0 && d>0) closeWeek();
+  if (!S.week) openWeek();
+  S.weather = rollWeather(season);
+  S.week.weather[S.weather] = (S.week.weather[S.weather]||0)+1;
+  if (S.weather==='Storm') chronicle('A storm rolls in over Pixel Town. Outdoor work is off for the day.', 4, '⛈️', 'weather');
+  S.festival = d>0 && d%28===0;
+  if (S.festival) chronicle(`The ${SEASONS[season]} Festival begins on the town square tonight!`, 7, '🎉', 'festival');
+  if (d>0 && d%112===0) S.citizens.forEach(c=>c.age++);
+  // bridge
+  if (!S.bridge.closed){
+    S.bridge.health = Math.max(0, S.bridge.health - (S.weather==='Storm'?8:1.6));
+    if (S.bridge.health<=0){ S.bridge.closed=true; pathCache.clear(); chronicle('The old river bridge has collapsed! The east grove and the mine are cut off.', 9, '🌉', 'infrastructure'); S.citizens.forEach(c=>remember(c,'The bridge collapsed. Nobody can reach the grove or the mine.',8)); }
+    else if (S.bridge.health<25 && !S.bridge.warned){ S.bridge.warned=true; chronicle('The river bridge is groaning under every cart. It will not last much longer.', 6, '🌉', 'infrastructure'); }
+  }
+  if ((S.bridge.health<60 || S.bridge.closed) && S.treasury>=220) repairBridge();
+  // coin faucet and sinks
+  // town charter: 2¢ hearth tax plus 4% of savings above 250¢; 2¢ founding stipend back to everyone
+  S.citizens.forEach(c=>{ c.wallet += 2; const rent = Math.min(c.wallet, 2 + Math.floor(Math.max(0, c.wallet-250)*0.04)); c.wallet -= rent; S.treasury += rent; S.week.hearth=(S.week.hearth||0)+rent; });
+  S.treasury = Math.max(0, S.treasury - 10);
+  const doc = S.citizens.find(c=>c.profession==='Doctor'); if (doc && S.treasury>=12){ S.treasury-=12; doc.wallet+=12; today(doc).inc+=12; } // physician's retainer
+  if (S.treasury > 300){ // public works: surplus goes back out as wages to the poorest
+    const pot = Math.round((S.treasury-300)*0.25); const poor = S.citizens.slice().sort((a,b)=>a.wallet-b.wallet).slice(0,3);
+    const each = Math.floor(pot/poor.length);
+    if (each>0){ poor.forEach(c=>{ c.wallet+=each; today(c).inc+=each; }); S.treasury -= each*poor.length;
+      if (!S.week.works){ S.week.works=1; chronicle(`The treasury hired ${poor.map(c=>c.name.split(' ')[0]).join(', ')} for road and fence repairs (${each}¢ each).`, 4, '🛠️', 'economy'); } }
+  }
+  // spoilage
+  let spoiled=0; S.listings.forEach(l=>{ const p=GD[l.g].perish; if (p && d-l.at>=p){ spoiled+=l.qty; l.qty=0; } });
+  if (spoiled>=10) chronicle(`${spoiled} units of food spoiled unsold at the market.`, 3, '🥀', 'economy');
+  // citizen daily
+  S.citizens.forEach(c=>{
+    c.days.push(newDayBucket()); if (c.days.length>7) c.days.shift();
+    c.svcUsed = 0; c.rt.did2=false; c.lastTry.toolLog=0;
+    if (c.sick) c.sick++;
+    if (c.sick>4){ c.sick=0; remember(c,'I finally shook off that illness on my own.',4); }
+    if (!c.sick && rnd() < (season===3?0.04:0.02)){ c.sick=1; chronicle(`${c.name} woke up sick.`, 4, '🤒', 'health'); remember(c,'I woke up feeling awful.',5); }
+    if (c.courting && c.rel[c.courting].affinity>=92 && S.minute-c.courtingSince > 14*DAY && c.id<c.courting && cById(c.courting).courting===c.id){ wedding(c, cById(c.courting)); }
+  });
+  dailyGovernance();
+  S.citizens.forEach(c=>{ c.plan = buildPlan(c, d); c.rt.blockIdx = -1; });
+}
+function repairBridge(){
+  const carps = S.citizens.filter(c=>c.profession==='Carpenter');
+  const got = []; const woodBuyer = {id:'treasury'};
+  let logs=0; while (logs<6){ const L=S.listings.find(l=>l.g==='good_timber'&&l.qty>0); if (!L) break; const price=S.goods.good_timber.price; if (S.treasury<price+120) break; const seller=cById(L.seller); S.treasury-=price; seller.wallet+=price; today(seller).inc+=price; today(seller).sold.good_timber=(today(seller).sold.good_timber||0)+1; L.qty--; logs++; }
+  const wage = 60; carps.forEach(c=>{ S.treasury-=wage; c.wallet+=wage; today(c).inc+=wage; });
+  const wasClosed = S.bridge.closed;
+  S.bridge = {health:100, closed:false, warned:false}; pathCache.clear();
+  chronicle(`${wasClosed?'The bridge is rebuilt!':'The river bridge has been repaired.'} The treasury paid ${carps.map(c=>c.name.split(' ')[0]).join(' and ')} for the work and bought ${logs} logs of timber.`, 8, '🔨', 'infrastructure');
+  S.citizens.forEach(c=>remember(c, 'The bridge was repaired with treasury money.', carps.includes(c)?6:3));
+}
+function wedding(a,b){
+  a.partner=b.id; b.partner=a.id; a.courting=b.courting=null;
+  [a,b].forEach(x=>{ const o=x===a?b:a; const r=x.rel[o.id]; r.tags=r.tags.filter(t=>t!=='Crush'); r.tags.push('Spouse','Family'); });
+  chronicle(`Wedding bells! ${a.name} and ${b.name} were married on the town square.`, 10, '💍', 'romance');
+  S.week.rels.push(`${a.name} & ${b.name} got married`);
+  S.citizens.forEach(c=>remember(c, `${a.name} and ${b.name} got married today.`, c===a||c===b?10:4, [a.id,b.id]));
+  S.festival = true;
+}
+function hourTick(){
+  reprice();
+  S.citizens.forEach(c=>{
+    updateMood(c);
+    if (c.memory.since >= 50) reflect(c);
+  });
+  const hist = S.goods.good_timber.hist;
+  if (hist.length>=25){ const p=hist[hist.length-1], q=hist[hist.length-25]; if (p>=q*1.3 && !S.week.scarce){ S.week.scarce=1; chronicle(`Timber is scarce: prices jumped from ${q} to ${p} coins in a day.`, 5, '🪵', 'economy'); } }
+}
+function updateMood(c){
+  const n=c.needs; const avg=(n.hunger+n.energy+n.social+n.comfort+n.fun)/5; const mn=Math.min(n.hunger,n.energy,n.social,n.comfort,n.fun);
+  const target = clamp((avg-55)/45 + (c.wallet<20?-0.2:c.wallet>400?0.1:0) + (c.sick?-0.2:0), -1, 1);
+  c.mood.valence = clamp(c.mood.valence + (target-c.mood.valence)*0.3, -1, 1);
+  c.mood.stress = clamp(1 - mn/60 + (c.sick?0.2:0) + (c.wallet<20?0.2:0), 0, 1);
+  c.mood.arousal = c.rt.state==='Sleeping'?0.1:c.rt.state==='Socializing'?0.7:0.4;
+  let e;
+  if (c.mood.emoForced && S.minute < c.mood.emoUntil) e = c.mood.emoForced;
+  else if (c.mood.stress>0.65) e='Anxious';
+  else if (c.mood.valence<-0.3) e='Sad';
+  else if (n.fun<25) e='Bored';
+  else if (c.mood.valence>0.5) e='Joyful';
+  else e='Content';
+  c.mood.emotion = e;
+}
+function reflect(c){
+  const opts = [];
+  const rels = Object.entries(c.rel).sort((a,b)=>b[1].affinity-a[1].affinity);
+  const best = cById(rels[0][0]), worst = cById(rels[rels.length-1][0]);
+  opts.push(`I've come to rely on ${best.name}. Whatever happens, they have my back.`);
+  if (c.rel[worst.id].affinity < -20) opts.push(`I don't trust ${worst.name}, and I doubt I ever will.`);
+  const inc = weekSum(c,'inc'), exp = weekSum(c,'exp');
+  if (inc > exp*1.3 && inc>40) opts.push('Business has been good lately. I could afford to be more generous.');
+  if (exp > inc*1.3 && exp>30) opts.push('I spend more than I earn. Something has to change.');
+  const law = activeLaws()[0]; if (law) opts.push(`The ${law.title} is changing how I live, whether I like it or not.`);
+  if (c.needs.social<35) opts.push('I have been lonely. I should spend more evenings with people.');
+  if (c.sick) opts.push('Being ill makes me realise how fragile all of this is.');
+  const text = opts[Math.floor(rnd()*opts.length)];
+  remember(c, text, 6, [], 'Reflection');
+  c.memory.since = 0; c.memory.lastReflection = S.minute;
+}
+function simTick(){
+  S.minute++;
+  const mod = modOf(S.minute);
+  // Order 100: time
+  if (mod===0) dayStarted();
+  // Order 200: governance
+  governanceTick();
+  // Order 300: agents (stable id order)
+  for (const c of S.citizens) agentTick(c);
+  // Order 400: economy
+  if (mod%60===0) hourTick();
+}
+
+// ---------- weekly log ----------
+function openWeek(){
+  const d = dayOf(S.minute);
+  S.week = {n:weekNo(d), startDay:d - d%7, trades:0, volume:0, taxes:0, quarrels:0, events:[], hungry:[], rels:[], income:{}, spent:{}, weather:{},
+    prices:Object.fromEntries(GOOD_DEFS.map(g=>[g.id,S.goods[g.id].price])), treasuryStart:S.treasury, townHall:null, song:null};
+}
+function closeWeek(){
+  const w = S.week; if (!w) return;
+  const endDay = w.startDay+6;
+  const byImp = w.events.slice().sort((a,b)=>b.imp-a.imp || b.t-a.t);
+  const topE = Object.entries(w.income).sort((a,b)=>b[1]-a[1])[0];
+  const topS = Object.entries(w.spent).sort((a,b)=>b[1]-a[1])[0];
+  const avgMood = S.citizens.reduce((a,c)=>a+c.mood.valence,0)/S.citizens.length;
+  const entry = {
+    n:w.n, startDay:w.startDay, endDay, headline: byImp[0] ? byImp[0].text : 'A quiet week in Pixel Town.',
+    stats:{trades:w.trades, volume:w.volume, taxes:w.taxes, treasuryStart:w.treasuryStart, treasuryEnd:S.treasury, avgMood:+avgMood.toFixed(2), bridge:Math.round(S.bridge.health), bridgeClosed:S.bridge.closed, quarrels:w.quarrels},
+    weather:w.weather,
+    prices: GOOD_DEFS.map(g=>({g:g.id, name:g.name, start:w.prices[g.id], end:S.goods[g.id].price})),
+    townHall:w.townHall, laws:activeLaws().map(p=>p.title),
+    topEarner: topE ? {name:cById(topE[0]).name, amt:topE[1]} : null,
+    topSpender: topS ? {name:cById(topS[0]).name, amt:topS[1]} : null,
+    hungry:w.hungry.slice(), rels:w.rels.slice(),
+    highlights: byImp.slice(0,8).sort((a,b)=>a.t-b.t),
+    song:null
+  };
+  S.weeks.push(entry);
+  chronicle(`Week ${w.n} is in the books. ${entry.headline}`, 5, '📖', 'week');
+  S.week = null; openWeek();
+}
+function weekToMarkdown(w, live){
+  const L=[];
+  L.push(`## Week ${w.n}${live?' (in progress)':''}: ${fmtDateShort(w.startDay)} – ${fmtDateShort(w.endDay)}`);
+  L.push(`**Headline:** ${w.headline}`);
+  const s=w.stats;
+  L.push(`- Trades: ${s.trades} (${s.volume} coins), taxes collected: ${s.taxes}`);
+  L.push(`- Treasury: ${s.treasuryStart} → ${s.treasuryEnd} coins · Bridge: ${s.bridgeClosed?'COLLAPSED':s.bridge+'%'} · Avg mood: ${s.avgMood}`);
+  L.push(`- Weather: ${Object.entries(w.weather).map(([k,v])=>`${k} ×${v}`).join(', ')||'n/a'}`);
+  if (w.townHall){ const t=w.townHall; L.push(`- Town hall: **${t.title}** (proposed by ${t.proposer}) → ${t.result} ${t.yes}–${t.no}, ${t.abstain} abstained, ${t.absent} absent`); t.statements.slice(0,5).forEach(x=>L.push(`  - ${x.name} (${x.choice}): "${x.text}"`)); }
+  else L.push('- Town hall: no vote this week');
+  if (w.laws.length) L.push(`- Laws in force: ${w.laws.join(', ')}`);
+  if (w.topEarner) L.push(`- Top earner: ${w.topEarner.name} (${w.topEarner.amt} coins)${w.topSpender?`, biggest spender: ${w.topSpender.name} (${w.topSpender.amt})`:''}`);
+  if (w.hungry.length) L.push(`- Went hungry: ${w.hungry.join(', ')}`);
+  if (w.rels.length) L.push(`- Relationships: ${w.rels.join('; ')}`);
+  L.push('- Prices: ' + w.prices.map(p=>`${p.name} ${p.start}→${p.end}`).join(', '));
+  L.push('', '**Happenings**');
+  w.highlights.forEach(h=>L.push(`- ${fmtStamp(h.t)} ${h.icon} ${h.text}`));
+  if (w.song) L.push('', `Theme song: https://suno.com/song/${w.song}`);
+  return L.join('\n');
+}
+function fmtDateShort(d){ return `${SEASONS[seasonOf(d)]} ${d%28+1}, Y${yearOf(d)}`; }
+function liveWeekEntry(){
+  const w=S.week; const byImp=w.events.slice().sort((a,b)=>b.imp-a.imp||b.t-a.t);
+  const topE = Object.entries(w.income).sort((a,b)=>b[1]-a[1])[0];
+  return {n:w.n, startDay:w.startDay, endDay:w.startDay+6, headline: byImp[0]?byImp[0].text:'The week is just getting started.',
+    stats:{trades:w.trades, volume:w.volume, taxes:w.taxes, treasuryStart:w.treasuryStart, treasuryEnd:S.treasury, avgMood:+(S.citizens.reduce((a,c)=>a+c.mood.valence,0)/S.citizens.length).toFixed(2), bridge:Math.round(S.bridge.health), bridgeClosed:S.bridge.closed, quarrels:w.quarrels},
+    weather:w.weather, prices:GOOD_DEFS.map(g=>({g:g.id,name:g.name,start:w.prices[g.id],end:S.goods[g.id].price})), townHall:w.townHall, laws:activeLaws().map(p=>p.title),
+    topEarner: topE?{name:cById(topE[0]).name, amt:topE[1]}:null, topSpender:null, hungry:w.hungry, rels:w.rels, highlights:byImp.slice(0,8).sort((a,b)=>a.t-b.t), song:w.song};
+}
+function balladPrompt(w){
+  const lines = w.highlights.slice(0,6).map(h=>h.text.replace(/[!"]/g,'').replace(/\s+/g,' ').trim());
+  const style = w.townHall ? 'medieval folk ballad, fiddle, lute, chiptune accents, town-crier storytelling, mid-tempo' : 'cozy 16-bit folk ballad, acoustic guitar, flute, chiptune arpeggios, warm storytelling';
+  return `STYLE:\n${style}\n\nTITLE:\nPixel Town, Week ${w.n}\n\nLYRICS:\n[Verse 1]\n${(lines[0]||'The clock turns over in Pixel Town')}\n${(lines[1]||'An hour for each day, and the lanterns burn down')}\n\n[Chorus]\nOh Pixel Town, the bells ring on,\nA day for every hour and the week is gone,\nWe trade and we quarrel and we vote in the hall,\nAnd the river keeps running through it all.\n\n[Verse 2]\n${(lines[2]||'The baker is up before the sun')}\n${(lines[3]||'The market is loud till the day is done')}\n\n[Bridge]\n${w.townHall?`${w.townHall.title}: ${w.townHall.result.toLowerCase()}, ${w.townHall.yes} to ${w.townHall.no}`:'No vote this week, just the fountain and the rain'}\n\n[Chorus]`;
+}
+
+// ---------- clock (absolute real time, rebased on pause/speed change) ----------
+const clock = {
+  realAnchor: Date.now(), gameAnchor: 0, speed:1, paused:false,
+  now(){ return this.paused ? this.gameAnchor : this.gameAnchor + (Date.now()-this.realAnchor)/MS_PER_GAME_MIN*this.speed; },
+  rebase(g){ this.gameAnchor = (g===undefined ? this.now() : g); this.realAnchor = Date.now(); },
+  setSpeed(s){ this.rebase(); this.speed=s; this.paused=false; saveGame(); },
+  pause(){ this.rebase(); this.paused=true; saveGame(); }
+};
+
+// ---------- save / load ----------
+function saveGame(){
+  if (!S) return;
+  S.rng = RNG.s;
+  store.set(SAVE_KEY, {state:S, clock:{speed:clock.speed, paused:clock.paused, gameAt:clock.now()}, savedAt:Date.now()});
+}
+function loadGame(){
+  const sv = store.get(SAVE_KEY);
+  if (!sv || !sv.state || sv.state.v!==1) return null;
+  return sv;
+}
+
+// ---------- rendering ----------
+const cv = document.getElementById('view'), ctx = cv.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+const staticCv = document.createElement('canvas'); staticCv.width=W; staticCv.height=H; const sctx = staticCv.getContext('2d');
+const lightCv = document.createElement('canvas'); lightCv.width=W; lightCv.height=H; const lctx = lightCv.getContext('2d');
+let staticKey = '';
+const GRASS = ['#5f9e4a','#4f8f3a','#8d8a3c','#dfe6ee'];
+const GRASS_D = ['#4f8a3e','#437c31','#7a7632','#c6cfda'];
+const CANOPY = ['#3f7d3a','#2f6b2e','#c8702a','#dfe6ee'];
+function shade(hex, f){ const n=parseInt(hex.slice(1),16); let r=n>>16,g=(n>>8)&255,b=n&255; r=clamp(Math.round(r*f),0,255); g=clamp(Math.round(g*f),0,255); b=clamp(Math.round(b*f),0,255); return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1); }
+function px(c,x,y,w,h,col){ c.fillStyle=col; c.fillRect(x,y,w,h); }
+function drawStatic(){
+  const d = dayOf(S.minute), season = seasonOf(d);
+  const key = `${season}|${S.bridge.closed}|${S.weather==='Snow'}`;
+  if (key===staticKey) return; staticKey = key;
+  const c = sctx; const sn = season===3 || S.weather==='Snow' ? 3 : season;
+  for (let y=0;y<MH;y++) for (let x=0;x<MW;x++){
+    const t=MAP[y][x], v=TVAR[y][x], X=x*TILE, Y=y*TILE;
+    px(c,X,Y,8,8, v<0.5?GRASS[sn]:shade(GRASS[sn],0.96));
+    if (v>0.8) px(c,X+((v*37)|0)%7,Y+((v*53)|0)%7,1,1,GRASS_D[sn]);
+    if (v<0.15) px(c,X+((v*91)|0)%6,Y+((v*71)|0)%6,1,2,GRASS_D[sn]);
+    if (t===T.FLOWER && sn!==3){ px(c,X+2,Y+3,1,1,['#f2d14e','#e46a9a','#ffffff'][(v*300|0)%3]); px(c,X+5,Y+5,1,1,'#f2f2f2'); }
+    if (t===T.PATH){ px(c,X,Y,8,8, sn===3?'#c9c4bd':'#b99c6b'); if (v>0.5) px(c,X+(v*50|0)%6,Y+(v*70|0)%6,1,1,'#a08658'); if (v<0.3) px(c,X+2,Y+5,1,1,'#cdb384'); }
+    if (t===T.PLAZA){ px(c,X,Y,8,8,sn===3?'#cfccc6':'#aaa59a'); px(c,X,Y+7,8,1,'#96918a'); px(c,X+7,Y,1,8,'#96918a'); if ((x+y)%2) px(c,X+1,Y+1,6,6,sn===3?'#d6d3cc':'#b1ac9f'); }
+    if (t===T.FIELD){ px(c,X,Y,8,8,'#6d4a2a'); const crop=[ '#7fc15a','#e2c14a','#9a6a3a','#e8edf2'][sn]; for (let r=1;r<8;r+=3) px(c,X,Y+r,8,1,shade('#6d4a2a',0.8)); for (let r=0;r<8;r+=3) for (let k=1;k<8;k+=2) px(c,X+k,Y+r, 1, sn===1?2:1, crop); }
+    if (t===T.ROCK){ px(c,X,Y,8,8,'#6f6d74'); px(c,X+1,Y+1,5,3,'#8a8890'); px(c,X+2,Y+1,2,1,'#a6a4ac'); px(c,X,Y+7,8,1,'#55535a'); if (sn===3) px(c,X+1,Y,5,1,'#eef2f6'); }
+    if (t===T.WATER){ px(c,X,Y,8,8,'#3a6ea8'); }
+    if (t===T.BRIDGE){
+      if (S.bridge.closed){ px(c,X,Y,8,8,'#3a6ea8'); if (x===34) px(c,X,Y+2,3,4,'#6a4a2a'); else px(c,X+5,Y+3,3,3,'#6a4a2a'); }
+      else { px(c,X,Y,8,8,'#8a6038'); for (let k=0;k<8;k+=2) px(c,X+k,Y,1,8,'#6e4a2a'); px(c,X,Y,8,1,'#5a3a1e'); px(c,X,Y+7,8,1,'#5a3a1e'); }
+    }
+  }
+  // trees last so canopies overlap
+  for (let y=0;y<MH;y++) for (let x=0;x<MW;x++) if (MAP[y][x]===T.TREE){
+    const X=x*TILE, Y=y*TILE, v=TVAR[y][x];
+    px(c,X+1,Y+6,7,2,'rgba(0,0,0,0.22)');
+    px(c,X+3,Y+5,2,3,'#5a3a22');
+    const col = sn===3 ? '#8aa0a8' : CANOPY[sn];
+    px(c,X+1,Y-1,6,6,col); px(c,X,Y+1,8,3,col); px(c,X+2,Y-2,4,1,col);
+    px(c,X+2,Y,2,2,shade(col,1.18)); px(c,X+5,Y+2,2,2,shade(col,0.82));
+    if (sn===3){ px(c,X+1,Y-1,6,2,'#f4f7fa'); px(c,X+2,Y-2,4,1,'#ffffff'); }
+    if (sn===2 && v>0.5) px(c,X+4,Y+1,1,1,'#e8a040');
+  }
+  // fountain
+  const fx=19*TILE, fy=10*TILE;
+  px(c,fx,fy+2,16,12,'#8e8a82'); px(c,fx+2,fy,12,16,'#8e8a82'); px(c,fx+2,fy+3,12,10,'#4a82b8'); px(c,fx+3,fy+2,10,12,'#4a82b8'); px(c,fx+7,fy+5,2,6,'#b8b2a8');
+  // market stalls
+  for (let i=0;i<3;i++){ const X=(17+i*2)*TILE, Y=17*TILE;
+    px(c,X,Y+5,16,11,'#7a5530'); px(c,X+1,Y+8,14,4,'#a07040');
+    for (let k=0;k<16;k+=4){ px(c,X+k,Y,2,6,i%2?'#c84a4a':'#3a7ac8'); px(c,X+k+2,Y,2,6,'#f0ece0'); }
+    const goods=['#e2c14a','#7fc15a','#c87a3a','#9a9aa8','#e46a4a','#8a6038']; for (let k=0;k<5;k++) px(c,X+2+k*3,Y+9,2,2,goods[(i*2+k)%6]);
+  }
+  // buildings
+  BUILDINGS.forEach(b => drawBuilding(c,b,sn));
+  // lamp posts
+  LAMPS.forEach(([x,y])=>{ px(c,x*TILE+3,y*TILE+1,1,6,'#2a2a30'); px(c,x*TILE+2,y*TILE,3,2,'#e8d8a0'); });
+  // fences around farm
+  for (let x=2;x<=12;x++){ px(c,x*TILE,19*TILE-2,8,1,'#8a6a40'); if (x%2===0) px(c,x*TILE,19*TILE-4,1,4,'#6a4a2a'); }
+  // signpost at the bridge
+  px(c,33*TILE+2,14*TILE,1,6,'#6a4a2a'); px(c,33*TILE,14*TILE,6,3,'#a07a48');
+}
+function drawBuilding(c,b,sn){
+  const X=b.x*TILE, Y=b.y*TILE, w=b.w*TILE, h=b.h*TILE;
+  if (b.kind==='mine'){
+    px(c,X-4,Y-2,w+8,h+4,'#6f6d74'); px(c,X-2,Y-4,w+4,4,'#86848c'); px(c,X+6,Y+4,12,12,'#1a181e'); px(c,X+5,Y+3,14,2,'#6a4a2a'); px(c,X+5,Y+3,2,13,'#6a4a2a'); px(c,X+17,Y+3,2,13,'#6a4a2a');
+    px(c,X+22,Y+10,5,4,'#4a4a52'); px(c,X+23,Y+8,3,2,'#9a9aa8');
+    if (sn===3) px(c,X-2,Y-4,w+4,2,'#f4f7fa');
+    b.windows=[[X+9,Y+8,6,6]]; return;
+  }
+  px(c,X+2,Y+h,w,2,'rgba(0,0,0,0.25)'); px(c,X+w,Y+3,2,h-1,'rgba(0,0,0,0.25)');
+  const roofH = Math.round(h*0.48);
+  px(c,X,Y+roofH,w,h-roofH,b.wall);
+  for (let k=Y+roofH+3;k<Y+h;k+=4) px(c,X,k,w,1,shade(b.wall,0.92));
+  px(c,X-1,Y,w+2,roofH,b.roof);
+  for (let k=Y+1;k<Y+roofH;k+=2) px(c,X-1,k,w+2,1,shade(b.roof,0.86));
+  px(c,X-1,Y+roofH-1,w+2,1,shade(b.roof,0.65));
+  px(c,X+1,Y,w-2,1,shade(b.roof,1.2));
+  if (sn===3){ px(c,X-1,Y,w+2,2,'#f4f7fa'); px(c,X+2,Y+2,w-4,1,'#e6ebf0'); }
+  if (b.kind==='house'||b.kind==='shop'){ px(c,X+w-7,Y-4,3,5,'#6a5a50'); }
+  const doorX = X + Math.floor(b.w/2)*TILE + 2;
+  px(c,doorX,Y+h-6,4,6,'#4a2e1a'); px(c,doorX+3,Y+h-3,1,1,'#e8c860');
+  b.windows=[];
+  const wy = Y+roofH+3;
+  const slots = b.w>=5 ? [0.18,0.42,0.78] : b.w>=4 ? [0.2,0.75] : [0.2,0.72];
+  slots.forEach(f=>{ const wx=Math.round(X+w*f-1); if (Math.abs(wx-doorX)<5) return; px(c,wx-1,wy-1,5,5,shade(b.wall,0.7)); px(c,wx,wy,3,3,'#3a4a6a'); px(c,wx,wy,1,1,'#8aa0c8'); b.windows.push([wx,wy,3,3]); });
+  if (b.kind==='hall'){ px(c,X+w/2-3,Y-5,6,5,shade(b.roof,0.9)); px(c,X+w/2-1,Y-4,2,2,'#e8d8a0'); px(c,X+w/2,Y-9,1,4,'#2a2a30'); px(c,X+w/2+1,Y-9,3,2,'#c84a4a'); }
+  // signs
+  const sign = {loc_clinic:'#e84a4a',loc_bakery:'#e2c14a',loc_tavern:'#f2a040',loc_carpentry:'#a07040',loc_smithy:'#9a9aa8'}[b.id];
+  if (sign){ px(c,doorX+6,Y+h-9,5,4,'#3a2a1a'); px(c,doorX+7,Y+h-8,3,2,sign); if (b.id==='loc_clinic'){ px(c,doorX+8,Y+h-9,1,4,'#fff'); px(c,doorX+7,Y+h-8,3,1,'#fff'); } }
+}
+function occupants(locId){ return S.citizens.filter(c=>c.rt.loc===locId && !c.rt.path); }
+function darknessAt(mod){
+  const h = mod/60;
+  if (h<5) return 0.66; if (h<7) return 0.66*(1-(h-5)/2); if (h<18) return 0; if (h<21) return 0.66*((h-18)/3); return 0.66;
+}
+const particles = [];
+let lastFrameTs = performance.now();
+function render(frac, ts){
+  const dt = Math.min(0.1,(ts-lastFrameTs)/1000); lastFrameTs = ts;
+  drawStatic();
+  ctx.drawImage(staticCv,0,0);
+  const mod = modOf(S.minute), d = dayOf(S.minute), season = seasonOf(d);
+  // water shimmer
+  for (let y=0;y<MH;y++) for (const x of [34,35]){ if (MAP[y][x]!==T.WATER && !(MAP[y][x]===T.BRIDGE && S.bridge.closed)) continue; const ph=(ts/400 + y*0.7 + x)%4; if (ph<1) px(ctx,x*TILE+ (y*3%6),y*TILE+3,2,1,'#6a9ad0'); if (ph>2&&ph<3) px(ctx,x*TILE+((y*5+3)%6),y*TILE+6,2,1,'#5a8ac0'); if (season===3) px(ctx,x*TILE,y*TILE,8,1,'rgba(220,235,255,0.35)'); }
+  // fountain spray
+  const fph = Math.floor(ts/180)%3; px(ctx,19*TILE+7,10*TILE+3-fph,2,2,'#bfe0ff'); px(ctx,19*TILE+5+fph*2,10*TILE+5,1,1,'#dff0ff');
+  // bridge health cracks
+  if (!S.bridge.closed && S.bridge.health<40){ px(ctx,34*TILE+5,12*TILE+6,3,1,'#2a1a0e'); px(ctx,35*TILE+2,13*TILE+3,2,1,'#2a1a0e'); }
+  // citizens
+  const vis = S.citizens.filter(c => c.rt.path || !(c.rt.loc && LOC[c.rt.loc] && LOC[c.rt.loc].indoor)).map(c=>{
+    const x = c.rt.ox + (c.rt.x-c.rt.ox)*frac, y = c.rt.oy + (c.rt.y-c.rt.oy)*frac; return {c,x,y};
+  }).sort((a,b)=>a.y-b.y);
+  vis.forEach(({c,x,y}) => drawCitizen(ctx,c,x*TILE+1,y*TILE-2,ts));
+  // particles: chimney smoke, smithy sparks, weather
+  spawnParticles(dt, mod, season);
+  for (let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; if (p.life<=0||p.y>H||p.x<-4||p.x>W+4){ particles.splice(i,1); continue; }
+    ctx.globalAlpha = Math.min(1,p.life/p.max*1.5)*(p.a||1); px(ctx,p.x|0,p.y|0,p.w||1,p.h||1,p.col); ctx.globalAlpha=1; }
+  // lighting
+  const dark = darknessAt(mod) + (S.weather==='Storm'?0.2:S.weather==='Rain'?0.1:S.weather==='Cloudy'?0.05:0);
+  if (dark>0.02){
+    lctx.globalCompositeOperation='source-over'; lctx.clearRect(0,0,W,H);
+    lctx.fillStyle = `rgba(12,14,42,${clamp(dark,0,0.8)})`; lctx.fillRect(0,0,W,H);
+    lctx.globalCompositeOperation='destination-out';
+    const lights = collectLights(mod);
+    lights.forEach(([x,y,r,a])=>{ const g=lctx.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,`rgba(0,0,0,${a})`); g.addColorStop(1,'rgba(0,0,0,0)'); lctx.fillStyle=g; lctx.fillRect(x-r,y-r,r*2,r*2); });
+    ctx.drawImage(lightCv,0,0);
+    ctx.globalCompositeOperation='lighter';
+    lights.forEach(([x,y,r,a,col])=>{ const g=ctx.createRadialGradient(x,y,0,x,y,r*0.7); g.addColorStop(0,col||`rgba(255,190,90,${0.22*a})`); g.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=g; ctx.fillRect(x-r,y-r,r*2,r*2); });
+    ctx.globalCompositeOperation='source-over';
+    // lit windows
+    BUILDINGS.forEach(b=>{ if (!b.windows) return; const occ = litBuilding(b,mod); if (!occ) return; b.windows.forEach(([x,y,w,h])=>px(ctx,x,y,w,h,'#ffd27a')); });
+    LAMPS.forEach(([x,y])=>px(ctx,x*TILE+2,y*TILE,3,2,'#fff0b0'));
+  }
+  // tint
+  const h = mod/60;
+  let tint=null; if (h>=5&&h<7.5) tint=`rgba(255,140,80,${0.16*(1-Math.abs(h-6)/1.5)})`; else if (h>=17.5&&h<20.5) tint=`rgba(200,90,140,${0.14*(1-Math.abs(h-19)/1.5)})`;
+  if (tint){ ctx.fillStyle=tint; ctx.fillRect(0,0,W,H); }
+  // fog (dawn fog, Fog weather)
+  const fogA = (S.weather==='Fog'?0.35:0) + (h>=4.5&&h<8 ? 0.18*(1-Math.abs(h-6)/2) : 0);
+  if (fogA>0.02){ for (let i=0;i<7;i++){ const fx=((ts/90 + i*71)%(W+120))-60, fy=20+i*28; const g=ctx.createRadialGradient(fx,fy,0,fx,fy,60); g.addColorStop(0,`rgba(220,225,235,${fogA})`); g.addColorStop(1,'rgba(220,225,235,0)'); ctx.fillStyle=g; ctx.fillRect(fx-60,fy-60,120,120); } }
+  if (S.weather==='Storm' && (Math.floor(ts/100)%97===0)){ ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.fillRect(0,0,W,H); }
+  // bubbles + selection
+  const now = performance.now();
+  S.bubbles = S.bubbles.filter(b=>b.until>now && (!b.gm || S.minute-b.gm < 25));
+  vis.forEach(({c,x,y})=>{
+    const sx=x*TILE+4, sy=y*TILE-4;
+    if (ui.sel===c.id){ ctx.strokeStyle='#f2c14e'; ctx.lineWidth=1; ctx.strokeRect(Math.round(sx-5)+.5,Math.round(sy-7)+.5,9,13); }
+    const b = S.bubbles.find(b=>b.id===c.id);
+    if (b){ ctx.font='6px monospace'; const tw=Math.ceil(ctx.measureText(b.text).width)+4; px(ctx,Math.round(sx-tw/2),Math.round(sy-15),tw,8,'#fffbe8'); px(ctx,Math.round(sx),Math.round(sy-7),1,2,'#fffbe8'); ctx.fillStyle= b.text==='AYE'?'#2a8a2a':b.text==='NAY'||b.text==='!!'?'#b82a2a':'#333'; ctx.fillText(b.text, Math.round(sx-tw/2)+2, Math.round(sy-9)); }
+  });
+}
+function litBuilding(b,mod){
+  if (b.kind==='hall') return false;
+  if (b.kind==='mine') return S.citizens.some(c=>c.rt.loc===b.id&&!c.rt.path);
+  return S.citizens.some(c=>c.rt.loc===b.id && !c.rt.path && c.rt.state!=='Sleeping');
+}
+function collectLights(mod){
+  const L=[];
+  LAMPS.forEach(([x,y])=>L.push([x*TILE+3,y*TILE+1,22,0.9]));
+  BUILDINGS.forEach(b=>{ if (b.windows && litBuilding(b,mod)) b.windows.forEach(([x,y])=>L.push([x+1,y+1,14,0.8])); });
+  if (S.festival){ for (let i=0;i<6;i++) L.push([(15+i*2)*TILE,7*TILE,20,0.9,'rgba(255,120,160,0.25)']); }
+  S.citizens.forEach(c=>{ if (c.rt.path) L.push([c.rt.x*TILE+4,c.rt.y*TILE+2,9,0.5]); });
+  return L;
+}
+function spawnParticles(dt, mod, season){
+  const r = Math.random;
+  BUILDINGS.forEach(b=>{
+    if (b.kind!=='house'&&b.kind!=='shop') return;
+    const busy = S.citizens.some(c=>c.rt.loc===b.id && !c.rt.path);
+    if (!busy || r()>dt*2) return;
+    particles.push({x:b.x*TILE+b.w*TILE-6, y:b.y*TILE-5, vx:4+r()*4, vy:-6-r()*4, life:2.2, max:2.2, col:'#c8c8cc', w:2, h:2, a:0.6});
+  });
+  const smith = S.citizens.find(c=>c.profession==='Blacksmith');
+  if (smith && smith.rt.loc==='loc_smithy' && smith.rt.state==='Working' && r()<dt*6) particles.push({x:29*TILE+2, y:17*TILE+4, vx:(r()-.5)*30, vy:-20-r()*20, life:0.5, max:0.5, col:'#ffb040'});
+  if (S.weather==='Rain'||S.weather==='Storm'){ const n=S.weather==='Storm'?220:120; for (let i=0;i<n*dt;i++) particles.push({x:r()*W+20, y:-4, vx:-30, vy:220+r()*60, life:1.2, max:1.2, col:'#9ab8e0', h:3, a:0.7}); }
+  if (S.weather==='Snow'){ for (let i=0;i<40*dt;i++) particles.push({x:r()*W, y:-2, vx:(r()-.5)*10, vy:18+r()*12, life:12, max:12, col:'#ffffff'}); }
+  const night = mod<300||mod>1230;
+  if (night && season===1 && r()<dt*3) particles.push({x:(37+r()*10)*TILE, y:(4+r()*14)*TILE, vx:(r()-.5)*6, vy:(r()-.5)*6, life:3, max:3, col:'#e8ff80'});
+  if (season===2 && r()<dt*1.5) particles.push({x:(37+r()*10)*TILE, y:r()*18*TILE, vx:-8-r()*6, vy:10+r()*6, life:5, max:5, col:pick(['#e8a040','#c8702a','#d8b040'])});
+  if (S.festival && mod>16*60 && mod<22*60 && r()<dt*4) particles.push({x:(16+r()*9)*TILE, y:14*TILE, vx:(r()-.5)*10, vy:-40-r()*30, life:1.4, max:1.4, col:pick(['#ff6a8a','#f2c14e','#7fd1ae','#8fb8ff'])});
+}
+function drawCitizen(c2, c, x, y, ts, noBob){
+  x=Math.round(x); y=Math.round(y);
+  const moving = !!c.rt.path;
+  const f = moving ? Math.floor(ts/180)%2 : 0;
+  const L=c.look;
+  px(c2,x,y+8,6,1,'rgba(0,0,0,0.3)');
+  px(c2,x+1,y,4,1,L.hair); px(c2,x+1,y+1,4,2,L.skin); px(c2,x+1,y+1,1,1,L.hair); px(c2,x+4,y+1,1,1,L.hair);
+  px(c2,x+2,y+2,1,1,'#2a2020'); px(c2,x+3,y+2,1,1,'#2a2020');
+  px(c2,x+1,y+3,4,3,L.shirt); px(c2,x,y+3,1,3,shade(L.shirt,0.8)); px(c2,x+5,y+3,1,3,shade(L.shirt,0.8));
+  px(c2,x,y+5+(f?-1:0),1,1,L.skin); px(c2,x+5,y+5+(f?0:-1),1,1,L.skin);
+  const pants = '#3a3a52';
+  px(c2,x+1,y+6,2,2-(f?1:0),pants); px(c2,x+3,y+6,2,2-(f?0:1),pants);
+  if (c.profession==='Baker') px(c2,x+1,y-1,4,1,'#ffffff');
+  if (c.profession==='Doctor') px(c2,x+2,y+4,1,1,'#e84a4a');
+  if (!moving && c.rt.state==='Working' && (c.profession==='Woodcutter'||c.profession==='Unemployed'||c.profession==='Farmer')){ const sw=Math.floor(ts/300)%2; px(c2,x+6,y+2+sw*2,1,4,'#6a4a2a'); px(c2,x+6,y+2+sw*2,2,1,c.profession==='Farmer'?'#9a9aa8':'#b0b0b8'); }
+  if (!moving && c.rt.state==='Socializing' && Math.floor(ts/600+hash(c.id))%3===0) px(c2,x+5,y-3,2,2,'#ffffff');
+  if (c.sick) px(c2,x+1,y+1,4,1,'rgba(140,200,120,0.6)');
+}
+
+// ---------- UI ----------
+const ui = {tab:'chron', sel:null, dirty:true, lastRender:0, filter:5};
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+function renderHeader(){
+  const d=dayOf(S.minute), mod=modOf(S.minute);
+  const wx = {Clear:'☀ Clear',Cloudy:'☁ Cloudy',Rain:'🌧 Rain',Storm:'⛈ Storm',Fog:'🌫 Fog',Snow:'❄ Snow'}[S.weather];
+  $('clock').innerHTML = `<b>${fmtClock(S.minute)}</b><span>${esc(fmtDate(d))}</span><span class="muted">Day ${d+1} · Week ${weekNo(d)} · ${phaseOf(mod)}</span><span>${wx}${S.festival?' · 🎉 Festival':''}</span>`;
+  const ms = clock.paused ? 'Paused' : clock.speed===1 ? 'Live · 1 real hour = 1 day' : `${clock.speed}× speed`;
+  $('speed').innerHTML = [['⏸','pause'],['1×',1],['10×',10],['60×',60],['360×',360]].map(([l,v])=>`<button data-v="${v}" class="${(v==='pause'&&clock.paused)||(!clock.paused&&clock.speed===v)?'on':''}" title="${v==='pause'?'Pause':v===1?'Real time (1 real hour = 1 game day)':v+'× speed'}">${l}</button>`).join('') + `<span class="muted" style="align-self:center;font-size:12px;margin-left:6px">${ms}</span>`;
+  const mood = S.citizens.reduce((a,c)=>a+c.mood.valence,0)/S.citizens.length;
+  const law = activeLaws().length, pend = S.gov.proposals.find(p=>p.status==='Debating'||p.status==='Voting');
+  $('stats').innerHTML = [
+    ['Treasury', `${S.treasury} ¢`],
+    ['Bridge', S.bridge.closed ? 'COLLAPSED' : Math.round(S.bridge.health)+'%'],
+    ['Town mood', (mood>=0?'+':'')+mood.toFixed(2)],
+    ['Laws', law ? law+' active' : 'none'],
+    ['Next vote', pend ? `${pend.title}` : '—'],
+    ['Trades this wk', S.week ? S.week.trades : 0]
+  ].map(([k,v])=>`<div class="stat"><small>${k}</small><strong>${esc(v)}</strong></div>`).join('');
+  const last = S.chronicle[S.chronicle.length-1];
+  $('ticker').innerHTML = last ? `<span>${esc(fmtStamp(last.t))}</span> ${esc(last.icon)} ${esc(last.text)}` : '';
+}
+function renderChron(){
+  const items = S.chronicle.filter(e=>e.imp>=ui.filter).slice(-250).reverse();
+  $('p-chron').innerHTML = `<div class="row" style="justify-content:space-between;margin-bottom:6px"><h2 style="margin:0">Town chronicle</h2>
+    <select id="chronFilter"><option value="1" ${ui.filter===1?'selected':''}>Everything</option><option value="5" ${ui.filter===5?'selected':''}>Notable</option><option value="7" ${ui.filter===7?'selected':''}>Major only</option></select></div>
+    ${items.length?items.map(e=>`<div class="ev ${e.imp>=7?'major':''}"><time>${esc(fmtStamp(e.t))}</time><span>${esc(e.icon)}</span><span>${esc(e.text)}</span></div>`).join(''):'<p class="muted">Nothing has happened yet. Give it a few minutes, or speed up time.</p>'}`;
+  $('chronFilter').onchange = e => { ui.filter=+e.target.value; renderChron(); };
+}
+function weekHtml(w, live, idx){
+  const s=w.stats;
+  const prices = w.prices.map(p=>{ const d=p.end-p.start; return `<tr><td>${esc(p.name)}</td><td class="num">${p.start}</td><td class="num">${p.end}</td><td class="num ${d>0?'up':d<0?'down':''}">${d>0?'▲'+d:d<0?'▼'+(-d):'–'}</td></tr>`; }).join('');
+  const th = w.townHall ? `<p><b>Town hall:</b> ${esc(w.townHall.title)} (proposed by ${esc(w.townHall.proposer)}) → <b class="${w.townHall.result==='Passed'?'Yes':'No'}">${esc(w.townHall.result)}</b> ${w.townHall.yes}–${w.townHall.no}, ${w.townHall.abstain} abstained, ${w.townHall.absent} absent</p><ul>${w.townHall.statements.slice(0,6).map(x=>`<li><span class="${x.choice}">${esc(x.name)} (${x.choice})</span>: "${esc(x.text)}"</li>`).join('')}</ul>` : '<p class="muted">No town hall vote this week yet.</p>';
+  const song = w.song ? `<div class="row" style="margin:6px 0"><button class="btn" data-playsong="${esc(w.song)}">▶ Play this week's song</button><a href="https://suno.com/song/${esc(w.song)}" target="_blank" rel="noopener">Open on Suno</a></div>` : '';
+  return `<details class="week" ${live||idx===0?'open':''}><summary><b>WEEK ${w.n}${live?' · LIVE':''}</b><br><span class="muted">${esc(fmtDateShort(w.startDay))} – ${esc(fmtDateShort(w.endDay))}</span><br>${esc(w.headline)}</summary><div class="body">
+    <p>${s.trades} trades worth ${s.volume}¢ · taxes ${s.taxes}¢ · treasury ${s.treasuryStart}→${s.treasuryEnd}¢ · bridge ${s.bridgeClosed?'collapsed':s.bridge+'%'} · mood ${s.avgMood>=0?'+':''}${s.avgMood}</p>
+    <p class="muted">Weather: ${esc(Object.entries(w.weather).map(([k,v])=>`${k} ×${v}`).join(', ')||'—')}${w.laws.length?` · Laws: ${esc(w.laws.join(', '))}`:''}</p>
+    ${th}
+    ${w.topEarner?`<p>💰 Top earner: <b>${esc(w.topEarner.name)}</b> (${w.topEarner.amt}¢)${w.topSpender?` · 🛒 Biggest spender: ${esc(w.topSpender.name)} (${w.topSpender.amt}¢)`:''}</p>`:''}
+    ${w.hungry.length?`<p>🍞 Went hungry: ${esc(w.hungry.join(', '))}</p>`:''}
+    ${w.rels.length?`<p>💞 ${esc(w.rels.join(' · '))}</p>`:''}
+    <b>Happenings</b><ul>${w.highlights.map(h=>`<li>${esc(h.icon)} <span class="muted">${esc(fmtStamp(h.t))}</span> ${esc(h.text)}</li>`).join('')||'<li class="muted">Nothing notable yet.</li>'}</ul>
+    <details><summary class="muted" style="cursor:pointer">Prices this week</summary><table><tr><th>Good</th><th class="num">Start</th><th class="num">End</th><th class="num">Δ</th></tr>${prices}</table></details>
+    ${song}
+    <div class="row" style="margin-top:8px"><button class="btn" data-ballad="${live?'live':idx}">🎵 Copy Suno ballad prompt</button><button class="btn" data-attach="${live?'live':idx}">Attach Suno song</button></div>
+  </div></details>`;
+}
+function renderWeeks(){
+  const done = S.weeks.slice().reverse();
+  $('p-weeks').innerHTML = `<div class="row" style="justify-content:space-between"><h2 style="margin:0">Weekly log</h2><div class="row"><button class="btn" id="expMd">Export .md</button><button class="btn" id="expJson">Export .json</button></div></div>
+    <p class="muted" style="font-size:13px">A game week is 7 game days (7 real hours at live speed). Each week closes with a report. Turn any week into a Suno song with its ballad prompt.</p>
+    ${weekHtml(liveWeekEntry(), true, -1)}${done.map((w,i)=>weekHtml(w,false,S.weeks.length-1-i)).join('')}`;
+  $('expMd').onclick = exportMd; $('expJson').onclick = exportJson;
+  $('p-weeks').querySelectorAll('[data-ballad]').forEach(b=>b.onclick=()=>{ const k=b.dataset.ballad; const w = k==='live'?liveWeekEntry():S.weeks[+k]; copyText(balladPrompt(w), b); });
+  $('p-weeks').querySelectorAll('[data-attach]').forEach(b=>b.onclick=()=>{ const k=b.dataset.attach; const url=prompt('Paste the Suno song link for this week (e.g. https://suno.com/song/…):'); if (!url) return; const id=parseSunoId(url); if (!id){ alert('That doesn\'t look like a suno.com/song/… link. Short suno.com/s/… links: open them first and copy the full address.'); return; } if (k==='live') S.week.song=id; else S.weeks[+k].song=id; saveGame(); renderWeeks(); });
+  $('p-weeks').querySelectorAll('[data-playsong]').forEach(b=>b.onclick=()=>music.playOneOff(b.dataset.playsong));
+}
+function exportMd(){
+  const md = `# Pixel Town Log\n\nExported ${new Date().toLocaleString()} · ${fmtDate(dayOf(S.minute))} ${fmtClock(S.minute)}\n\n` + [weekToMarkdown(liveWeekEntry(),true)].concat(S.weeks.slice().reverse().map(w=>weekToMarkdown(w))).join('\n\n') + '\n\n# Full chronicle\n\n' + S.chronicle.map(e=>`- ${fmtStamp(e.t)} ${e.icon} ${e.text}`).join('\n');
+  download('pixel-town-log.md', md, 'text/markdown');
+}
+function exportJson(){ download('pixel-town-log.json', JSON.stringify({exportedAt:new Date().toISOString(), weeks:S.weeks, currentWeek:liveWeekEntry(), chronicle:S.chronicle, laws:S.gov.proposals}, null, 2), 'application/json'); }
+function download(name, text, type){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type})); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500); }
+function copyText(t, btn){
+  const done = () => { if (btn){ const o=btn.textContent; btn.textContent='Copied ✓'; setTimeout(()=>btn.textContent=o,1500); } };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, ()=>fallbackCopy(t,done)); else fallbackCopy(t,done);
+}
+function fallbackCopy(t,done){ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); done(); }catch(e){ prompt('Copy this:', t); } ta.remove(); }
+function miniSprite(c){ const m=document.createElement('canvas'); m.width=8; m.height=12; const mc=m.getContext('2d'); drawCitizen(mc,c,1,2,0); return m.toDataURL(); }
+const spriteCache = {};
+function renderPeople(){
+  const list = S.citizens.map(c=>{
+    const b = c.plan && c.plan.blocks[c.rt.blockIdx];
+    const doing = c.rt.path ? `Walking to ${LOC[c.rt.dest]?LOC[c.rt.dest].name:'…'}` : (b ? b.note : c.rt.state);
+    spriteCache[c.id] = spriteCache[c.id] || miniSprite(c);
+    return `<div class="cit ${ui.sel===c.id?'sel':''}" data-id="${c.id}"><img src="${spriteCache[c.id]}" width="24" height="36" style="image-rendering:pixelated" alt=""><div class="who"><b>${esc(c.name)}</b> <span class="muted">${esc(c.profession==='TavernKeeper'?'Tavern keeper':c.profession)}</span><small>${esc(doing)} · ${esc(c.mood.emotion)} · ${c.wallet}¢</small></div></div>`;
+  }).join('');
+  const sel = ui.sel && cById(ui.sel);
+  $('p-people').innerHTML = `<h2>Citizens</h2><p class="muted" style="font-size:13px;margin-top:-4px">Tap someone here or on the map.</p>${list}${sel?inspector(sel):''}`;
+  $('p-people').querySelectorAll('.cit').forEach(el=>el.onclick=()=>{ ui.sel = ui.sel===el.dataset.id?null:el.dataset.id; renderPeople(); });
+}
+function needBar(k,v){ const col = v<25?'var(--bad)':v<50?'var(--accent)':'var(--good)'; return `<span>${k}</span><div class="bar"><i style="width:${v}%;background:${col}"></i></div><span class="num">${Math.round(v)}</span>`; }
+function inspector(c){
+  const rels = Object.entries(c.rel).map(([id,r])=>({o:cById(id),r})).sort((a,b)=>Math.abs(b.r.affinity)-Math.abs(a.r.affinity)).slice(0,6);
+  const mem = c.memory.records.slice(-10).reverse();
+  const inv = Object.entries(c.inventory).map(([g,q])=>`${GD[g].name} ×${q}`).join(', ') || 'nothing';
+  const plan = c.plan ? c.plan.blocks.map((b,i)=>`<tr style="${i===c.rt.blockIdx?'color:var(--accent)':''}"><td>${fmtClock(b.s)}</td><td>${esc(b.act)}</td><td>${esc(b.note)}</td></tr>`).join('') : '';
+  const inc=weekSum(c,'inc'), exp=weekSum(c,'exp');
+  return `<div class="card" style="margin-top:12px"><h2 style="margin-top:0">${esc(c.name)}, ${c.age}</h2>
+    <p style="margin:4px 0">${esc(c.bio)}</p>
+    <p>${c.traits.map(t=>`<span class="chip">${t}</span>`).join('')}${c.values.map(v=>`<span class="chip" style="border-color:var(--accent-2)">${v}</span>`).join('')}</p>
+    <p class="muted" style="font-size:13px">Feeling <b style="color:var(--text)">${c.mood.emotion}</b> · valence ${c.mood.valence.toFixed(2)} · stress ${c.mood.stress.toFixed(2)}${c.sick?' · 🤒 sick':''}${c.partner?` · partner: ${esc(cById(c.partner).name)}`:c.courting?` · courting ${esc(cById(c.courting).name)}`:''}</p>
+    <div class="needs">${['hunger','energy','social','comfort','fun'].map(k=>needBar(k,c.needs[k])).join('')}</div>
+    <p style="font-size:13px">💰 ${c.wallet}¢ · last 7 days: +${inc} / −${exp}${PROD[c.profession]&&PROD[c.profession].tool?` · tools ${Math.round(c.tool)}%`:''}<br>🎒 ${esc(inv)}</p>
+    <p style="font-size:13px" class="muted">Politics: economy ${c.politics.economicLeaning>0?'free-market':'communal'} (${c.politics.economicLeaning}), ${c.politics.orderLeaning>0?'order':'liberty'} (${c.politics.orderLeaning}), civic ${c.politics.civicEngagement}</p>
+    <b>Relationships</b><table>${rels.map(({o,r})=>`<tr><td>${esc(o.name)}</td><td class="num ${r.affinity>=0?'down':'up'}">${r.affinity}</td><td>${r.tags.filter(t=>t!=='Neighbor').map(t=>`<span class="chip">${t}</span>`).join('')}</td></tr>`).join('')}</table>
+    <b style="display:block;margin-top:8px">Memory stream</b>${mem.map(m=>`<div class="vote"><span class="muted">${esc(fmtStamp(m.t))} · ${m.kind} · ★${m.imp}</span><br>${esc(m.text)}</div>`).join('')||'<p class="muted">No memories yet.</p>'}
+    <details style="margin-top:8px"><summary style="cursor:pointer" class="muted">Today's plan (${c.plan?c.plan.by:''})</summary><table>${plan}</table></details></div>`;
+}
+function sparkline(arr){
+  const a = arr.slice(-72); if (a.length<2) return '';
+  const mn=Math.min(...a), mx=Math.max(...a), w=80, h=20;
+  const pts=a.map((v,i)=>`${(i/(a.length-1)*w).toFixed(1)},${(h-2-(mx===mn?h/2:(v-mn)/(mx-mn)*(h-4))).toFixed(1)}`).join(' ');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${pts}" fill="none" stroke="#7fd1ae" stroke-width="1.5"/></svg>`;
+}
+function renderMarket(){
+  const rows = GOOD_DEFS.map(g=>{ const st=S.goods[g.id]; const h=st.hist; const prev=h[Math.max(0,h.length-25)]; const d=st.price-prev; const stock=S.listings.filter(l=>l.g===g.id).reduce((a,l)=>a+l.qty,0); const tax=lawQuery.salesTax(g.id);
+    return `<tr><td>${esc(g.name)}${tax?` <span class="chip">+${Math.round(tax*100)}% tax</span>`:''}${lawQuery.priceMultiplier(g.id)!==1?' <span class="chip">capped</span>':''}</td><td class="num"><b>${st.price}</b></td><td class="num ${d>0?'up':d<0?'down':''}">${d>0?'+'+d:d}</td><td>${sparkline(h)}</td><td class="num">${g.kind==='Service'?'svc':stock}</td><td class="num">${sum(st.dem)}/${sum(st.sup)}</td></tr>`; }).join('');
+  const rich = S.citizens.slice().sort((a,b)=>b.wallet-a.wallet);
+  $('p-market').innerHTML = `<h2>Market prices (copper ¢)</h2>
+    <table><tr><th>Good</th><th class="num">Price</th><th class="num">24h</th><th>72h</th><th class="num">Stock</th><th class="num">D/S 24h</th></tr>${rows}</table>
+    <p class="muted" style="font-size:12px">Prices are recalculated every game hour: P* = base × ((D+5)/(S+5))^elasticity × law multiplier, smoothed and clamped. Sales tax goes to the treasury.</p>
+    <h2>Treasury</h2><p>${S.treasury}¢ · bridge ${S.bridge.closed?'<b class="No">collapsed</b>':Math.round(S.bridge.health)+'%'} · repairs automatically when the bridge is below 60% and the treasury holds 220¢+</p>
+    <h2>Wallets</h2><table>${rich.map(c=>`<tr><td>${esc(c.name)}</td><td>${esc(c.profession==='TavernKeeper'?'Tavern keeper':c.profession)}</td><td class="num">${c.wallet}¢</td></tr>`).join('')}</table>`;
+}
+function renderLaws(){
+  const P = S.gov.proposals.slice().reverse();
+  const card = p => {
+    const cls = ['Debating','Voting','Passed'].includes(p.status)?'pending':['Rejected','Expired','Repealed'].includes(p.status)?'rej':'';
+    const eff = p.effects.map(e=> e.effectType==='SalesTax'?`${Math.round(e.magnitude*100)}% sales tax on ${e.targetGoodId?GD[e.targetGoodId].name:e.targetCategory}`: e.effectType==='Subsidy'?`${e.magnitude}¢/day subsidy for each ${e.targetProfession}`: e.effectType==='Curfew'?`Curfew at ${LOC[e.targetZoneId].name} ${fmtClock(e.startMinuteOfDay)}–${fmtClock(e.endMinuteOfDay)}`: `${GD[e.targetGoodId].name} price ×${e.magnitude}`).join('; ');
+    const votes = p.votes.length ? `<details ${p.status==='Voting'?'open':''}><summary class="muted" style="cursor:pointer">Votes (${p.votes.length})</summary>${p.votes.map(v=>`<div class="vote"><b class="${v.choice}">${v.choice}</b> ${esc(cById(v.citizenId).name)} <span class="muted">· ${v.primaryMotivation} · conf ${v.confidence}</span><br>"${esc(v.publicStatement)}"</div>`).join('')}</details>` : '';
+    return `<div class="law ${cls}"><b>${esc(p.title)}</b> <span class="chip">${p.status}</span> <span class="muted">${p.proposalId}</span><br>
+      <span style="font-size:13px">${esc(p.summary)}</span><br><span class="muted" style="font-size:12px">${esc(eff)} · proposed by ${esc(cById(p.proposerId).name)} ${esc(fmtStamp(p.proposedAtMinute))}${p.expiresAtMinute?` · expires ${esc(fmtStamp(p.expiresAtMinute))}`:''}${p.tally?` · ${p.tally.yes}–${p.tally.no}, ${p.tally.abstain} abstain, ${p.tally.absent} absent`:''}${p.rejectReason?` · ${esc(p.rejectReason)}`:''}</span>${votes}</div>`;
+  };
+  $('p-laws').innerHTML = `<h2>Governance</h2><p class="muted" style="font-size:13px">A town hall meets every Hallday at 18:00 on the steps. Proposals are drafted early in the week when the town's numbers call for one. Citizens vote in their own self-interest using the design doc's fallback formula: 0.5·wallet + 0.3·allies + 0.2·values.</p>
+    ${P.length?P.map(card).join(''):'<p class="muted">No proposals yet. The first one, the Lumber Tax, arrives on Tideday of week 1.</p>'}`;
+}
+function renderPanels(force){
+  const now = performance.now();
+  if (!force && now-ui.lastRender<700) return;
+  ui.lastRender = now;
+  renderHeader();
+  const t = ui.tab;
+  if (t==='chron' && (ui.dirty||force)) { renderChron(); ui.dirty=false; }
+  if (t==='weeks' && (force || !ui.weekTs || now-ui.weekTs>5000)) { ui.weekTs=now; if (!document.activeElement || !$('p-weeks').contains(document.activeElement)) renderWeeks(); }
+  if (t==='people' && !$('p-people').matches(':hover')) renderPeople();
+  if (t==='market') renderMarket();
+  if (t==='laws' && !$('p-laws').matches(':hover')) renderLaws();
+  if (t==='music' && force) music.renderPanel();
+}
+$('tabs').onclick = e => { const b=e.target.closest('button'); if (!b) return; ui.tab=b.dataset.p; document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id==='p-'+ui.tab)); ui.dirty=true; renderPanels(true); };
+$('speed').onclick = e => { const b=e.target.closest('button'); if (!b) return; const v=b.dataset.v; if (v==='pause') clock.pause(); else clock.setSpeed(+v); renderPanels(true); };
+function canvasPos(e){ const r=cv.getBoundingClientRect(); return [(e.clientX-r.left)/r.width*W, (e.clientY-r.top)/r.height*H]; }
+function hitCitizen(x,y){ let best=null, bd=8; S.citizens.forEach(c=>{ if (!c.rt.path && c.rt.loc && LOC[c.rt.loc] && LOC[c.rt.loc].indoor) return; const cx=c.rt.x*TILE+4, cy=c.rt.y*TILE+2; const d=Math.hypot(cx-x,cy-y); if (d<bd){bd=d;best=c;} }); return best; }
+function hitBuilding(x,y){ return BUILDINGS.find(b=>x>=b.x*TILE-2&&x<(b.x+b.w)*TILE+2&&y>=b.y*TILE-3&&y<(b.y+b.h)*TILE); }
+cv.addEventListener('mousemove', e=>{
+  const [x,y]=canvasPos(e); const tip=$('tip'); const c=hitCitizen(x,y); let html='';
+  if (c){ const b=c.plan&&c.plan.blocks[c.rt.blockIdx]; html=`<b>${esc(c.name)}</b> · ${esc(c.profession)}<br>${esc(c.rt.path?'Walking':b?b.note:'')}<br><span class="muted">${esc(c.mood.emotion)} · ${c.wallet}¢</span>`; }
+  else { const b=hitBuilding(x,y); if (b){ const occ = S.citizens.filter(o=>o.rt.loc===b.id&&!o.rt.path); html=`<b>${esc(b.name)}</b>${occ.length?'<br>'+occ.map(o=>esc(o.name.split(' ')[0])+(o.rt.state==='Sleeping'?' 💤':'')).join(', '):'<br><span class="muted">empty</span>'}`; }
+    else if (x>=34*TILE&&x<36*TILE&&y>=12*TILE&&y<14*TILE) html=`<b>River bridge</b><br>${S.bridge.closed?'Collapsed':Math.round(S.bridge.health)+'% sound'}`;
+    else { for (const k of ['loc_east_grove','loc_farm','loc_town_square','loc_market']){ const L=LOC[k]; if (Math.hypot(x/TILE-L.c[0],y/TILE-L.c[1])<L.r){ html=`<b>${L.name}</b>`; break; } } }
+  }
+  if (!html){ tip.style.display='none'; return; }
+  const sr=$('stage').getBoundingClientRect(); tip.innerHTML=html; tip.style.display='block';
+  tip.style.left = Math.min(e.clientX-sr.left+14, sr.width-250)+'px'; tip.style.top=(e.clientY-sr.top+14)+'px';
+});
+cv.addEventListener('mouseleave', ()=>$('tip').style.display='none');
+cv.addEventListener('click', e=>{ const [x,y]=canvasPos(e); const c=hitCitizen(x,y); if (c){ ui.sel=c.id; $('tabs').querySelector('[data-p=people]').click(); } });
+
+// ---------- music: built-in chiptune + Suno tracks ----------
+const MUSIC_PHASES = ['Dawn','Day','Dusk','Night','Town Hall','Festival'];
+const SUNO_PROMPTS = {
+  'Dawn':'gentle 16-bit village morning theme, soft flute and marimba, birdsong, warm and hopeful, 80 bpm, instrumental, seamless loop',
+  'Day':'cheerful chiptune town theme, bouncy square-wave lead, plucky bass, bustling market, 110 bpm, SNES RPG style, instrumental, seamless loop',
+  'Dusk':'wistful pixel RPG sunset theme, nylon guitar, soft synth pads, lo-fi warmth, 90 bpm, instrumental, seamless loop',
+  'Night':'calm nocturne for a sleeping fantasy village, music box and warm pads, distant crickets, 60 bpm, instrumental, seamless loop',
+  'Town Hall':'stately 16-bit council march, snare rolls, brass fanfare, a hint of debate tension, 100 bpm, instrumental',
+  'Festival':'festive folk jig, fiddle, accordion, hand claps, chiptune sparkles, 132 bpm, celebratory village dance, instrumental'
+};
+function parseSunoId(s){ const m = String(s).match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i); return m ? m[1].toLowerCase() : null; }
+const music = {
+  cfg: Object.assign({tracks:[], volume:0.5, on:false}, store.get(MUSIC_KEY)||{}),
+  ac:null, master:null, chipGain:null, timer:null, nextT:0, step:0, phase:null, source:null, audio:null, oneOff:null, status:'',
+  save(){ store.set(MUSIC_KEY, {tracks:this.cfg.tracks, volume:this.cfg.volume, on:this.cfg.on}); },
+  currentPhase(){
+    const p = S.gov.proposals.find(p=>p.status==='Voting'); if (p) return 'Town Hall';
+    const mod=modOf(S.minute); if (S.festival && mod>=16*60 && mod<22*60) return 'Festival';
+    return phaseOf(mod);
+  },
+  ensureAudio(){
+    if (this.ac) return;
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    this.ac = new AC(); this.master = this.ac.createGain(); this.master.gain.value = this.cfg.volume; this.master.connect(this.ac.destination);
+    this.chipGain = this.ac.createGain(); this.chipGain.gain.value = 0.0; this.chipGain.connect(this.master);
+  },
+  toggle(){
+    this.cfg.on = !this.cfg.on; this.save();
+    if (this.cfg.on){ this.ensureAudio(); if (this.ac && this.ac.state==='suspended') this.ac.resume(); this.phase=null; this.update(); }
+    else this.stopAll();
+    this.renderPanel();
+  },
+  stopAll(){ if (this.audio){ this.audio.pause(); } this.stopChip(); this.source=null; this.phase=null; this.status='Music is off.'; },
+  setVolume(v){ this.cfg.volume=v; this.save(); if (this.master) this.master.gain.value=v; if (this.audio) this.audio.volume=v; },
+  trackFor(phase){ const t=this.cfg.tracks; const m=t.filter(x=>x.phase===phase); const any=t.filter(x=>x.phase==='Any'); const pool=m.length?m:any; if (!pool.length) return null; return pool[dayOf(S.minute)%pool.length]; },
+  update(){
+    if (!this.cfg.on || this.oneOff) return;
+    const ph = this.currentPhase();
+    if (ph===this.phase) return;
+    this.phase = ph;
+    const tr = this.trackFor(ph);
+    if (tr && !tr.failed) this.playSuno(tr, ph); else this.playChip(ph);
+    if (ui.tab==='music') this.renderPanel();
+  },
+  playSuno(tr, ph){
+    this.stopChip();
+    if (!this.audio){ this.audio = new Audio(); this.audio.loop = true; this.audio.preload='auto'; }
+    const a = this.audio; const src = `https://cdn1.suno.ai/${tr.id}.mp3`;
+    a.volume = this.cfg.volume;
+    a.onerror = () => { tr.failed = true; this.save(); this.status = `Couldn't stream "${tr.title}" from Suno. Playing the built-in theme instead. Make sure the song is public.`; this.playChip(ph); if (ui.tab==='music') this.renderPanel(); };
+    if (a.src!==src){ a.src = src; }
+    a.play().then(()=>{ this.source={kind:'suno', tr}; this.status=`♪ Suno: "${tr.title}" (${ph})`; if (ui.tab==='music') this.renderPanel(); }).catch(()=>{ this.status='Tap "Music on" to allow playback.'; });
+    this.source={kind:'suno',tr}; this.status=`♪ Loading "${tr.title}"…`;
+  },
+  playOneOff(id){
+    this.ensureAudio(); this.stopChip(); this.oneOff=id; this.cfg.on=true; this.save();
+    if (!this.audio){ this.audio=new Audio(); }
+    this.audio.loop=false; this.audio.src=`https://cdn1.suno.ai/${id}.mp3`; this.audio.volume=this.cfg.volume;
+    this.audio.onended = () => { this.oneOff=null; this.audio.loop=true; this.phase=null; this.update(); };
+    this.audio.onerror = () => { this.oneOff=null; window.open(`https://suno.com/song/${id}`,'_blank','noopener'); this.phase=null; this.update(); };
+    this.audio.play().catch(()=>{});
+    this.status = '♪ Playing this week\'s song'; if (ui.tab==='music') this.renderPanel();
+  },
+  // --- tiny procedural chiptune engine ---
+  THEMES: {
+    'Dawn':{bpm:84,root:62,scale:[0,2,4,7,9],lead:'triangle',dens:.55,bass:true,hat:false},
+    'Day':{bpm:112,root:64,scale:[0,2,4,7,9],lead:'square',dens:.75,bass:true,hat:true},
+    'Dusk':{bpm:90,root:57,scale:[0,3,5,7,10],lead:'triangle',dens:.55,bass:true,hat:false},
+    'Night':{bpm:62,root:57,scale:[0,3,5,7,10],lead:'sine',dens:.35,bass:false,hat:false},
+    'Town Hall':{bpm:100,root:60,scale:[0,2,4,5,7,9,11],lead:'square',dens:.8,bass:true,hat:true,march:true},
+    'Festival':{bpm:132,root:67,scale:[0,2,4,5,7,9],lead:'square',dens:.9,bass:true,hat:true}
+  },
+  playChip(ph){
+    if (this.audio) this.audio.pause();
+    this.ensureAudio(); if (!this.ac) return;
+    this.theme = this.THEMES[ph]; this.phaseName=ph;
+    const r = mapRand(hash(ph)); this.motif = Array.from({length:16},()=> r()<this.theme.dens ? Math.floor(r()*this.theme.scale.length*1.6) : -1);
+    this.motifB = this.motif.map(n=> n<0?-1:(n+ (r()<.4?2:0)));
+    this.chipGain.gain.cancelScheduledValues(this.ac.currentTime);
+    this.chipGain.gain.setTargetAtTime(0.9, this.ac.currentTime, 0.4);
+    if (!this.timer){ this.nextT = this.ac.currentTime+0.1; this.step=0; this.timer = setInterval(()=>this.schedule(), 30); }
+    this.source={kind:'chip'}; this.status=`♪ Built-in chiptune: ${ph} theme`;
+  },
+  stopChip(){ if (this.timer){ clearInterval(this.timer); this.timer=null; } if (this.chipGain && this.ac) this.chipGain.gain.setTargetAtTime(0, this.ac.currentTime, 0.2); },
+  note(freq, t, dur, type, vol){
+    const o=this.ac.createOscillator(), g=this.ac.createGain(); o.type=type; o.frequency.value=freq;
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g); g.connect(this.chipGain); o.start(t); o.stop(t+dur+0.02);
+  },
+  noise(t, vol){
+    const b=this.ac.createBuffer(1, this.ac.sampleRate*0.04, this.ac.sampleRate); const d=b.getChannelData(0); for (let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*(1-i/d.length);
+    const s=this.ac.createBufferSource(), g=this.ac.createGain(); s.buffer=b; g.gain.value=vol; s.connect(g); g.connect(this.chipGain); s.start(t);
+  },
+  schedule(){
+    const th=this.theme; if (!th) return;
+    const spb = 60/th.bpm/2;
+    const mtof = m => 440*Math.pow(2,(m-69)/12);
+    while (this.nextT < this.ac.currentTime + 0.15){
+      const i=this.step%16, bar=Math.floor(this.step/16)%4, t=this.nextT;
+      const prog=[0,5,3,4][bar]; const sc=th.scale;
+      const deg = (bar%2 ? this.motifB : this.motif)[i];
+      if (deg>=0){ const oct=Math.floor(deg/sc.length); const m=th.root + sc[deg%sc.length] + 12*oct + (bar===3&&i>11?2:0); this.note(mtof(m), t, spb*1.6, th.lead, th.lead==='square'?0.06:0.11); }
+      if (th.bass && i%4===0){ const bm = th.root-24 + [0,5,-3,-5][bar]; this.note(mtof(bm), t, spb*(th.march?1.2:3), 'triangle', 0.16); }
+      if (th.bass && th.march && i%4===2) this.note(mtof(th.root-17+[0,5,-3,-5][bar]), t, spb, 'triangle', 0.1);
+      if (th.hat && i%2===1) this.noise(t, 0.035);
+      if (th.march && i%8===4) this.noise(t, 0.09);
+      if (!th.hat && i===0 && bar===0) this.note(mtof(th.root+sc[0]+12), t, spb*6, 'sine', 0.04);
+      this.nextT += spb; this.step++;
+    }
+  },
+  renderPanel(){
+    const el=$('p-music'); const t=this.cfg.tracks;
+    el.innerHTML = `<h2>Music</h2>
+      <div class="row"><button class="btn ${this.cfg.on?'on':'primary'}" id="mToggle">${this.cfg.on?'■ Music off':'▶ Music on'}</button>
+      <label class="row muted" style="font-size:13px">Volume <input type="range" id="mVol" min="0" max="1" step="0.05" value="${this.cfg.volume}"></label></div>
+      <p style="font-size:14px">${esc(this.cfg.on ? (this.status||'') : 'Music is off.')} <span class="muted">Now: ${esc(this.currentPhase())}</span></p>
+      <p class="muted" style="font-size:13px">The soundtrack follows the town's clock: dawn, day, dusk and night, plus the town hall and the festivals. Every phase has a built-in chiptune. Add your own Suno songs below and they take over for their phase.</p>
+      <h2>Your Suno tracks</h2>
+      ${t.length?t.map((x,i)=>`<div class="card" style="padding:8px"><div class="row"><b style="flex:1">${esc(x.title)}</b>
+        <select data-ph="${i}">${['Any'].concat(MUSIC_PHASES).map(p=>`<option ${p===x.phase?'selected':''}>${p}</option>`).join('')}</select>
+        <button class="btn" data-test="${i}" title="Preview">▶</button><button class="btn" data-del="${i}" title="Remove">✕</button></div>
+        <div class="muted" style="font-size:12px">${x.failed?'<span class="No">Could not stream. Is the song public?</span> ':''}<a href="https://suno.com/song/${esc(x.id)}" target="_blank" rel="noopener">suno.com/song/${esc(x.id.slice(0,8))}…</a>${x.failed?` · <a href="#" data-retry="${i}">retry</a>`:''}</div>
+        ${x.failed?`<iframe src="https://suno.com/embed/${esc(x.id)}" width="100%" height="152" style="border:0;border-radius:6px;margin-top:6px" loading="lazy" allow="autoplay; encrypted-media" title="${esc(x.title)}"></iframe>`:''}</div>`).join(''):'<p class="muted">No Suno songs yet.</p>'}
+      <div class="card"><b>Add a Suno song</b>
+        <div class="row" style="margin-top:6px"><input type="text" id="mUrl" placeholder="https://suno.com/song/…"><select id="mPh">${MUSIC_PHASES.concat(['Any']).map(p=>`<option>${p}</option>`).join('')}</select></div>
+        <div class="row" style="margin-top:6px"><input type="text" id="mTitle" placeholder="Title (optional)"><button class="btn primary" id="mAdd">Add</button></div>
+        <p class="muted" style="font-size:12px;margin:6px 0 0">On Suno, open your song, choose Share → Copy link, and paste it here. Use the full <code>suno.com/song/…</code> address; if you copied a short <code>suno.com/s/…</code> link, open it and copy the address it lands on. The song must be public to stream.</p></div>
+      <h2>Make the soundtrack on Suno</h2>
+      <p class="muted" style="font-size:13px">Suno doesn't let other websites generate songs, so you make them on Suno. Copy a style prompt, then paste it into <a href="https://suno.com/create" target="_blank" rel="noopener">Suno Create</a> (Custom mode → Style, and turn on Instrumental).</p>
+      ${MUSIC_PHASES.map(p=>`<div class="card"><div class="row" style="justify-content:space-between"><b>${p}</b><div class="row"><button class="btn" data-copy="${p}">Copy prompt</button><a class="btn" href="https://suno.com/create" target="_blank" rel="noopener" style="text-decoration:none">Open Suno ↗</a></div></div><pre>${esc(SUNO_PROMPTS[p])}</pre></div>`).join('')}
+      <p class="muted" style="font-size:13px">Each week in the Weekly tab also has a ballad prompt with lyrics about that week's events.</p>`;
+    $('mToggle').onclick = ()=>this.toggle();
+    $('mVol').oninput = e => this.setVolume(+e.target.value);
+    $('mAdd').onclick = ()=>{ const id=parseSunoId($('mUrl').value); if (!id){ alert('Paste a full suno.com/song/… link.'); return; } const title=$('mTitle').value.trim() || `${$('mPh').value} track`; this.cfg.tracks.push({id,title,phase:$('mPh').value}); this.save(); this.phase=null; this.update(); this.renderPanel(); };
+    el.querySelectorAll('[data-ph]').forEach(s=>s.onchange=()=>{ t[+s.dataset.ph].phase=s.value; this.save(); this.phase=null; this.update(); });
+    el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ t.splice(+b.dataset.del,1); this.save(); this.phase=null; this.update(); this.renderPanel(); });
+    el.querySelectorAll('[data-retry]').forEach(b=>b.onclick=(e)=>{ e.preventDefault(); t[+b.dataset.retry].failed=false; this.save(); this.phase=null; this.update(); this.renderPanel(); });
+    el.querySelectorAll('[data-test]').forEach(b=>b.onclick=()=>{ this.playOneOff(t[+b.dataset.test].id); });
+    el.querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>copyText(SUNO_PROMPTS[b.dataset.copy], b));
+  }
+};
+
+// ---------- overlay ----------
+function overlay(html){ $('overlayBox').innerHTML=html; $('overlay').style.display= html?'flex':'none'; }
+
+// ---------- main loop ----------
+let catchingUp = false;
+function frame(ts){
+  if (!catchingUp){
+    const g = clock.now();
+    const target = Math.floor(g);
+    const backlog = target - S.minute;
+    if (backlog > 3000){ catchUp(backlog, 'Pixel Town kept running while this tab was in the background.'); }
+    else {
+      let n=0; while (S.minute < target && n < 400){ const h=modOf(S.minute+1)===0||modOf(S.minute+1)%60===0; simTick(); n++; if (h) saveGame(); }
+      if (S.minute < target) clock.rebase(S.minute);
+    }
+    const frac = clamp(clock.now() - S.minute, 0, 1);
+    render(frac, ts);
+    music.update();
+    renderPanels(false);
+  }
+  requestAnimationFrame(frame);
+}
+function catchUp(minutes, reason, done){
+  catchingUp = true;
+  const cap = 7*DAY; const todo = Math.min(minutes, cap); const skipped = minutes - todo;
+  const startLen = S.chronicle.length, startMin = S.minute; let doneN = 0;
+  overlay(`<h3>While you were away…</h3><p>${esc(reason)}</p><p class="muted">Simulating ${Math.round(todo/60)} game hours (${(todo/DAY).toFixed(1)} days)…</p><div class="prog"><i id="progBar"></i></div>`);
+  const chunk = () => {
+    const t0 = performance.now();
+    while (doneN < todo && performance.now()-t0 < 30){ simTick(); doneN++; }
+    const pb=$('progBar'); if (pb) pb.style.width = (doneN/todo*100).toFixed(1)+'%';
+    if (doneN < todo){ setTimeout(chunk, 0); return; }
+    clock.rebase(S.minute); saveGame();
+    const news = S.chronicle.slice(startLen).filter(e=>e.imp>=6);
+    overlay(`<h3>While you were away</h3><p>${(todo/DAY).toFixed(1)} game days passed in Pixel Town (${fmtStamp(startMin)} → ${fmtStamp(S.minute)}).${skipped>0?` The town slept through the rest: at most 7 game days are simulated while you're gone.`:''}</p>
+      ${news.length?`<div>${news.slice(-25).map(e=>`<div class="ev ${e.imp>=7?'major':''}"><time>${esc(fmtStamp(e.t))}</time><span>${esc(e.icon)}</span><span>${esc(e.text)}</span></div>`).join('')}</div>`:'<p class="muted">Nothing major happened.</p>'}
+      <div class="row" style="margin-top:12px"><button class="btn primary" id="ovClose">Back to town</button></div>`);
+    $('ovClose').onclick = ()=>{ overlay(''); };
+    catchingUp = false; ui.dirty=true; renderPanels(true); if (done) done();
+  };
+  setTimeout(chunk, 30);
+}
+function welcome(){
+  overlay(`<h3>Welcome to Pixel Town</h3>
+    <p>Twelve villagers live, work, trade, gossip and vote here on one shared clock: <b>1 real hour = 1 game day</b> (2.5 seconds per game minute).</p>
+    <ul style="padding-left:18px;font-size:14px"><li>Everything that happens goes into the <b>Log</b>, and each game week gets a report in <b>Weekly</b>.</li>
+    <li>The town keeps running while the page is closed (up to 7 game days are simulated when you return).</li>
+    <li>The first proposal, the Lumber Tax, comes up on Tideday and the town hall votes on it on Hallday evening.</li>
+    <li>Turn on the soundtrack in <b>Music</b>, and add your own Suno songs there.</li></ul>
+    <div class="row" style="margin-top:10px"><button class="btn primary" id="ovGo">Enter town</button><button class="btn" id="ovMusic">Enter with music ♪</button></div>`);
+  $('ovGo').onclick = ()=>overlay('');
+  $('ovMusic').onclick = ()=>{ overlay(''); if (!music.cfg.on) music.toggle(); };
+}
+function boot(){
+  buildMap();
+  const sv = loadGame();
+  if (sv){
+    S = sv.state; RNG.s = S.rng || 1; S.bubbles = [];
+    clock.speed = sv.clock.speed||1; clock.paused = !!sv.clock.paused;
+    clock.gameAnchor = S.minute; clock.realAnchor = Date.now();
+    if (!clock.paused){
+      // Offline time always runs at live speed (1x): the absolute clock kept ticking.
+      const away = Math.floor((Date.now() - sv.savedAt)/MS_PER_GAME_MIN) + Math.max(0, Math.floor(sv.clock.gameAt) - S.minute);
+      if (away > 30) catchUp(away, `You were away for ${fmtAway(Date.now()-sv.savedAt)}. Life went on without you.`);
+    }
+  } else {
+    S = newState(); S.bubbles = [];
+    openWeek(); S.weather='Clear';
+    S.citizens.forEach(c=>{ c.plan = buildPlan(c, 0); });
+    chronicle('Pixel Town is founded. Twelve villagers wake up to their first spring morning.', 7, '🏡', 'founding');
+    chronicle('Word around the tavern: the old river bridge creaks badly under a full cart.', 5, '🌉', 'infrastructure');
+    clock.gameAnchor = S.minute; clock.realAnchor = Date.now();
+    saveGame();
+    welcome();
+  }
+  music.renderPanel();
+  renderPanels(true);
+  requestAnimationFrame(frame);
+}
+function fmtAway(ms){ const m=Math.round(ms/60000); if (m<60) return `${m} minute${m===1?'':'s'}`; const h=Math.round(m/6)/10; if (h<48) return `${h} hours`; return `${Math.round(h/24)} days`; }
+document.addEventListener('visibilitychange', ()=>{ if (document.hidden) saveGame(); });
+window.addEventListener('pagehide', saveGame);
+
+// ---------- footer controls (reset) ----------
+(function(){
+  const f=document.createElement('div'); f.className='row'; f.style.cssText='margin-top:4px;font-size:12px';
+  f.innerHTML=`<span class="muted">Deterministic fallback AI · autosaves in this browser</span><button class="btn" id="resetBtn" style="margin-left:auto;font-size:12px">Reset town</button>`;
+  $('stage').appendChild(f);
+  $('resetBtn').onclick=()=>{ if (confirm('Start Pixel Town over from day 1? The log will be erased. Export it first if you want to keep it.')){ store.del(SAVE_KEY); location.reload(); } };
+})();
+
+// debug hooks
+window.PT = { get S(){return S;}, simulate(n){ for (let i=0;i<n;i++) simTick(); clock.rebase(S.minute); renderPanels(true); }, clock, music, weekToMarkdown, liveWeekEntry };
+boot();
+</script>
+</body>
+</html>
