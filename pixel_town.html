@@ -2244,6 +2244,9 @@ function hover(e){
 function clickAt(e){ const [x,y]=screenToWorld(e.clientX,e.clientY); const c=hitCitizen(x,y); if (c){ ui.sel=c.id; if (ui.tab!=='people') $('tabs').querySelector('[data-p=people]').click(); else renderPeople(); } }
 
 // ---------- music: built-in chiptune + Suno tracks ----------
+// The town's own ambient theme, made on Suno. Put the song's full id in `id` (the part after suno.com/song/)
+// to stream it inside the page for every phase that has no track of its own.
+const TOWN_SONG = {title:'Pixel Town — town theme', link:'https://suno.com/s/D4SCFZ2A7mJhDkUx', id:''};
 const MUSIC_PHASES = ['Dawn','Day','Dusk','Night','Town Hall','Festival'];
 const SUNO_PROMPTS = {
   'Dawn':'gentle 16-bit village morning theme, soft flute and marimba, birdsong, warm and hopeful, 80 bpm, instrumental, seamless loop',
@@ -2277,7 +2280,7 @@ const music = {
   },
   stopAll(){ if (this.audio){ this.audio.pause(); } this.stopChip(); this.source=null; this.phase=null; this.status='Music is off.'; },
   setVolume(v){ this.cfg.volume=v; this.save(); if (this.master) this.master.gain.value=v; if (this.audio) this.audio.volume=v; },
-  trackFor(phase){ const t=this.cfg.tracks; const m=t.filter(x=>x.phase===phase); const any=t.filter(x=>x.phase==='Any'); const pool=m.length?m:any; if (!pool.length) return null; return pool[dayOf(S.minute)%pool.length]; },
+  trackFor(phase){ const t=this.cfg.tracks; const m=t.filter(x=>x.phase===phase); const any=t.filter(x=>x.phase==='Any'); const pool=m.length?m:any; if (pool.length) return pool[dayOf(S.minute)%pool.length]; return TOWN_SONG.id ? (this.townTrack = this.townTrack || {id:TOWN_SONG.id, title:TOWN_SONG.title, phase:'Any'}) : null; },
   update(){
     if (!this.cfg.on || this.oneOff) return;
     const ph = this.currentPhase();
@@ -2360,6 +2363,8 @@ const music = {
       <label class="row muted" style="font-size:13px">Volume <input type="range" id="mVol" min="0" max="1" step="0.05" value="${this.cfg.volume}"></label></div>
       <p style="font-size:14px">${esc(this.cfg.on ? (this.status||'') : 'Music is off.')} <span class="muted">Now: ${esc(this.currentPhase())}</span></p>
       <p class="muted" style="font-size:13px">The soundtrack follows the town's clock: dawn, day, dusk and night, plus the town hall and the festivals. Every phase has a built-in chiptune. Add your own Suno songs below and they take over for their phase.</p>
+      <div class="card"><div class="row" style="justify-content:space-between"><b>🎵 ${esc(TOWN_SONG.title)}</b><a class="btn primary" href="${esc(TOWN_SONG.link)}" target="_blank" rel="noopener" style="text-decoration:none">Listen on Suno ↗</a></div>
+        <p class="muted" style="font-size:13px;margin:6px 0 0">${TOWN_SONG.id ? 'Plays in the page as the town\'s ambient theme whenever a phase has no track of its own.' : 'The town\'s ambient theme, made on Suno. It opens on Suno for now; once its full <code>suno.com/song/…</code> link is added it will also play right here in the town.'}</p></div>
       <h2>Your Suno tracks</h2>
       ${t.length?t.map((x,i)=>`<div class="card" style="padding:8px"><div class="row"><b style="flex:1">${esc(x.title)}</b>
         <select data-ph="${i}">${['Any'].concat(MUSIC_PHASES).map(p=>`<option ${p===x.phase?'selected':''}>${p}</option>`).join('')}</select>
