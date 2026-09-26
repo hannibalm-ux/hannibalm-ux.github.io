@@ -14,11 +14,12 @@ Use this format to add new villagers to Pixel Town. Open the town page, go to **
 |---|---|
 | `name` | First and last name (must be unique in town) |
 | `age` | 16 to 95 (default 30) |
-| `profession` | Farmer, Rancher, Butcher, Fisher, Baker, Woodcutter, Miner, Blacksmith, Carpenter, TavernKeeper, Doctor, Merchant, Unemployed |
+| `profession` | Farmer, Rancher, Butcher, Fisher, Baker, Woodcutter, Miner, Blacksmith, Carpenter, TavernKeeper, Doctor, Merchant, Musician, Athlete, Journalist, Teacher, Constable, Unemployed |
 | `traits` | 2 to 4 of: Frugal, Generous, Greedy, Ambitious, Lazy, Hardworking, Gossip, Shy, Charismatic, Stubborn, Honest, Cunning, Romantic, Cautious, Reckless |
 | `values` | 1 to 3 of: Prosperity, Community, Tradition, Freedom, Order, Nature, Craftsmanship, Family |
 | `agenda` | Make a fortune, Win public office, Open a business, Find love, Raise a family, Protect the land, Stir up trouble, Bring order, Start over quietly |
 | `wallet` | Starting coins (copper) |
+| `intelligence` | 0 to 1, or a word: simple, average, clever, brilliant. Clever villagers notice what the town needs, plan better schemes, dig up secrets, and are harder to catch. Default: worked out from their personality. |
 | `personality` | `openness`, `conscientiousness`, `extraversion`, `agreeableness`, `neuroticism`, each 0 to 1 |
 | `politics` | `economic` −1 (communal) to +1 (free market), `order` −1 (liberty) to +1 (order), `civic` 0 to 1 (how often they vote and run for office) |
 | `skin` | fair, light, tan, olive, brown, deep, or a hex colour |
@@ -69,6 +70,7 @@ values: Community, Craftsmanship
 agenda: Open a business
 # Make a fortune, Win public office, Open a business, Find love, Raise a family, Protect the land, Stir up trouble, Bring order, Start over quietly
 wallet: 250
+intelligence: clever
 personality: openness 0.6, conscientiousness 0.7, extraversion 0.5, agreeableness 0.8, neuroticism 0.3
 politics: economic 0.2, order -0.1, civic 0.7
 # economic: -1 communal .. +1 free market; order: -1 liberty .. +1 order; civic: 0..1 (how often they vote and run for office)

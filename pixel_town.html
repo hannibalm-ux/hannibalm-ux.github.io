@@ -127,6 +127,7 @@ a{color:var(--link)}
       <button data-p="market">Market</button>
       <button data-p="land">Land</button>
       <button data-p="laws">Gov</button>
+      <button data-p="soc">Society</button>
       <button data-p="music">Music</button>
     </div>
     <div class="panel on" id="p-chron"></div>
@@ -135,6 +136,7 @@ a{color:var(--link)}
     <div class="panel" id="p-market"></div>
     <div class="panel" id="p-land"></div>
     <div class="panel" id="p-laws"></div>
+    <div class="panel" id="p-soc"></div>
     <div class="panel" id="p-music"></div>
   </aside>
 </main>
@@ -441,6 +443,7 @@ const GOOD_DEFS = [
   {id:'svc_hot_meal',   name:'Hot Meal',  kind:'Service', cat:'Hospitality',base:8,floor:3,ceil:14,e:0.6,a:0.25, by:['TavernKeeper'], svc:{prof:'TavernKeeper',dur:30,cap:12,loc:'biz:tavern'}, need:{hunger:50,social:10}},
   {id:'svc_bath',       name:'Bathhouse Visit',kind:'Service',cat:'Hospitality',base:12,floor:4,ceil:36,e:0.5,a:0.2, by:['Bathkeeper'], svc:{prof:'Bathkeeper',dur:60,cap:14,loc:'biz:bathhouse'}, need:{comfort:25,fun:10}},
   {id:'svc_show',       name:'Theater Show',kind:'Service',cat:'Hospitality',base:15,floor:5,ceil:45,e:0.5,a:0.2, by:['Showman'], svc:{prof:'Showman',dur:90,cap:30,loc:'biz:theater'}, need:{fun:40,social:15}},
+  {id:'good_newspaper', name:'Newspaper', kind:'Resource', cat:'Media', base:2, floor:1, ceil:6, e:0.5, a:0.25, perish:1, by:['Journalist'], need:{fun:6}},
   {id:'svc_home_repair',name:'Home Repair',kind:'Service',cat:'Labor',  base:15, floor:5,  ceil:45,  e:0.5, a:0.2,  by:['Carpenter'], svc:{prof:'Carpenter',dur:60,cap:4,loc:null}, need:{comfort:22}}
 ];
 const GD = Object.fromEntries(GOOD_DEFS.map(g=>[g.id,g]));
@@ -512,6 +515,11 @@ function lookFor(prof, r, skin, hair, style, beard){
     Hotelier:{shirt:['#2a3a6a','#5a1a2a'], pants:'#1e1a24', coat:null, trim:true, hat:'tricorn', hatCol:'#1e1a24'},
     Bathkeeper:{shirt:['#e8f0f4','#bcd8e8'], pants:'#4a6a8a', apron:'#f4f8fa'},
     Showman:{shirt:['#c83a6a','#e8a030','#6a3ac8'], pants:'#1e1a24', hat:'tricorn', hatCol:'#8a1a3a', trim:true},
+    Musician:{shirt:['#6a3ac8','#c8a030','#2a8a8a'], pants:'#2e2a30', hat:'beanie', hatCol:'#e84a4a', trim:true},
+    Athlete:{shirt:['#e8e4d8'], pants:'#2a4a8a', hat:'bandana', hatCol:'#3a8ac8'},
+    Journalist:{shirt:['#d8d0b8','#8a8aa0'], pants:'#3a3440', hat:'cap', hatCol:'#4a4a54', coat:'#6a5a44'},
+    Teacher:{shirt:['#5a7a4a','#7a4a5a'], pants:'#3a3440', coat:'#4a5a7a', trim:true},
+    Constable:{shirt:['#2a3a6a'], pants:'#1e2440', hat:'helmet', coat:'#2a3a6a', trim:true},
     Doctor:{shirt:['#dfe8f6'], pants:'#3a3a4a', coat:'#f4f6fa'},
     Merchant:{shirt:['#6a3aa0','#2a6a6a'], pants:'#2e2a30', hat:'tricorn', hatCol:'#3a2050', coat:null, trim:true},
     Unemployed:{shirt:['#4a7ab0','#8a5a3a','#6a6a4a'], pants:'#3a3a4a', trim:true},
@@ -531,7 +539,8 @@ function newState(){
     goods:{}, listings:[], citizens:[],
     gov:{proposals:[], nextId:1, cooldown:{}, leader:null, council:[], elections:[], campaign:null, platforms:{}},
     chronicle:[], weeks:[], week:null,
-    terr:{t_core:true, t_grove:true}, props:{}, land:{sales:[]}, built:[], deceased:[], departed:[], biz:{}, extraPlots:[], demolished:[]
+    terr:{t_core:true, t_grove:true}, props:{}, land:{sales:[]}, built:[], deceased:[], departed:[], biz:{}, extraPlots:[], demolished:[],
+    teams:[], schemes:[], secrets:[], crimes:[], news:[], papers:{}, league:{}, matches:[], institutions:[], teamSeq:0, schemeSeq:0, secretSeq:0
   };
   GOOD_DEFS.forEach(g => st.goods[g.id] = {price:g.base, dem:new Array(24).fill(0), sup:new Array(24).fill(0), unmet:new Array(24).fill(0), hist:[g.base]});
   const r = mapRand(4242);
@@ -628,7 +637,7 @@ function remember(c, text, imp, subj, kind){
   if (recs.length>40){ let wi=0; for (let i=1;i<recs.length-5;i++) if (recs[i].imp<recs[wi].imp) wi=i; recs.splice(wi,1); }
   c.memory.since += imp;
 }
-function setEmotion(c, emo, minutes){ c.mood.emoForced = emo; c.mood.emoUntil = S.minute + minutes; }
+function setEmotion(c, emo, minutes){ c.mood.emoForced = emo; c.mood.emoUntil = S.minute + minutes; const m=EMO_MAP[emo]; if (m) feel(c, m[0], m[1]*Math.min(1.5, 0.5+minutes/DAY)); }
 
 // ---------- law query (pull-based modifiers) ----------
 function activeLaws(){ return S.gov.proposals.filter(p=>p.status==='Enacted'); }
@@ -637,6 +646,7 @@ function effTargets(e,g){ return e.targetGoodId===g || (e.targetCategory && GD[g
 const lawQuery = {
   priceMultiplier(g){ let m=1; effects().forEach(e=>{ if (e.effectType==='PriceMultiplier' && effTargets(e,g)) m*=e.magnitude; }); return m; },
   salesTax(g){ let r=0; effects().forEach(e=>{ if (e.effectType==='SalesTax' && effTargets(e,g)) r+=e.magnitude; }); return Math.min(.3,r); },
+  rentCap(){ let m=Infinity; effects().forEach(e=>{ if (e.effectType==='RentCap') m=Math.min(m,e.magnitude); }); return m; },
   subsidy(prof){ let s=0; effects().forEach(e=>{ if (e.effectType==='Subsidy' && e.targetProfession===prof) s+=e.magnitude; }); return s; },
   curfew(loc){ const e = effects().find(e=>e.effectType==='Curfew' && e.targetZoneId===loc); return e ? [e.startMinuteOfDay, e.endMinuteOfDay] : null; }
 };
@@ -667,7 +677,8 @@ function buy(c, g, qty){
   recordDemand(g, qty);
   let got = 0;
   while (got < qty){
-    const L = S.listings.find(l => l.g===g && l.qty>0 && l.seller!==c.id);
+    const bo = boycottOf(c);
+    const L = S.listings.find(l => l.g===g && l.qty>0 && l.seller!==c.id && (!bo || l.seller!==bo.target));
     if (!L) break;
     const price = S.goods[g].price, tax = Math.round(price*lawQuery.salesTax(g));
     if (c.wallet < price + tax){ S.goods[g].dem[hourIdx()] -= (qty-got); return got; } // only affordable demand moves prices
@@ -691,7 +702,7 @@ function list(c, g, qty){
 function hasIngredient(p){ return MEAL_INGREDIENTS.some(g=>p.inventory[g]>0); }
 function providerAvailable(p, svc){
   const spec = GD[svc].svc;
-  if (p.profession!==spec.prof || p.rt.state!=='Working' || p.rt.path) return false;
+  if (p.profession!==spec.prof || p.rt.state!=='Working' || p.rt.path || closedBiz(p.rt.loc)) return false;
   if (spec.loc){ if (spec.loc.startsWith('biz:')){ if (bizType(p.rt.loc)!==spec.loc.slice(4)) return false; } else if (p.rt.loc!==spec.loc) return false; }
   if (svc==='svc_hot_meal' && !hasIngredient(p)) return false;
   return p.svcUsed < spec.cap;
@@ -735,7 +746,9 @@ function buildPlan(c, day){
   const add=(end,act,loc,note,target)=>{ end=Math.min(DAY,Math.round(end)); if (end<=t) return; B.push({s:t,d:end-t,act,loc,note,target}); t=end; };
   if (c.profession==='Child'){
     add(7*60+hash(c.id+day)%30,'Sleep',home,'Sleeping'); add(t+30,'Eat',home,'Breakfast');
-    if (c.age>=5 && day%7!==6){ add(12*60,'Work','loc_school','Lessons at the schoolhouse'); add(t+45,'Eat',home,'Lunch at home');
+    const kw = c.age>=7 && wantsToWatch(c, day);
+    if (c.age>=5 && day%7!==6){ add(12*60,'Work','loc_school', S.citizens.some(x=>x.profession==='Teacher') ? 'Lessons with the teacher' : 'Lessons at the schoolhouse'); add(t+45,'Eat',home,'Lunch at home');
+      if (kw) add(17*60,'Socialize',kw.loc,`Cheering on the ${teamName(mindOf(c).fan||kw.a)}`,'match');
       add(16*60+30, S.weather==='Storm'?'Leisure':'Socialize', S.weather==='Storm'?home:'loc_town_square', S.weather==='Storm'?'Stuck inside, bored':'Playing on the square'); }
     else if (c.age>=5){ add(11*60,'Leisure',home,'Sleeping in'); add(16*60, S.weather==='Storm'?'Leisure':'Socialize', S.weather==='Storm'?home:'loc_town_square','Playing on the square'); }
     else add(17*60,'Leisure',home,'Playing at home');
@@ -749,7 +762,7 @@ function buildPlan(c, day){
   const outdoor = OUTDOOR_WORK.includes(c.profession);
   const storm = S.weather==='Storm';
   const bridgeOut = S.bridge.closed && ['Woodcutter','Miner','Unemployed'].includes(c.profession);
-  let wake = {Baker:270, Farmer:330, Fisher:300, Rancher:330, TavernKeeper:480, Showman:480, Bathkeeper:420}[c.profession] || 360;
+  let wake = {Baker:270, Farmer:330, Fisher:300, Rancher:330, TavernKeeper:480, Showman:480, Bathkeeper:420, Musician:480, Teacher:330}[c.profession] || 360;
   if (has('Lazy')) wake += 60; if (has('Hardworking')) wake -= 20; wake += jit;
   add(wake,'Sleep',home,'Sleeping');
   add(t+30,'Eat',home,'Breakfast at home');
@@ -763,12 +776,29 @@ function buildPlan(c, day){
   const site = ci>=0 && ci < Math.min(sites.length*2, carps.length-1) ? sites[ci % sites.length] : null;
   const workLoc = c.profession==='Unemployed' ? (bridgeOut ? 'loc_town_square' : 'loc_east_grove') : site || work;
   const cantWork = (storm && outdoor) || bridgeOut;
-  const workNote = cantWork ? (storm ? 'Sheltering from the storm' : 'The bridge is out; stuck on this side') : ({Farmer:'Tending the wheatfields',Rancher:'Tending the herd in the pasture',Butcher:'Butchering at the Hock & Cleaver',Fisher:'Fishing off the lake docks',Woodcutter:'Felling timber in the east grove',Miner:'Digging ore in Deepvein Mine',Blacksmith:'Working the forge',Carpenter:'At the workbench',Baker:'Baking bread',TavernKeeper:'Running the tavern',Doctor:'Seeing patients',Merchant:'Minding the market stalls',Unemployed:'Odd jobs chopping wood',Hotelier:'Minding the front desk',Bathkeeper:'Heating the baths',Showman:'Rehearsing the next show'}[c.profession]);
-  const workNote2 = site && !cantWork ? `Building: ${LOC[site].name.replace(/^Building site \((.*)\)$/,'$1').toLowerCase()}` : workNote;
-  const workAct = cantWork ? 'Leisure' : (c.profession==='Unemployed' && has('Lazy') && hash(c.id+day+'l')%3===0 ? 'Leisure' : 'Work');
-  const wLoc = cantWork ? home : workLoc;
+  const workNote = cantWork ? (storm ? 'Sheltering from the storm' : 'The bridge is out; stuck on this side') : ({Farmer:'Tending the wheatfields',Rancher:'Tending the herd in the pasture',Butcher:'Butchering at the Hock & Cleaver',Fisher:'Fishing off the lake docks',Woodcutter:'Felling timber in the east grove',Miner:'Digging ore in Deepvein Mine',Blacksmith:'Working the forge',Carpenter:'At the workbench',Baker:'Baking bread',TavernKeeper:'Running the tavern',Doctor:'Seeing patients',Merchant:'Minding the market stalls',Unemployed:'Odd jobs chopping wood',Hotelier:'Minding the front desk',Bathkeeper:'Heating the baths',Showman:'Rehearsing the next show',Journalist:'Chasing a story for the paper',Teacher:'Teaching at the schoolhouse',Constable:'Patrolling the square',Athlete:(()=>{ const cl=teamsOf(c,'club')[0]; return cl ? `Training with the ${cl.name}` : 'Training on the square'; })()}[c.profession]);
+  const striking = c.strikeUntil && day < c.strikeUntil;
+  let workNote2 = striking ? 'On strike: picketing the square' : site && !cantWork ? `Building: ${LOC[site].name.replace(/^Building site \((.*)\)$/,'$1').toLowerCase()}` : workNote;
+  const workAct = striking ? 'Socialize' : cantWork ? 'Leisure' : (c.profession==='Unemployed' && has('Lazy') && hash(c.id+day+'l')%3===0 ? 'Leisure' : 'Work');
+  const wLoc = striking ? 'loc_town_square' : cantWork ? home : workLoc;
+  const match = matchToday(day), club = c.profession==='Athlete' && teamsOf(c,'club')[0];
+  const playing = match && club && (club.id===match.a || club.id===match.b);
+  if (playing) workNote2 = `Match day: ${teamName(match.a)} v ${teamName(match.b)}`;
+  const prot = S.schemes.find(x=>x.kind==='protest' && x.status==='active' && x.protestDay===day && x.members.includes(c.id));
+  const watch = !prot && !playing && wantsToWatch(c, day);
   const curfew = lawQuery.curfew('loc_tavern');
   const tavernClose = curfew ? curfew[0] : 23*60;
+  if (c.profession==='Musician' && !striking){
+    const gig = gigFor(c, day), band = teamsOf(c,'band')[0];
+    add(11*60,'Leisure',home, band ? `Rehearsing with ${band.name}` : 'Practising a new tune');
+    add(15*60,'Work','loc_town_square','Busking on the square');
+    add(t+45,'Eat',home,'A late lunch');
+    if (hall){ add(17*60+45,'Leisure','loc_town_square','Heading to the town hall'); add(19*60+30,'AttendTownHall','loc_town_hall','Town hall meeting'); }
+    add(Math.min(tavernClose, 22*60+30),'Work',gig, `${band?band.name+' playing':'Playing music'} at ${LOC[gig].name}`);
+    add(t+30,'Leisure',home,'Counting the tips');
+    add(DAY,'Sleep',home,'Sleeping');
+    return {day, by:'Fallback', blocks:B};
+  }
   if (['TavernKeeper','Showman','Bathkeeper'].includes(c.profession)){
     const tv = c.work && LOC[c.work] ? c.work : c.profession==='TavernKeeper' ? 'loc_tavern' : 'loc_town_square';
     const close = c.profession==='TavernKeeper' ? tavernClose : c.profession==='Showman' ? 22*60+30 : 21*60+30;
@@ -788,11 +818,23 @@ function buildPlan(c, day){
   else add(t+60,'Eat',tav,`Lunch at ${LOC[tav].name}`,'svc_hot_meal');
   let endWork = c.profession==='Baker' ? 15*60 : has('Hardworking') ? 18*60 : has('Lazy') ? 16*60+30 : 17*60+30;
   if (hall) endWork = Math.min(endWork, 17*60+30);
-  add(endWork, workAct, wLoc, workNote2);
+  if (playing) endWork = 17*60;
+  if (prot) endWork = Math.min(endWork, 15*60+45);
+  if (watch) endWork = Math.min(endWork, 14*60+40);
+  add(endWork, workAct, playing ? match.loc : wLoc, workNote2);
+  if (watch) add(17*60,'Socialize',watch.loc,`Watching ${teamName(watch.a)} v ${teamName(watch.b)}`,'match');
+  if (prot) add(18*60,'Socialize','loc_town_square',`Protesting: "${prot.slogan}"`,'protest');
   const civicSkip = c.politics.civicEngagement < .25 && hash(c.id+day+'h')%2===0;
   if (hall && !civicSkip){ add(17*60+45,'Leisure','loc_town_square','Heading to the town hall'); add(19*60+30,'AttendTownHall','loc_town_hall','Town hall meeting'); }
   const social = c.personality.extraversion>.5 || has('Gossip') || has('Charismatic');
+  const lv = c.age>=18 && loversOf(c).map(alive).filter(Boolean)[0];
+  const tryst = lv && !storm && hash([c.id,lv.id].sort().join('')+day)%3===0;
   if (S.festival){ add(16*60,'Leisure',home,'Getting ready for the festival'); add(21*60+30,'Socialize','loc_town_square','Season festival on the square'); }
+  else if (tryst){ const secret = peekRel(c,lv.id).tags.includes('Secret');
+    add(Math.max(t+20, 19*60+30),'Eat',home,'Supper at home');
+    add(Math.max(t, 20*60+15),'Leisure',home, secret ? 'Waiting until nobody is looking' : 'Getting ready');
+    add(22*60, 'Socialize', secret ? 'loc_docks' : 'loc_town_square', secret ? 'Out for a walk by the lake' : `An evening with ${lead(lv)}`);
+  }
   else if (!storm && (c.cls==='Wealthy'||c.cls==='Upper'||c.wallet>150) && (bizList('theater').length||bizList('bathhouse').length) && hash(c.id+day+'x')%3===0){
     const th = bizList('theater'), bt = bizList('bathhouse');
     const show = th.length && (!bt.length || hash(c.id+day)%2===0);
@@ -860,10 +902,12 @@ function step(c){
 function arrive(c, b){
   c.rt.ox=c.rt.x; c.rt.oy=c.rt.y;
   c.rt.loc = b.loc; c.rt.state = STATE_FOR[b.act]||'Idle'; c.rt.since = S.minute;
-  if (b.act==='Eat' && !c.rt.did){ c.rt.did=true; doMeal(c,b); }
+  if (b.act==='Eat' && !c.rt.did){ c.rt.did=true; if (modOf(S.minute)<10*60) tryReadPaper(c); doMeal(c,b); }
+  if (b.target==='match' && !c.rt.did){ c.rt.did=true; const fee = c.profession==='Child' ? 1 : 3; if (c.wallet>=fee){ c.wallet-=fee; today(c).exp+=fee; S.matchGate=(S.matchGate||0)+fee; } }
+  if (b.target==='protest' && !c.rt.did){ c.rt.did=true; S.bubbles.push({id:c.id, text:'✊', until:performance.now()+3000, gm:S.minute}); }
   if (b.act==='Trade' && b.target==='svc_medical_checkup' && !c.rt.did){ c.rt.did=true; clinicVisit(c); }
   if (b.act==='Chore' && !c.rt.did){ c.rt.did=true; c.needs.comfort=clamp(c.needs.comfort+6,0,100); }
-  if (b.target && b.target!=='svc_hot_meal' && b.target!=='svc_medical_checkup' && !c.rt.did){ c.rt.did=true;
+  if (b.target && b.target.startsWith('svc_') && b.target!=='svc_hot_meal' && b.target!=='svc_medical_checkup' && !c.rt.did){ c.rt.did=true;
     const p = buyService(c, b.target, b.loc);
     if (p && hash(c.id+S.minute)%4===0) remember(c, b.target==='svc_show' ? `Saw a show at ${LOC[b.loc].name}. ${p.name} was on stage.` : `Had a long soak at ${LOC[b.loc].name}.`, 3, [p.id]);
     if (!p) setEmotion(c,'Bored',60);
@@ -925,7 +969,7 @@ const PROD = {
   Farmer:{every:40, tool:true}, Rancher:{every:30, tool:true}, Fisher:{every:70, make:'good_fish', tool:true},
   Woodcutter:{every:55, make:'good_timber', tool:true}, Miner:{every:75, make:'good_ore', tool:true},
   Baker:{every:45, make:'good_bread'}, TavernKeeper:{every:60, make:'good_ale'}, Butcher:{every:90, make:'good_meat'},
-  Blacksmith:{every:220, make:'good_tools', cap:3}, Carpenter:{every:150, make:'good_furniture', cap:3},
+  Blacksmith:{every:220, make:'good_tools', cap:3}, Carpenter:{every:150, make:'good_furniture', cap:3}, Journalist:{every:80, make:'good_newspaper', cap:10},
   Unemployed:{every:95, make:'good_timber'}
 };
 function useTool(c, every){
@@ -939,6 +983,9 @@ function useTool(c, every){
 function isTavern(bid){ return bizType(bid)==='tavern'; }
 function work(c){
   if (c.rt.loc && c.rt.loc.startsWith('site_')){ c.needs.energy = clamp(c.needs.energy-0.02,0,100); return; }
+  if (c.strikeUntil && dayOf(S.minute) < c.strikeUntil) return;
+  if (c.profession==='Musician'){ busk(c); return; }
+  if (c.profession==='Athlete'){ c.workAcc++; c.needs.energy = clamp(c.needs.energy-0.02,0,100); return; }
   const P = PROD[c.profession]; if (!P) return;
   const season = seasonOf(dayOf(S.minute));
   let every = P.every;
@@ -1002,37 +1049,6 @@ function adjustRel(a, b, delta){
   }
 }
 function placeName(loc){ const n = LOC[loc] ? LOC[loc].name : 'town'; return n.startsWith('The ') ? n : 'the '+n; }
-function socialize(c){
-  const here = S.citizens.filter(o => o!==c && !o.rt.path && o.rt.loc===c.rt.loc && ['Socializing','Idle','Working','AttendingTownHall'].includes(o.rt.state));
-  if (!here.length) return;
-  const o = here[Math.floor(rnd()*here.length)];
-  const ra = peekRel(c,o.id);
-  const shared = c.values.filter(v=>o.values.includes(v)).length;
-  let delta = 0.5 + (c.personality.agreeableness + o.personality.agreeableness - 1)*1.2 + shared*0.6 + rnd()*2 - 1;
-  if (delta>0) delta *= Math.max(0.15, 1 - ra.affinity/110);
-  const rival = ra.tags.includes('Rival');
-  if (rival) delta -= 4;
-  const quarrelChance = (c.agenda==='trouble'?0.05:0) + (rival?0.1:0.012) + (c.traits.includes('Stubborn')?0.03:0) + (o.traits.includes('Stubborn')?0.03:0) + (c.traits.includes('Reckless')&&isTavern(c.rt.loc)?0.04:0);
-  const place = placeName(c.rt.loc);
-  if (rnd() < quarrelChance){
-    delta = -9 - rnd()*8;
-    S.week.quarrels++;
-    const topic = pick(['the price of timber','an unpaid debt','the east grove','who gets the corner table','last week\'s vote','a borrowed cart','whose turn it is at the well','a runaway pig','the best fishing spot']);
-    chronicle(`${c.name} and ${o.name} argued about ${topic} at ${place}.`, rival?5:4, '💢', 'social');
-    remember(c,`Argued with ${o.name} about ${topic}.`,5,[o.id]); remember(o,`${c.name} picked a fight with me about ${topic}.`,5,[c.id]);
-    setEmotion(c,'Angry',180); setEmotion(o,'Angry',120);
-    S.bubbles.push({id:c.id, text:'!!', until:performance.now()+2500, gm:S.minute});
-  } else {
-    if (hash(c.id+S.minute)%6===0) remember(c,`Chatted with ${o.name} at ${place}.`,2,[o.id],'Dialogue');
-    if (hash(c.id+S.minute)%4===0) S.bubbles.push({id:c.id, text:pick(['…','♪','ha!','♥','?']), until:performance.now()+1800, gm:S.minute});
-  }
-  adjustRel(c,o,delta); adjustRel(o,c,delta*0.8);
-  if (c.traits.includes('Gossip') && rnd()<0.3){
-    const juicy = c.memory.records.filter(m=>m.imp>=5 && m.kind!=='Reflection' && !m.subj.includes(o.id) && S.minute-m.t<3*DAY).sort((a,b)=>b.imp-a.imp)[0];
-    if (juicy) remember(o, `${c.name.split(' ')[0]} told me: "${juicy.text}"`, 3, [c.id], 'Dialogue');
-  }
-  romance(c,o);
-}
 function romance(a,b){
   const ra=getRel(a,b.id), rb=getRel(b,a.id);
   if (a.partner || b.partner) return;
@@ -1098,6 +1114,12 @@ const CANDIDATES = {
     proposer: ()=> bestBy(c=> (c.values.includes('Nature')?1.2:0)+(c.values.includes('Tradition')?0.3:0)+c.politics.civicEngagement - (c.profession==='Fisher'?2:0)),
     trigger: ()=> S.goods.good_fish.price<=GD.good_fish.floor+1 && listed('good_fish')>30 ? 0.5 : 0 }
 };
+CANDIDATES.wealth_tax = {title:'Wealth Tax', category:'Taxation', durationDays:21,
+  summary:'Takes 2% a day of any savings above 500 coins for the treasury.', effects:[{effectType:'WealthTax', magnitude:0.02}],
+  rationale:'A few families hold most of the money in this town. They can afford to share.', proposer: ()=> bestBy(c=>(c.cls==='Poor'?1:0)+(c.values.includes('Community')?1:0)+c.politics.civicEngagement), trigger: ()=>0 };
+CANDIDATES.rent_cap = {title:'Rent Cap', category:'PriceControl', durationDays:21,
+  summary:'No landlord may charge more than 2 coins a day in rent.', effects:[{effectType:'RentCap', magnitude:2}],
+  rationale:'Rents eat half of what working families earn.', proposer: ()=> bestBy(c=>(c.cls==='Poor'?1:0)+c.politics.civicEngagement), trigger: ()=>0 };
 function bestBy(f){ return S.citizens.filter(isAdult).sort((a,b)=>f(b)-f(a))[0]; }
 function validateProposal(p){
   if (!p.effects.length || p.effects.length>3) return 'An act may carry one to three effects.';
@@ -1117,6 +1139,7 @@ function draftProposal(){
   let key = null;
   let proposerOverride = null, annexT = null;
   if (d < 7 && !S.gov.proposals.length) key = 'lumber_tax';   // scripted first proposal (build step 5)
+  else if (S.gov.forceKey && CANDIDATES[S.gov.forceKey.key] && !activeLaws().some(p=>p.key===S.gov.forceKey.key)){ key = S.gov.forceKey.key; proposerOverride = alive(S.gov.forceKey.proposer) || null; S.gov.forceKey = null; }
   else if (S.gov.forceAnnex && nextTerritory()){ key='annex'; annexT = TERRITORIES.find(t=>t.id===S.gov.forceAnnex) || nextTerritory(); S.gov.forceAnnex=null; proposerOverride = officials()[0] || bestBy(c=>c.politics.civicEngagement); }
   else if (councilPick()){ const cp = councilPick(); key = cp.key; proposerOverride = cp.proposer; annexT = cp.t||null; }
   else {
@@ -1156,6 +1179,8 @@ function projectedImpact(c, p){
     if (e.effectType==='SalesTax') goods.forEach(g=>{ coins -= e.magnitude*S.goods[g].price*weekSum(c,'bought',g); coins -= 0.5*e.magnitude*S.goods[g].price*weekSum(c,'sold',g); });
     if (e.effectType==='PriceMultiplier') goods.forEach(g=>{ const d=(1-e.magnitude)*S.goods[g].price; coins += d*weekSum(c,'bought',g) - d*weekSum(c,'sold',g); });
     if (e.effectType==='Subsidy' && c.profession===e.targetProfession) coins += e.magnitude*7;
+    if (e.effectType==='WealthTax') coins -= Math.max(0, c.wallet-500)*e.magnitude*7;
+    if (e.effectType==='RentCap'){ const hp=propOf(c.home); if (hp && hp.owner!==c.id && !isLodging(c.home)) coins += 7; propsOf(c).filter(q=>q.kind==='home').forEach(q=>{ coins -= residentsOf(q.bid).filter(r=>r.id!==c.id && isAdult(r)).length*1.5*7; }); }
     if (e.effectType==='Curfew' && c.profession==='TavernKeeper') coins -= 0.3*S.goods.good_ale.price*weekSum(c,'sold','good_ale') + 0.2*S.goods.svc_hot_meal.price*weekSum(c,'sold','svc_hot_meal');
   }
   return Math.round(coins);
@@ -1189,6 +1214,9 @@ function castVote(c, p){
   if ((p.key==='lumber_tax'||p.key==='fish_limit'||p.key==='meat_tax') && (c.values.includes('Nature')||c.agenda==='nature')) V += .5;
   if (p.key==='annex' && c.agenda==='nature') V -= .5; if (p.key==='annex' && (c.agenda==='business'||c.agenda==='fortune'||isLodging(c.home))) V += .5;
   if (p.key==='tavern_curfew' && c.agenda==='order') V += .5;
+  V += classStance(c, p.key);
+  const M = mindOf(c); const pr0 = alive(p.proposerId); if (pr0 && pr0!==c) V += M.emo.anger>0.4 && peekRel(c,pr0.id).affinity<-20 ? -0.3 : 0;
+  if (M.griev.some(g=>g.kind==='law' && g.key===p.key)) V -= 0.5;
   // political stance sharpens the values term (Pixel Town addition to the TDD fallback)
   const P = c.politics;
   if (p.category==='PublicOrder') V += 0.6*P.orderLeaning;
@@ -1197,6 +1225,7 @@ function castVote(c, p){
   const tF = 0.5*F*wF, tR = 0.3*R, tV = 0.2*V;
   let score = tF + tR + tV + 0.15*I;
   if (c.id===p.proposerId) score = Math.max(score, 0.6);
+  if (M.bribe && M.bribe.pid===p.proposalId){ score = M.bribe.choice==='Yes' ? Math.max(score,0.55) : Math.min(score,-0.55); M.bribe = null; }
   const choice = score>0.1?'Yes':score<-0.1?'No':'Abstain';
   const terms = [['Financial',Math.abs(tF)],['Relationships',Math.abs(tR)],['Values',Math.abs(tV)]].sort((a,b)=>b[1]-a[1]);
   let motivation = choice==='Abstain' ? 'Indifference' : terms[0][0];
@@ -1324,9 +1353,11 @@ const BUILD_TYPES = {
   bakery:    {label:'Bakery',          kind:'business', cost:260, days:4, style:'house',   trade:'Baker', sign:'bread', value:450},
   workshop:  {label:'Workshop',        kind:'business', cost:260, days:4, style:'house',   trade:'Carpenter', sign:'saw', value:450},
   forge:     {label:'Forge',           kind:'business', cost:300, days:4, style:'stone',   trade:'Blacksmith', sign:'anvil', value:500},
+  arena:     {label:'Sports arena',    kind:'business', cost:550, days:6, style:'arena',   value:800},
+  press:     {label:'Gazette office',  kind:'business', cost:260, days:4, style:'house',   trade:'Journalist', sign:'news', value:420},
   butchery:  {label:'Butchery',        kind:'business', cost:260, days:4, style:'house',   trade:'Butcher', sign:'meat', value:420}
 };
-const TRADE_BIZ = {Baker:'bakery', Carpenter:'workshop', Blacksmith:'forge', Butcher:'butchery', TavernKeeper:'tavern'};
+const TRADE_BIZ = {Baker:'bakery', Carpenter:'workshop', Blacksmith:'forge', Butcher:'butchery', TavernKeeper:'tavern', Journalist:'press'};
 const BIZ_ORIG = {loc_tavern:'tavern', loc_bakery:'bakery', loc_carpentry:'workshop', loc_smithy:'forge', loc_butcher:'butchery', loc_clinic:'clinic', loc_fisher_hut:'fishhut', loc_barn:'barn', loc_mine:'mine'};
 const PROTECTED = new Set(['loc_tavern','bld_town_hall','loc_mine','loc_barn','loc_fisher_hut','loc_clinic']);
 BUILDINGS.forEach(b=>{ if (BIZ_ORIG[b.id]) b.biz = BIZ_ORIG[b.id]; if (b.house){ b.cap = 5; b.type='house'; } });
@@ -1355,10 +1386,10 @@ function initProperties(st){
   PLOTS.forEach(pl=>{ props[pl.id] = {id:pl.id, kind:'plot', plot:pl.id, terr:pl.terr, owner:'town', value:PLOT_VALUE[pl.terr], forSale:true, ask:PLOT_VALUE[pl.terr]}; });
   return props;
 }
-function ownerName(id){ return id==='town' ? 'the town' : (cById(id) ? cById(id).name : id); }
+function ownerName(id){ if (String(id).startsWith('team:')){ const t=teamById(id); return t ? t.name : 'a co-op'; } return id==='town' ? 'the town' : (cById(id) ? cById(id).name : id); }
 function propsOf(c){ return Object.values(S.props).filter(p=>p.owner===c.id); }
 function claimed(tid){ return !!S.terr[tid]; }
-function payTo(ownerId, amt){ if (amt<=0) return; if (ownerId==='town'){ S.treasury+=amt; return; } const o=alive(ownerId); if (!o){ S.treasury+=amt; return; } o.wallet+=amt; today(o).inc+=amt; }
+function payTo(ownerId, amt){ if (amt<=0) return; if (ownerId==='town'){ S.treasury+=amt; return; } if (String(ownerId).startsWith('team:')){ const t=teamById(ownerId); if (t) t.funds+=amt; else S.treasury+=amt; return; } const o=alive(ownerId); if (!o){ S.treasury+=amt; return; } o.wallet+=amt; today(o).inc+=amt; }
 function prosperity(){ const ad=S.citizens.filter(isAdult); const avg = ad.reduce((a,c)=>a+c.wallet,0)/Math.max(1,ad.length); return clamp(0.7 + avg/450 + S.citizens.length/220, 0.6, 1.9); }
 function baseValue(p){ if (p.kind==='plot') return PLOT_VALUE[p.terr]||150; if (p.type && BUILD_TYPES[p.type] && !BIZ_VALUE[p.bid]) return BUILD_TYPES[p.type].value; return p.kind==='home' ? 320 : (BIZ_VALUE[p.bid]||400); }
 function revalue(){ const k = prosperity(); Object.values(S.props).forEach(p=>{ p.value = Math.round(baseValue(p)*k/10)*10; }); }
@@ -1400,12 +1431,12 @@ function landDaily(){
   // rent: tenants pay their home's owner; lodgers pay the inn or hotel's owner; hotel owners pay their staff
   BUILDINGS.forEach(b=>{
     const pr = propOf(b.id); if (!pr) return;
-    if (b.house) residentsOf(b.id).forEach(r=>{ if (!isAdult(r) || r.id===pr.owner || (r.partner && r.partner===pr.owner)) return; const rent = b.style==='tall' ? 4 : 3; if (r.wallet>=rent){ r.wallet-=rent; today(r).exp+=rent; payTo(pr.owner, rent); } });
+    if (b.house) residentsOf(b.id).forEach(r=>{ if (!isAdult(r) || r.id===pr.owner || (r.partner && r.partner===pr.owner) || mindOf(r).squat===b.id) return; const rent = Math.min(lawQuery.rentCap(), b.style==='tall' ? 4 : 3); if (r.wallet>=rent){ r.wallet-=rent; today(r).exp+=rent; payTo(pr.owner, rent); } });
     if (isLodging(b.id)) residentsOf(b.id).forEach(r=>{ if (!isAdult(r) || r.work===b.id || r.id===pr.owner) return; const rent = b.id==='loc_tavern' ? 4 : 6; if (r.wallet>=rent){ r.wallet-=rent; today(r).exp+=rent; payTo(pr.owner, rent); } });
   });
   Object.values(S.props).filter(p=>p.kind==='business').forEach(p=>{ S.citizens.forEach(w=>{ if (w.work!==p.bid || w.id===p.owner || !isAdult(w)) return;
     const staff = BUILD_TYPES[p.type] && BUILD_TYPES[p.type].staff===w.profession;
-    if (staff){ const o = alive(p.owner); if (o && o.wallet>=8){ o.wallet-=8; w.wallet+=8; today(w).inc+=8; } else if (p.owner==='town' && S.treasury>=8){ S.treasury-=8; w.wallet+=8; } }
+    if (staff){ const o = alive(p.owner); if (o && o.wallet>=8){ o.wallet-=8; w.wallet+=8; today(w).inc+=8; } else if (p.owner==='town' && S.treasury>=8){ S.treasury-=8; w.wallet+=8; } else if (teamById(p.owner) && teamById(p.owner).funds>=8){ teamById(p.owner).funds-=8; w.wallet+=8; } }
     else if (w.wallet>=3){ w.wallet-=3; today(w).exp+=3; payTo(p.owner,3); } }); });
   // travelers on the King's Road stay at the hotels; cheaper hotels get more guests
   const hotels = bizList('hotel');
@@ -1503,6 +1534,7 @@ function developDaily(){
   if (lod>=3 || crowded>=3 || (poor>=12 && vacant===0 && nOf('apartments')+homeBuildings().filter(b=>b.style==='tall').length<2)) want.push('apartments');
   if (nOf('bathhouse') < (rich>=14?2:1) && rich>=6) want.push('bathhouse');
   if (nOf('theater') < (rich>=16?2:1) && S.citizens.length>=40 && rich>=6) want.push('theater');
+  if (S.citizens.filter(c=>c.profession==='Athlete').length>=4 && !nOf('arena') && rich>=4) want.push('arena');
   if (want.length){
     const investors = S.citizens.filter(c=>isAdult(c) && (c.cls==='Wealthy'||c.cls==='Upper') && (c.agenda==='fortune'||c.agenda==='business'||['Greedy','Cunning','Ambitious'].some(t=>c.traits.includes(t))) && !busyOwner(c.id)).sort((a,b)=>(b.worth||0)-(a.worth||0));
     for (const inv of investors){ if (rnd()>0.3) continue; const type = want.find(t=>inv.wallet >= BUILD_TYPES[t].cost + 150); if (!type) continue; const site = siteFor(inv, BUILD_TYPES[type].cost); if (!site) continue; developOn(site, inv, type); return; }
@@ -1677,7 +1709,9 @@ function priceWars(){
 }
 function bizMod(bid){ return (S.biz && S.biz[bid] && S.biz[bid].mod) || 1; }
 function nearest(list, c){ return list.slice().sort((a,b)=>Math.hypot(a.door[0]-c.rt.x,a.door[1]-c.rt.y)-Math.hypot(b.door[0]-c.rt.x,b.door[1]-c.rt.y))[0]; }
-function tavernFor(c, day){ const ts = bizList('tavern'); if (ts.length<=1) return 'loc_tavern'; return ts.map(b=>[b, bizMod(b.id) + (hash(c.id+b.id+day)%100)/250 - (c.cls==='Poor'?0:0)]).sort((a,b)=>a[1]-b[1])[0][0].id; }
+function closedBiz(bid){ return !!(bid && S.biz && S.biz[bid] && S.biz[bid].closedUntil > dayOf(S.minute)); }
+function boycottOf(c){ if (!S.schemes || !S.schemes.length) return null; return S.schemes.find(s=>s.kind==='boycott' && s.status==='active' && s.members.includes(c.id)) || null; }
+function tavernFor(c, day){ const bo = boycottOf(c); const ts = bizList('tavern').filter(b=>!closedBiz(b.id) && !(bo && bo.bid===b.id)); if (!ts.length) return 'loc_tavern'; if (ts.length===1) return ts[0].id; return ts.map(b=>[b, bizMod(b.id) + (hash(c.id+b.id+day)%100)/250 - (c.cls==='Poor'?0:0)]).sort((a,b)=>a[1]-b[1])[0][0].id; }
 function clearPlot(pl){ if (!pl) return; for (let y=pl.y-1;y<=pl.y+pl.h;y++) for (let x=pl.x-1;x<=pl.x+pl.w;x++){ const t=(MAP[y]||[])[x]; if (t===T.TREE||t===T.ROCK) MAP[y][x]=T.GRASS; } }
 function bumpWorld(){ groundKey=''; pathCache.clear(); for (const k in SPOTS) delete SPOTS[k]; S.worldVer=(S.worldVer||0)+1; }
 
@@ -1721,27 +1755,14 @@ function births(){
     if (a.age<20 || b.age<20 || a.age>45 || b.age>45) return;
     const kids = S.citizens.filter(k=>k.parents.includes(a.id) && k.profession==='Child').length;
     if (kids>=3 || residentsOf(a.home).length>=6 || S.citizens.length>=POP_CAP) return;
-    const chance = 0.02 * ((a.agenda==='family'||b.agenda==='family') ? 2.5 : 1);
+    const chance = 0.02 * ((a.agenda==='family'||b.agenda==='family') ? 2.5 : 1) * birthDamp() * (a.wallet+b.wallet<60 ? 0.4 : 1);
     if (rnd()>=chance) return;
-    const r = mapRand(hash(a.id+b.id+d));
-    const first = FIRST_NAMES[Math.floor(r()*FIRST_NAMES.length)];
-    const name = `${first} ${surnameOf(a)}`;
-    const id = uniqueId('cit_'+name.toLowerCase().replace(/[^a-z]+/g,'_'));
-    const skin = r()<0.5?a.look.skin:b.look.skin, hair = r()<0.5?a.look.hair:b.look.hair;
-    const vals = [...new Set([a.values[0], b.values[0]])];
-    const baby = makeCitizen({id, name, age:0, prof:'Child', home:a.home, traits:randomTraits(r,2), values:vals.length>1?vals:[vals[0], VALUES[Math.floor(r()*VALUES.length)]].filter((v,i,x)=>x.indexOf(v)===i),
-      p:[r(),r(),r(),r(),r()].map(v=>+(0.2+v*0.6).toFixed(2)), pol:[+((a.politics.economicLeaning+b.politics.economicLeaning)/2).toFixed(2), +((a.politics.orderLeaning+b.politics.orderLeaning)/2).toFixed(2), 0.3],
-      wallet:0, parents:[a.id,b.id], bio:`Born in Pixel Town on ${fmtDate(d)} to ${a.name} and ${b.name}.`, look:lookForChild(r, skin, hair, STYLES[Math.floor(r()*STYLES.length)])});
-    baby.rt.x=baby.rt.ox=LOC[a.home].door[0]; baby.rt.y=baby.rt.oy=LOC[a.home].door[1];
-    [a,b].forEach(p=>{ const R=getRel(p,id); R.affinity=90; R.trust=.9; R.tags=['Family']; const R2=getRel(baby,p.id); R2.affinity=90; R2.trust=.9; R2.tags=['Family']; p.kids.push(id); remember(p, `Our child ${first} was born today.`, 10, [id]); setEmotion(p,'Joyful',DAY); });
-    S.citizens.filter(k=>k.parents.some(x=>baby.parents.includes(x)) && k!==baby).forEach(sib=>{ getRel(sib,id).tags=['Family']; getRel(sib,id).affinity=60; getRel(baby,sib.id).tags=['Family']; getRel(baby,sib.id).affinity=60; });
-    S.citizens.push(baby); indexCitizens(); baby.plan = buildPlan(baby, d);
-    chronicle(`A baby! ${a.name} and ${b.name} welcomed ${name} into the world.`, 8, '👶', 'family');
-    S.week.births.push(`${name} (to ${a.name} & ${b.name})`);
+    makeBaby(a, b, a.home, 'married');
   });
 }
+const PROF_WANT = {Farmer:.18,Rancher:.08,Butcher:.06,Fisher:.1,Baker:.08,Woodcutter:.08,Miner:.08,Blacksmith:.04,Carpenter:.08,TavernKeeper:.06,Doctor:.04,Merchant:.04};
 function neededProfession(){
-  const want = {Farmer:.18,Rancher:.08,Butcher:.06,Fisher:.1,Baker:.08,Woodcutter:.08,Miner:.08,Blacksmith:.04,Carpenter:.08,TavernKeeper:.06,Doctor:.04,Merchant:.04};
+  const want = PROF_WANT;
   const ad = S.citizens.filter(isAdult); const n = Math.max(1,ad.length);
   return Object.keys(want).sort((a,b)=> (ad.filter(c=>c.profession===a).length/n - want[a]) - (ad.filter(c=>c.profession===b).length/n - want[b]))[0];
 }
@@ -1776,6 +1797,8 @@ function removeCitizen(c, kind, cause){
   if (c.office){ if (c.office==='Leader'){ S.gov.leader=null; chronicle(`Pixel Town has no leader until the next election.`, 6, '🏛️', 'gov'); } else S.gov.council = S.gov.council.filter(x=>x!==c.id); }
   S.citizens = S.citizens.filter(x=>x!==c);
   S.citizens.forEach(o=>{ delete o.rel[c.id]; });
+  (S.teams||[]).forEach(t=>{ if (t.members.includes(c.id)) leaveTeam(t, c.id); });
+  (S.schemes||[]).forEach(s=>{ s.members = s.members.filter(id=>id!==c.id); });
   if (kind==='death'){ S.deceased.push({id:c.id, name:c.name, age:c.age, died:S.minute, cause}); }
   else S.departed.push({id:c.id, name:c.name, age:c.age, left:S.minute, reason:cause});
   delete ART.people[c.id];
@@ -1943,6 +1966,810 @@ function councilPick(){
   return best;
 }
 
+// =====================================================================
+// SOCIETY & MINDS
+// intelligence, emotions and cares that drive each villager's goals;
+// richer conversations; teams (co-ops, bands, clubs, movements, gangs,
+// aid circles); lovers, affairs and divorce; new careers the villagers
+// see the town needs; sports, music and a newspaper; and schemes that
+// try to change the town outside the council's rules.
+// =====================================================================
+const NEW_PROFS = ['Musician','Athlete','Journalist','Teacher','Constable'];
+Object.assign(WORKPLACE, {Musician:null, Athlete:'loc_town_square', Journalist:null, Teacher:'loc_school', Constable:'loc_town_square'});
+Object.assign(PROF_BIO, {Musician:'Plays fiddle and sings for coins on the square and in the taverns', Athlete:'Trains every day and plays for one of the town\'s sports clubs',
+  Journalist:'Digs up stories and prints the town newspaper', Teacher:'Teaches the town\'s children at the schoolhouse', Constable:'Keeps the peace on the square and in the taverns'});
+const PUBLIC_WAGE = {Teacher:8, Constable:8};
+const EMOS = ['joy','love','pride','anger','fear','sadness','shame'];
+const EMO_LABEL = {joy:'Joyful', anger:'Angry', fear:'Afraid', sadness:'Sad', love:'In love', pride:'Proud', shame:'Ashamed'};
+const EMO_COL = {joy:'#f2c14e', love:'#e87aa8', pride:'#8fb8ff', anger:'#e84a3a', fear:'#b06ad8', sadness:'#5a8ac8', shame:'#a08070'};
+const EMO_MAP = {Angry:['anger',.3], Sad:['sadness',.3], Joyful:['joy',.3], Anxious:['fear',.2], Proud:['pride',.3], Resentful:['anger',.2]};
+const CAUSE_OF = {Community:'the poor', Nature:'the land', Order:'order', Freedom:'freedom', Prosperity:'prosperity', Family:'family', Tradition:'tradition', Craftsmanship:'good work', self:'their own fortune'};
+const ILLEGAL = new Set(['bribe','smuggle','squat','sabotage']);
+const SCHEME_LABEL = {protest:'Protest', strike:'Strike', boycott:'Boycott', petition:'Recall petition', initiative:'Citizens\' initiative', bribe:'Bribery', smuggle:'Black market', squat:'Squatting', sabotage:'Sabotage', institution:'New institution'};
+const INSTITUTIONS = {
+  soup_kitchen:{name:'Soup Kitchen', why:'nobody should go hungry'}, night_school:{name:'Night School', why:'people need skills to find work'},
+  credit_union:{name:'Credit Union', why:'the poor need somewhere to borrow'}, library:{name:'Lending Library', why:'the town needs something to think about'},
+  aid_circle:{name:'Mutual Aid Circle', why:'neighbours should share what they have'}
+};
+let NEEDS_CACHE = {day:-1, list:[]}, MATCH_CACHE = {day:-1, m:null};
+const lead = c => c.name.split(' ')[0];
+const an = w => (/^[aeiou]/i.test(w) ? 'an ' : 'a ') + w;
+
+// ---------- the mind: intelligence, emotions, cares, goals ----------
+function mindOf(c){
+  if (c.mind) return c.mind;
+  const P = c.personality, h = hash(c.id+'wit');
+  const wit = clamp(0.18 + P.openness*0.35 + P.conscientiousness*0.1 + (h%100)/260 + (c.traits.includes('Cunning')?0.12:0) + (c.profession==='Doctor'?0.15:0) - (c.traits.includes('Reckless')?0.05:0), 0.05, 0.97);
+  return c.mind = {wit:+wit.toFixed(2), emo:{joy:.25,love:0,pride:.1,anger:0,fear:.08,sadness:0,shame:0}, cares:[], goal:null, griev:[], thoughts:[], knows:[], debts:{}, record:0, read:-1, fan:null, fit:0, careerDay:-99};
+}
+function feel(c, e, amt, thought){ const m=mindOf(c); m.emo[e]=clamp(m.emo[e]+amt,0,1); if (thought) think(c, thought); }
+function think(c, text){ const m=mindOf(c); if (m.thoughts.length && m.thoughts[m.thoughts.length-1].text===text) return; m.thoughts.push({t:S.minute, text}); if (m.thoughts.length>6) m.thoughts.shift(); }
+function domEmotion(c){ const E=mindOf(c).emo; let best=null, bv=0.45; EMOS.forEach(k=>{ if (E[k]>bv){ bv=E[k]; best=k; } }); return best; }
+function emotionsHour(c){
+  const m=mindOf(c), E=m.emo, n=c.needs, N=c.personality.neuroticism;
+  for (const k in E) E[k] *= (k==='love'?0.996:k==='sadness'?0.985:k==='shame'?0.99:0.975);
+  if (n.hunger<25) E.fear=Math.min(1,E.fear+0.02);
+  if (c.wallet<15 && isAdult(c)){ E.fear=Math.min(1,E.fear+0.008*(0.5+N)); E.shame=Math.min(1,E.shame+0.003); }
+  if (n.social<25) E.sadness=Math.min(1,E.sadness+0.006*(0.5+N));
+  if (n.fun>70 && n.social>55) E.joy=Math.min(1,E.joy+0.012);
+  if (c.partner && peekRel(c,c.partner).affinity>60) E.love=Math.max(E.love,0.3);
+  else if (loversOf(c).length) E.love=Math.max(E.love,0.35);
+}
+// what a villager cares about: the people closest to them and the causes their values point to
+function updateCares(c){
+  const m=mindOf(c);
+  const ppl = Object.entries(c.rel).filter(([id])=>alive(id)).map(([id,r])=>({id, w:r.affinity/100 + (r.tags.includes('Family')?0.5:0) + (r.tags.includes('Spouse')||r.tags.includes('Lover')?0.6:0)})).filter(x=>x.w>0.55).sort((a,b)=>b.w-a.w).slice(0,3);
+  m.cares = ppl.map(x=>({kind:'person', id:x.id, w:+Math.min(1.6,x.w).toFixed(2)})).concat(c.values.slice(0,2).map((v,i)=>({kind:'cause', key:v, w:i?0.6:0.9})));
+  if (c.traits.includes('Greedy') || c.agenda==='fortune') m.cares.push({kind:'cause', key:'self', w:0.8});
+}
+function caresAbout(c, key){ return mindOf(c).cares.some(x=>x.kind==='cause' && x.key===key); }
+// grievances: what a villager thinks is wrong with the town, scored by how much it hurts them
+function grievancesOf(c){
+  const m=mindOf(c), g=[], inc=Math.max(50, weekSum(c,'inc'));
+  activeLaws().forEach(p=>{ if (p.key==='annex') return; let s = projectedImpact(c,p)/inc; const tbl=VALUE_TABLE[p.category]||{plus:[],minus:[]};
+    c.values.forEach(v=>{ if (tbl.minus.includes(v)) s-=.3; if (tbl.plus.includes(v)) s+=.3; }); s += classStance(c,p.key)*0.6;
+    if (s<-0.25) g.push({kind:'law', id:p.proposalId, key:p.key, text:`the ${p.title}`, s:+Math.min(1,-s).toFixed(2)}); });
+  if (c.cls==='Poor') g.push({kind:'inequality', text:'how the rich keep getting richer', s:0.35 + (c.values.includes('Community')?0.2:0)});
+  else if (c.values.includes('Community') && classCounts().Poor>=12) g.push({kind:'inequality', text:'how many neighbours are poor', s:0.35});
+  const hp = propOf(c.home); const ho = hp && hp.owner!==c.id && alive(hp.owner);
+  if (ho && !isLodging(c.home) && ho.cls==='Wealthy' && hp.owner!==c.partner) g.push({kind:'rent', target:ho.id, text:`paying rent to ${ho.name}`, s:0.3+(c.cls==='Poor'?0.25:0)});
+  if (isLodging(c.home) && c.cls==='Poor' && !homeBuildings().some(b=>residentsOf(b.id).length===0)) g.push({kind:'rent', text:'having no home of their own', s:0.4});
+  if (S.week.hungry.includes(c.name) || c.needs.hunger<25) g.push({kind:'hunger', text:'going hungry', s:0.6});
+  if (c.profession==='Unemployed') g.push({kind:'jobs', text:'having no proper work', s:0.4});
+  const L = S.gov.leader && alive(S.gov.leader);
+  if (L && L!==c){ const a = peekRel(c,L.id).affinity; const plat = PLATFORMS[(S.gov.platforms||{})[L.id]||platformFor(L)];
+    const clash = !c.values.some(v=>plat.plus.includes(v)) && (plat.econ||0)*c.politics.economicLeaning < -0.2;
+    if (a<-25 || (clash && a<20)) g.push({kind:'leader', target:L.id, text:`${L.name} running the town`, s:0.3 + (a<-25?0.3:0) + (L.mind && L.mind.record ? 0.2 : 0)}); }
+  BUILDINGS.forEach(b=>{ if (!['tavern','bathhouse','theater','hotel','bakery','butchery'].includes(b.biz)) return; const pr=propOf(b.id); if (!pr || pr.owner===c.id) return; const o=alive(pr.owner); if (!o) return;
+    const r=peekRel(c,o.id); if ((bizMod(b.id)>=1.15 && r.affinity<0) || (r.tags.includes('Rival') && r.affinity<-40)) g.push({kind:'business', target:o.id, bid:b.id, text:`${o.name}'s ${b.name}`, s:+(0.25 + (r.tags.includes('Rival')?0.3:0) + Math.max(0,bizMod(b.id)-1)).toFixed(2)}); });
+  if (c.agenda==='trouble') g.push({kind:'order', text:'all the rules in this town', s:0.35});
+  if (m.swayed && m.swayed.until>dayOf(S.minute) && !g.some(x=>x.kind===m.swayed.kind)) g.push(Object.assign({}, m.swayed));
+  m.griev = g.sort((a,b)=>b.s-a.s).slice(0,4);
+  return m.griev;
+}
+// how a class feels about the laws citizens can force onto the agenda
+function classStance(c, key){
+  if (key==='wealth_tax') return c.cls==='Poor'?0.7:c.cls==='Middle'?0.2:c.cls==='Upper'?-0.4:-0.9;
+  if (key==='rent_cap'){ const landlord = propsOf(c).some(p=>p.kind==='home' && residentsOf(p.bid).some(r=>r.id!==c.id && r.partner!==c.id)); const tenant = !propsOf(c).some(p=>p.bid===c.home); return (tenant?0.5:0) - (landlord?0.8:0); }
+  if (key==='bread_subsidy') return c.cls==='Poor'?0.4:0;
+  return 0;
+}
+// pick today's goal: whichever option the villager's feelings and cares weigh most
+function chooseGoal(c){
+  const m=mindOf(c), E=m.emo, G=grievancesOf(c), opts=[];
+  const marriageAff = c.partner ? peekRel(c,c.partner).affinity : 0;
+  if (c.age>=18 && c.age<=62) opts.push({key:'love', s:(!c.partner?0.2:0) + E.love*0.35 + (c.needs.social<35?0.15:0) + (c.traits.includes('Romantic')?0.2:0) + (c.agenda==='love'?0.3:0) + (c.partner && marriageAff<30 ? 0.25:0),
+    text: !c.partner ? (loversOf(c).length?'build a life with '+cById(loversOf(c)[0]).name:'find someone to love') : marriageAff<30 ? 'find the love missing from their marriage' : 'keep their marriage happy', why: E.love>0.3?'love':'loneliness'});
+  for (const cr of m.cares.filter(x=>x.kind==='person')){ const o=alive(cr.id); if (!o) continue;
+    const distress = (o.sick?0.4:0) + (o.wallet<15 && isAdult(o)?0.4:0) + (o.needs.hunger<30?0.4:0) + (mindOf(o).emo.sadness>0.5?0.3:0);
+    if (distress>0.3){ opts.push({key:'help', target:o.id, s:cr.w*distress*(c.traits.includes('Generous')?1.3:1)*(0.6+c.personality.agreeableness*0.6), text:`look after ${o.name}`, why:'care'}); break; } }
+  const g = G[0];
+  if (g && c.age>=18){ const causeBoost = (g.kind==='inequality'||g.kind==='hunger') && caresAbout(c,'Community') ? 0.2 : g.kind==='law' ? 0.05 : 0;
+    opts.push({key:'change', g, s:g.s*(0.35+E.anger*0.9+E.fear*0.3)*(0.5+m.wit) + causeBoost + (c.agenda==='trouble'?0.2:0) + c.politics.civicEngagement*0.15, text:`change ${g.text}`, why: E.anger>0.3?'anger':causeBoost?'care':'conviction'}); }
+  opts.push({key:'wealth', s:E.fear*0.4 + E.shame*0.4 + (c.agenda==='fortune'||c.traits.includes('Greedy')?0.25:0) + (c.cls==='Poor'?0.2:0), text: c.cls==='Poor'?'climb out of poverty':'build a fortune', why: E.fear>0.3?'fear':E.shame>0.3?'shame':'ambition'});
+  opts.push({key:'belong', s:(c.needs.social<40?0.3:0) + c.personality.extraversion*0.2 + E.sadness*0.25, text:'find people to belong with', why: E.sadness>0.3?'sadness':'loneliness'});
+  let enemy=null, ea=-55; for (const id in c.rel){ const r=c.rel[id]; if (r.affinity<ea && alive(id)){ ea=r.affinity; enemy=id; } }
+  if (enemy && E.anger>0.3) opts.push({key:'revenge', target:enemy, s:E.anger*0.6 + (c.traits.includes('Reckless')?0.2:0) + (c.traits.includes('Cunning')?0.1:0) - c.personality.agreeableness*0.3, text:`get even with ${cById(enemy).name}`, why:'anger'});
+  const best = opts.sort((a,b)=>b.s-a.s)[0];
+  const prev = m.goal;
+  m.goal = {key:best.key, text:best.text, why:best.why, s:+best.s.toFixed(2), target:best.target||null, g:best.g||null, since: prev && prev.key===best.key && prev.text===best.text ? prev.since : S.minute};
+  const why = best.why==='care' ? (best.key==='help' ? 'They need me.' : `I care too much about ${CAUSE_OF[c.values[0]]||'this town'} to stay quiet.`) : {love:'My heart is set on it.', loneliness:'I am tired of being alone.', anger:'I am too angry to sit still.', fear:'I am frightened of what happens if I do not.', shame:'I will not be looked down on.', ambition:'I can do better than this.', sadness:'I need something to hold on to.', conviction:'Someone has to.'}[best.why]||'';
+  if (!prev || prev.text!==best.text) think(c, `I want to ${best.text}. ${why}`);
+  return m.goal;
+}
+
+// ---------- teams: co-ops, bands, clubs, movements, gangs, aid circles ----------
+function newTeam(kind, name, leader, members, extra){
+  S.teamSeq = (S.teamSeq||0)+1;
+  const t = Object.assign({id:'team_'+S.teamSeq, kind, name, leader:leader.id, members:[leader.id], founded:S.minute, funds:0, active:true}, extra||{});
+  S.teams.push(t); (members||[]).forEach(m=>joinTeam(t,m));
+  return t;
+}
+function joinTeam(t, c){ if (!t.members.includes(c.id)) t.members.push(c.id); t.members.forEach(id=>{ const o=alive(id); if (o && o!==c){ adjustRel(c,o,3); adjustRel(o,c,3); } }); }
+function leaveTeam(t, id){ t.members = t.members.filter(x=>x!==id); if (t.leader===id) t.leader = t.members[0] || null; if (!t.members.length) t.active=false; }
+function teamsOf(c, kind){ return S.teams.filter(t=>t.active && t.members.includes(c.id) && (!kind || t.kind===kind)); }
+function teamById(ownerId){ return S.teams.find(t=>'team:'+t.id===ownerId); }
+function disband(t, why){ t.active=false; if (why) chronicle(`The ${t.name} ${why}.`, 4, '🫂', 'society'); }
+
+// ---------- romance: lovers, affairs, divorce and children ----------
+function loversOf(c){ const out=[]; for (const id in c.rel) if (c.rel[id].tags.includes('Lover') && alive(id)) out.push(id); return out; }
+function attraction(a, b){ return ((hash([a.id,b.id].sort().join('~'))%100)/100)*0.6 + (a.values.some(v=>b.values.includes(v))?0.15:0) + Math.max(0, 0.25 - Math.abs(a.age-b.age)/60); }
+function canRomance(a, b){ return a.age>=18 && b.age>=18 && isAdult(a) && isAdult(b) && Math.abs(a.age-b.age)<=15 && !peekRel(a,b.id).tags.includes('Family') && !a.parents.includes(b.id) && !b.parents.includes(a.id); }
+function becomeLovers(a, b, secret){
+  [[a,b],[b,a]].forEach(([x,y])=>{ const r=getRel(x,y.id); if (!r.tags.includes('Lover')) r.tags.push('Lover'); if (secret && !r.tags.includes('Secret')) r.tags.push('Secret'); r.tags=r.tags.filter(t=>t!=='Rival'); feel(x,'love',0.4); });
+  if (secret){
+    S.secrets.push({id:'sec_'+(++S.secretSeq), kind:'affair', who:[a.id,b.id], day:dayOf(S.minute), heat:0, exposed:false, text:`${a.name} and ${b.name} are having an affair`});
+    [a,b].forEach(x=>{ const o=x===a?b:a; remember(x, `${o.name} and I have been seeing each other in secret.`, 8, [o.id]); think(x, x.partner ? `Nobody can find out about ${lead(o)}.` : `I hope ${lead(o)} leaves them for me.`); });
+  } else {
+    chronicle(`${a.name} and ${b.name} have become lovers.`, 5, '💗', 'romance'); S.week.rels.push(`${a.name} & ${b.name} became lovers`);
+    [a,b].forEach(x=>remember(x, `${(x===a?b:a).name} and I are lovers now.`, 8, [(x===a?b:a).id]));
+  }
+}
+function endLovers(a, b, why){
+  [[a,b],[b,a]].forEach(([x,y])=>{ const r=getRel(x,y.id); r.tags=r.tags.filter(t=>t!=='Lover' && t!=='Secret'); });
+  if (why) { chronicle(`${a.name} and ${b.name} split up (${why}).`, 4, '💔', 'romance'); [a,b].forEach(x=>feel(x,'sadness',0.3,`It is over with ${lead(x===a?b:a)}.`)); }
+}
+function divorce(a, b, why){
+  a.partner=null; b.partner=null;
+  [[a,b],[b,a]].forEach(([x,y])=>{ const r=getRel(x,y.id); r.tags=r.tags.filter(t=>t!=='Spouse'); });
+  chronicle(`${a.name} and ${b.name} have divorced${why?` (${why})`:''}.`, 8, '💔', 'romance'); S.week.rels.push(`${a.name} & ${b.name} divorced`);
+  const owns = x => propOf(x.home) && propOf(x.home).owner===x.id;
+  const go = owns(a) && !owns(b) ? b : owns(b) && !owns(a) ? a : (a.id<b.id ? b : a);
+  const own = propsOf(go).find(p=>p.kind==='home' && p.bid!==go.home && residentsOf(p.bid).length < capOf(LOC[p.bid].b));
+  go.home = own ? own.bid : lodgingFor(1); indexCitizens();
+  [a,b].forEach(x=>{ feel(x,'sadness',0.5); remember(x, `My marriage to ${(x===a?b:a).name} is over.`, 9, [(x===a?b:a).id]); });
+}
+// families think twice when the town is crowded or going hungry
+function birthDamp(){ const n=S.citizens.length, kids=S.citizens.filter(c=>c.profession==='Child').length; return (n>75?0.5:1) * (n>90?0.5:1) * (S.week.hungry.length>5?0.3:1) * (kids>n*0.25?0.4:1); }
+function makeBaby(a, b, home, how){
+  const d = dayOf(S.minute), r = mapRand(hash(a.id+b.id+d));
+  const first = FIRST_NAMES[Math.floor(r()*FIRST_NAMES.length)];
+  const hostSurname = LOC[home] && residentsOf(home).includes(b) && !residentsOf(home).includes(a) ? surnameOf(b) : surnameOf(a);
+  const name = `${first} ${hostSurname}`;
+  const id = uniqueId('cit_'+name.toLowerCase().replace(/[^a-z]+/g,'_'));
+  const skin = r()<0.5?a.look.skin:b.look.skin, hair = r()<0.5?a.look.hair:b.look.hair;
+  const vals = [...new Set([a.values[0], b.values[0]])];
+  const baby = makeCitizen({id, name, age:0, prof:'Child', home, traits:randomTraits(r,2), values:vals.length>1?vals:[vals[0], VALUES[Math.floor(r()*VALUES.length)]].filter((v,i,x)=>x.indexOf(v)===i),
+    p:[r(),r(),r(),r(),r()].map(v=>+(0.2+v*0.6).toFixed(2)), pol:[+((a.politics.economicLeaning+b.politics.economicLeaning)/2).toFixed(2), +((a.politics.orderLeaning+b.politics.orderLeaning)/2).toFixed(2), 0.3],
+    wallet:0, parents:[a.id,b.id], bio:`Born in Pixel Town on ${fmtDate(d)} to ${a.name} and ${b.name}.`, look:lookForChild(r, skin, hair, STYLES[Math.floor(r()*STYLES.length)])});
+  baby.rt.x=baby.rt.ox=LOC[home].door[0]; baby.rt.y=baby.rt.oy=LOC[home].door[1];
+  mindOf(baby).wit = +clamp((mindOf(a).wit+mindOf(b).wit)/2 + (r()-0.5)*0.3, 0.05, 0.97).toFixed(2);
+  [a,b].forEach(p=>{ const R=getRel(p,id); R.affinity=90; R.trust=.9; R.tags=['Family']; const R2=getRel(baby,p.id); R2.affinity=90; R2.trust=.9; R2.tags=['Family']; p.kids.push(id); remember(p, `Our child ${first} was born today.`, 10, [id]); setEmotion(p,'Joyful',DAY); feel(p,'love',0.3); });
+  S.citizens.filter(k=>k.parents.some(x=>baby.parents.includes(x)) && k!==baby).forEach(sib=>{ getRel(sib,id).tags=['Family']; getRel(sib,id).affinity=60; getRel(baby,sib.id).tags=['Family']; getRel(baby,sib.id).affinity=60; });
+  S.citizens.push(baby); indexCitizens(); baby.plan = buildPlan(baby, d);
+  chronicle(how==='married' ? `A baby! ${a.name} and ${b.name} welcomed ${name} into the world.` : `${a.name} and ${b.name}, who are not married, had a baby: ${name}.`, 8, '👶', 'family');
+  S.week.births.push(`${name} (to ${a.name} & ${b.name})`);
+  return baby;
+}
+function romanceDaily(){
+  const d = dayOf(S.minute), done = new Set();
+  S.citizens.slice().forEach(a=>{
+    loversOf(a).forEach(bid=>{
+      const b = alive(bid); const key=[a.id,bid].sort().join('~'); if (!b || done.has(key)) return; done.add(key);
+      const ra = peekRel(a,b.id), rb = peekRel(b,a.id);
+      if (ra.affinity<35 || rb.affinity<35){ endLovers(a,b, ra.tags.includes('Secret') ? null : 'they fell out'); return; }
+      if (a.partner===b.id) { endLovers(a,b); getRel(a,b.id); return; } // married now: the Spouse tag covers it
+      const secret = ra.tags.includes('Secret');
+      // unmarried lovers may have a child together
+      const kids = S.citizens.filter(k=>k.profession==='Child' && (k.parents.includes(a.id)||k.parents.includes(b.id))).length;
+      if (a.age<=45 && b.age<=45 && kids<4 && S.citizens.length<POP_CAP && rnd() < (secret?0.003:0.005)*birthDamp()){
+        const home = residentsOf(a.home).length<=residentsOf(b.home).length ? a.home : b.home;
+        makeBaby(a, b, home, 'lovers');
+        if (secret){ const s = S.secrets.find(x=>x.kind==='affair' && !x.exposed && x.who.includes(a.id) && x.who.includes(b.id)); if (s) expose(s, null, 'the baby gave them away'); }
+        else if (!a.partner && !b.partner && !a.courting && !b.courting){ a.courting=b.id; b.courting=a.id; a.courtingSince=b.courtingSince=S.minute-8*DAY; }
+      }
+    });
+  });
+  // secret affairs heat up as the town gossips; a suspicious spouse may find out
+  S.secrets.filter(s=>s.kind==='affair' && !s.exposed).forEach(s=>{
+    const [a,b] = s.who.map(alive); if (!a || !b){ s.exposed=true; return; }
+    const spouses = [a,b].map(x=>x.partner && alive(x.partner)).filter(Boolean);
+    s.heat += 0.15 + (a.traits.includes('Reckless')||b.traits.includes('Reckless') ? 0.1 : 0);
+    const sharp = spouses.reduce((m,sp)=>Math.max(m, mindOf(sp).wit), 0);
+    if (spouses.length && rnd() < 0.01 + s.heat*0.01 + sharp*0.02) expose(s, spouses[0], 'a spouse found out');
+  });
+  // unhappy marriages end
+  S.citizens.forEach(a=>{ const b = a.partner && alive(a.partner); if (!b || a.id>b.id) return;
+    if (peekRel(a,b.id).affinity<5 && peekRel(b,a.id).affinity<15 && rnd()<0.08) divorce(a,b,'they could not stand each other any longer'); });
+}
+function discoverAffair(s, why){
+  const [a,b] = s.who.map(alive); if (!a || !b) return;
+  const hurt = [a,b].map(x=>x.partner && alive(x.partner)).filter(Boolean);
+  chronicle(`${why==='a spouse found out' ? `${hurt[0]?hurt[0].name:'A spouse'} found out that` : 'It came out that'} ${a.name} and ${b.name} have been having an affair.`, 8, '💔', 'romance');
+  S.week.rels.push(`${a.name} & ${b.name}'s affair came out`);
+  [a,b].forEach(x=>{ feel(x,'shame',0.5); const r=getRel(x,(x===a?b:a).id); r.tags=r.tags.filter(t=>t!=='Secret'); });
+  hurt.forEach(sp=>{
+    const cheat = [a,b].find(x=>x.partner===sp.id), other = cheat===a?b:a;
+    feel(sp,'anger',0.6); feel(sp,'sadness',0.5, `${lead(cheat)} betrayed me with ${lead(other)}.`);
+    const rc = getRel(sp,cheat.id); rc.affinity = clamp(rc.affinity-55,-100,100); rc.trust = 0.1;
+    const ro = getRel(sp,other.id); ro.affinity = clamp(ro.affinity-65,-100,100); if (!ro.tags.includes('Rival')) ro.tags.push('Rival');
+    remember(sp, `${cheat.name} has been having an affair with ${other.name}.`, 10, [cheat.id, other.id]);
+    const leaves = peekRel(cheat,other.id).affinity > peekRel(cheat,sp.id).affinity + 20;
+    if (rc.affinity<10 || sp.traits.includes('Stubborn') || leaves){ divorce(sp, cheat, leaves ? `${lead(cheat)} chose ${lead(other)}` : 'the affair'); if (leaves && !other.partner && !cheat.courting && !other.courting){ cheat.courting=other.id; other.courting=cheat.id; cheat.courtingSince=other.courtingSince=S.minute; } else if (!leaves) endLovers(cheat, other); }
+    else { endLovers(cheat, other); chronicle(`${sp.name} has forgiven ${cheat.name}, for now.`, 5, '🕊️', 'romance'); }
+  });
+}
+
+// ---------- careers: villagers see what the town is missing and step up ----------
+function townNeeds(){
+  const d = dayOf(S.minute); if (NEEDS_CACHE.day===d) return NEEDS_CACHE.list;
+  const ad=S.citizens.filter(isAdult), n=Math.max(1,ad.length), count=p=>ad.filter(c=>c.profession===p).length;
+  const kids=S.citizens.filter(c=>c.profession==='Child' && c.age>=5).length;
+  const avgFun = S.citizens.reduce((a,c)=>a+c.needs.fun,0)/Math.max(1,S.citizens.length);
+  const crimes = S.crimes.filter(x=>d-x.day<14).length, sick = S.citizens.filter(c=>c.sick>=2).length, hungry = S.week.hungry.length;
+  const out=[]; const add=(prof, score, why, test)=>{ if (score>0) out.push({prof, score:+score.toFixed(2), why, test}); };
+  add('Musician', count('Musician') < 1+Math.floor(n/30) ? 0.35+(avgFun<55?0.3:0) : 0, avgFun<55 ? 'people were bored and there was no music' : 'the taverns were quiet without music', c=>c.needs.fun<60);
+  add('Athlete', n>=28 && count('Athlete')<8 ? (count('Athlete')<4?0.5:0.3) : 0, count('Athlete')<4 ? 'the town had no sports teams' : 'the clubs needed more players', c=>c.age<40);
+  add('Journalist', n>=25 && count('Journalist')<1+Math.floor(n/45) ? 0.5 : 0, count('Journalist') ? 'one newspaper could not cover everything' : 'nobody knew what the council was up to without a newspaper', c=>c.politics.civicEngagement>0.45);
+  add('Teacher', kids>=3 && count('Teacher')<1+Math.floor(kids/12) ? 0.4+kids*0.03 : 0, `${kids} children had no teacher`, c=>c.kids.some(k=>alive(k)));
+  add('Constable', (crimes>=1 || S.week.quarrels>=10) && count('Constable')<1+Math.floor(n/35) ? 0.4+crimes*0.1 : 0, crimes ? 'crime was going unpunished' : 'the brawling was getting out of hand', c=>mindOf(c).victim);
+  add('Doctor', sick>=3 && count('Doctor')<1+Math.floor(n/25) ? 0.3+sick*0.05 : 0, 'sick neighbours were not being treated', c=>c.sick);
+  const glut = listed('good_wheat')>60 && listed('good_bread')<10, perCap = count('Baker')/n;
+  add(glut ? 'Baker' : 'Farmer', hungry>=4 ? 0.3+hungry*0.04 : 0, glut ? 'wheat was piling up while people went hungry for bread' : 'people were going hungry', c=>c.needs.hunger<40);
+  if (!glut && hungry<4 && perCap < 0.06 && n>=50) add('Baker', 0.35, 'there were not enough bakers for a town this size', c=>c.needs.hunger<50);
+  add('Carpenter', projects().length>=3 && count('Carpenter')<6 ? 0.35 : 0, 'the building sites were short of hands', ()=>false);
+  NEEDS_CACHE = {day:d, list:out.sort((a,b)=>b.score-a.score)};
+  return NEEDS_CACHE.list;
+}
+const FIT = {
+  Musician: c=>(c.traits.includes('Charismatic')?.3:0)+(c.traits.includes('Romantic')?.2:0)+c.personality.openness*.4+c.personality.extraversion*.2,
+  Athlete: c=>(c.age<35?.4:c.age<45?.1:-1)+(c.traits.includes('Hardworking')?.2:0)+(c.traits.includes('Reckless')?.1:0)+c.personality.extraversion*.2,
+  Journalist: c=>(c.traits.includes('Gossip')?.3:0)+(c.traits.includes('Honest')?.2:0)+mindOf(c).wit*.6-(c.traits.includes('Shy')?.2:0),
+  Teacher: c=>(c.values.includes('Family')||c.values.includes('Community')?.3:0)+c.personality.conscientiousness*.3+mindOf(c).wit*.4,
+  Constable: c=>(c.values.includes('Order')?.4:0)+(c.traits.includes('Stubborn')?.1:0)+(c.traits.includes('Honest')?.2:0)-(c.agenda==='trouble'||mindOf(c).record?1:0),
+  Doctor: c=>mindOf(c).wit*.7+(c.values.includes('Community')?.2:0)-.25,
+  Farmer: c=>.2+(c.values.includes('Tradition')?.1:0),
+  Baker: c=>.25+(c.values.includes('Community')?.1:0),
+  Carpenter: c=>.2+(c.values.includes('Craftsmanship')?.2:0)
+};
+const ESSENTIAL = ['Farmer','Baker','TavernKeeper','Fisher','Miner','Woodcutter','Rancher','Butcher','Blacksmith','Carpenter','Doctor'];
+function dissatisfaction(c){
+  let d = c.profession==='Unemployed' ? 0.8 : c.cls==='Poor' ? 0.45 : 0.1;
+  if (c.mood.valence < -0.2) d += 0.2;
+  if (mindOf(c).goal && mindOf(c).goal.key==='wealth') d += 0.15;
+  const ad = S.citizens.filter(isAdult); const same = ad.filter(o=>o.profession===c.profession).length;
+  if (same/Math.max(1,ad.length) > 0.2) d += 0.2;
+  if (c.work && propsOf(c).some(p=>p.bid===c.work)) d -= 0.6;
+  return d;
+}
+function careersDaily(){
+  const needs = townNeeds(); if (!needs.length) return;
+  const d = dayOf(S.minute), ad = S.citizens.filter(isAdult), count = p=>ad.filter(c=>c.profession===p).length;
+  const scored = [];
+  ad.forEach(c=>{ const m=mindOf(c); if (c.age>60 || c.office || d-m.careerDay<21) return; if (ESSENTIAL.includes(c.profession) && (count(c.profession)<=2 || count(c.profession)/Math.max(1,ad.length) < (PROF_WANT[c.profession]||0)*1.15)) return;
+    const dis = dissatisfaction(c); if (dis<0.25) return;
+    needs.forEach(nd=>{ if (nd.prof===c.profession) return; if (!(m.wit>0.55 || nd.test(c))) return;
+      scored.push([nd.score*dis*(0.5+FIT[nd.prof](c))*(0.6+m.wit*0.6), c, nd]); }); });
+  scored.sort((a,b)=>b[0]-a[0]);
+  const used = new Set(), filled = new Set(); let n = 0;
+  for (const [s,c,nd] of scored){ if (n>=2 || s<0.2) break; if (used.has(c.id) || filled.has(nd.prof) || rnd()>0.4) continue; used.add(c.id); filled.add(nd.prof); changeCareer(c, nd.prof, nd.why); n++; }
+}
+function workFor(c, prof){
+  if (prof==='Journalist'){ const press = bizList('press').find(b=>{ const pr=propOf(b.id); return pr && pr.owner===c.id; }); return press ? press.id : null; }
+  if (prof==='Athlete') return arenaLoc();
+  return WORKPLACE[prof] || null;
+}
+function changeCareer(c, prof, why){
+  const was = c.profession; c.profession = prof; c.work = workFor(c, prof); c.workAcc = 0; mindOf(c).careerDay = dayOf(S.minute);
+  c.look = lookFor(prof, mapRand(hash(c.id+prof)), c.look.skin, c.look.hair, c.look.style, c.look.beard); delete ART.people[c.id]; delete THUMBS[c.id];
+  chronicle(`${c.name} saw that ${why} and ${was==='Unemployed'?'gave up odd jobs':'left work as a '+profLabel(was).toLowerCase()} to become ${an(profLabel(prof).toLowerCase())}.`, 6, '🧭', 'career');
+  remember(c, `I became ${an(profLabel(prof).toLowerCase())} because ${why}.`, 8);
+  feel(c, 'pride', 0.3, `The town needs ${an(profLabel(prof).toLowerCase())}, and that will be me.`);
+  S.week.society.push(`${c.name} became ${an(profLabel(prof).toLowerCase())} (${why})`);
+  if (prof==='Journalist' && !S.papers[c.id]) S.papers[c.id] = Object.keys(S.papers).length ? `The ${surnameOf(c)} ${pick(['Courier','Crier','Herald','Observer'])}` : 'The Pixel Gazette';
+  if (prof==='Athlete') sportsClubs();
+  if (prof==='Musician') bands();
+}
+
+// ---------- music ----------
+const BAND_A = ['Lantern','Rusty','Wandering','Muddy','Silver','Crooked','Midnight','Barley'], BAND_B = ['Fiddlers','Larks','Minstrels','Pipers','Boots','Crows','Strings','Kettles'];
+function bands(){
+  S.teams.filter(t=>t.active && t.kind==='band').forEach(t=>{ t.members.filter(id=>{ const m=alive(id); return !m || m.profession!=='Musician'; }).forEach(id=>leaveTeam(t,id)); if (t.members.length<2 && t.members.length) { t.active=false; } });
+  const free = S.citizens.filter(c=>c.profession==='Musician' && isAdult(c) && !teamsOf(c,'band').length);
+  if (free.length>=2){ const t = newTeam('band', `The ${BAND_A[hash(free[0].id)%8]} ${BAND_B[hash(free[1].id)%8]}`, free[0], [free[1]]);
+    chronicle(`${free[0].name} and ${free[1].name} formed a band: ${t.name}.`, 6, '🎻', 'music'); S.week.society.push(`${t.name} formed`); }
+  else if (free.length===1){ const t = S.teams.find(t=>t.active && t.kind==='band' && t.members.length<4); if (t){ joinTeam(t, free[0]); chronicle(`${free[0].name} joined ${t.name}.`, 4, '🎻', 'music'); } }
+}
+function gigFor(c, day){ const b = teamsOf(c,'band')[0]; const who = b ? alive(b.leader) || c : c; return tavernFor(who, day); }
+function busk(c){
+  if ((S.minute + hash(c.id)) % 30) return;
+  const loc = c.rt.loc; const band = teamsOf(c,'band')[0];
+  const crowd = S.citizens.filter(o=>o!==c && o.rt.loc===loc && !o.rt.path && o.rt.state!=='Sleeping' && o.profession!=='Musician');
+  crowd.forEach(o=>{ o.needs.fun = clamp(o.needs.fun+ (band?4:3), 0, 100); if (hash(o.id+S.minute)%5===0) feel(o,'joy',0.04); });
+  const tipper = crowd.filter(o=>o.wallet>30 && isAdult(o))[hash(c.id+S.minute)%Math.max(1,crowd.length)];
+  if (tipper && rnd()<0.5+ (band?0.2:0)){ const amt = isTavern(loc) ? 2 : 1; tipper.wallet-=amt; today(tipper).exp+=amt; c.wallet+=amt; today(c).inc+=amt; }
+  if (crowd.length>=6 && hash(c.id+dayOf(S.minute))%9===0 && !c.rt.did3){ c.rt.did3=true; chronicle(`${band?band.name:c.name} had ${crowd.length} people dancing at ${placeName(loc)}.`, 3, '🎶', 'music'); }
+}
+
+// ---------- sports ----------
+const CLUB_NAMES = [['Lakeside','Herons'],['Grove','Stags'],['Deepvein','Diggers'],['Southshore','Pike'],['Highcrest','Hawks'],['Market','Millers']];
+function arenaLoc(){ const a = bizList('arena')[0]; return a ? a.id : 'loc_town_square'; }
+function clubs(){ return S.teams.filter(t=>t.active && t.kind==='club'); }
+function sportsClubs(){
+  const ath = S.citizens.filter(c=>c.profession==='Athlete' && isAdult(c));
+  let cl = clubs();
+  if (cl.length<2 && ath.length>=4){
+    while (cl.length<2){ const nm = CLUB_NAMES[(S.teamSeq||0)%CLUB_NAMES.length]; const t = newTeam('club', `${nm[0]} ${nm[1]}`, ath.find(a=>!cl.some(x=>x.members.includes(a.id))), []); t.members=[]; t.leader=null; cl.push(t); S.league[t.id] = {p:0,w:0,d:0,l:0,gf:0,ga:0,pts:0}; }
+    chronicle(`Pixel Town has a sports league! The ${cl[0].name} will play the ${cl[1].name} every ${WEEKDAYS[5]} afternoon.`, 7, '⚽', 'sport'); S.week.society.push(`Sports league founded: ${cl[0].name} v ${cl[1].name}`);
+  }
+  if (cl.length<2) return;
+  ath.forEach(a=>{ if (cl.some(t=>t.members.includes(a.id))) return; const t = cl.slice().sort((x,y)=>x.members.length-y.members.length)[0]; joinTeam(t,a); if (!t.leader) t.leader=a.id; });
+  cl.forEach(t=>{ t.members = t.members.filter(id=>{ const a=alive(id); return a && a.profession==='Athlete'; }); if (!alive(t.leader) || !t.members.includes(t.leader)) t.leader = t.members[0]||null; });
+}
+function matchToday(day){
+  if (MATCH_CACHE.day===day) return MATCH_CACHE.m;
+  let m = null;
+  if (day%7===5){ const cl = clubs().filter(t=>t.members.filter(alive).length>=2); if (cl.length>=2){ const w = weekNo(day); const i = w % cl.length, j = (i+1+Math.floor(w/cl.length)%(cl.length-1)) % cl.length; m = {a:cl[i].id, b:cl[j===i?(i+1)%cl.length:j].id, loc:arenaLoc()}; } }
+  MATCH_CACHE = {day, m}; return m;
+}
+function teamName(id){ const t=S.teams.find(x=>x.id===id); return t?t.name:'?'; }
+function wantsToWatch(c, day){
+  const m = matchToday(day); if (!m) return null;
+  const fan = mindOf(c).fan;
+  if (fan===m.a || fan===m.b) return m;
+  if (S.weather==='Storm') return null;
+  return (c.personality.extraversion>0.55 || c.needs.fun<55 || c.profession==='Child') && hash(c.id+day)%3!==0 ? m : null;
+}
+function resolveMatch(){
+  const d = dayOf(S.minute), m = matchToday(d); if (!m || S.lastMatch===d) return; S.lastMatch = d;
+  const A = S.teams.find(t=>t.id===m.a), B = S.teams.find(t=>t.id===m.b);
+  const str = t => t.members.map(alive).filter(Boolean).reduce((s,a)=>s + 1 + mindOf(a).fit + (a.rt.loc===m.loc?0.3:-0.5), 0);
+  const sa = Math.max(0.5,str(A)), sb = Math.max(0.5,str(B));
+  let ga=0, gb=0; for (let i=0;i<6;i++){ if (rnd()<0.42*sa/(sa+sb)*1.4) ga++; if (rnd()<0.42*sb/(sa+sb)*1.4) gb++; }
+  const fans = S.citizens.filter(c=>c.rt.loc===m.loc && c.plan && (c.plan.blocks[c.rt.blockIdx]||{}).target==='match');
+  const gate = S.matchGate||0; S.matchGate = 0;
+  const arena = bizList('arena')[0], ap = arena && propOf(arena.id);
+  let pot = gate; if (ap){ const cut = Math.round(gate*0.3); payTo(ap.owner, cut); pot -= cut; }
+  const winners = ga>gb ? A : gb>ga ? B : null;
+  const players = A.members.concat(B.members).map(alive).filter(Boolean);
+  players.forEach(p=>{ const share = Math.round(pot * (winners ? (winners.members.includes(p.id)?0.6:0.4)/Math.max(1,(winners.members.includes(p.id)?winners:(winners===A?B:A)).members.length) : 1/players.length)); p.wallet+=share; today(p).inc+=share;
+    if (winners) feel(p, winners.members.includes(p.id)?'pride':'sadness', 0.25); });
+  const LA = S.league[A.id] = S.league[A.id]||{p:0,w:0,d:0,l:0,gf:0,ga:0,pts:0}, LB = S.league[B.id] = S.league[B.id]||{p:0,w:0,d:0,l:0,gf:0,ga:0,pts:0};
+  LA.p++; LB.p++; LA.gf+=ga; LA.ga+=gb; LB.gf+=gb; LB.ga+=ga;
+  if (ga>gb){ LA.w++; LB.l++; LA.pts+=3; } else if (gb>ga){ LB.w++; LA.l++; LB.pts+=3; } else { LA.d++; LB.d++; LA.pts++; LB.pts++; }
+  const star = (winners||A).members.map(alive).filter(Boolean).sort((x,y)=>mindOf(y).fit-mindOf(x).fit)[0];
+  fans.forEach(f=>{ const mf = mindOf(f); if (!mf.fan){ const pull = t => t.members.reduce((s,id)=>s+peekRel(f,id).affinity,0) + (hash(f.id+t.id)%20); mf.fan = pull(A)>=pull(B) ? A.id : B.id; }
+    f.needs.fun = clamp(f.needs.fun+20,0,100); f.needs.social = clamp(f.needs.social+10,0,100);
+    if (winners){ if (mf.fan===winners.id){ feel(f,'joy',0.3); feel(f,'pride',0.15); } else if (mf.fan===A.id||mf.fan===B.id){ feel(f,'sadness',0.15); feel(f,'anger',0.1); } } });
+  const txt = `${A.name} ${ga}–${gb} ${B.name}${star && winners ? `. ${star.name} was the star of the match` : ''}. ${fans.length} fans watched at ${placeName(m.loc)}.`;
+  chronicle(txt, 6, '⚽', 'sport'); S.week.society.push(`Match: ${A.name} ${ga}–${gb} ${B.name}`);
+  S.matches.unshift({day:d, a:A.name, b:B.name, ga, gb, fans:fans.length, gate}); S.matches = S.matches.slice(0,20);
+  // rival fans sometimes come to blows
+  if (winners && fans.length>=8 && rnd()<0.25){ const x = fans.find(f=>mindOf(f).fan===winners.id), y = fans.find(f=>mindOf(f).fan && mindOf(f).fan!==winners.id); if (x && y){ adjustRel(x,y,-12); adjustRel(y,x,-12); chronicle(`${x.name} and ${y.name}, rival fans, got into a shoving match after the game.`, 4, '💢', 'sport'); S.week.quarrels++; } }
+}
+
+// ---------- the newspaper ----------
+function papersDaily(){
+  const d = dayOf(S.minute);
+  S.citizens.filter(c=>c.profession==='Journalist' && isAdult(c)).forEach(j=>{
+    const paper = S.papers[j.id] || (S.papers[j.id] = Object.keys(S.papers).length ? `The ${surnameOf(j)} Courier` : 'The Pixel Gazette');
+    const scoop = investigate(j);
+    // each editor has a beat: what they care about decides what makes their front page
+    const BEAT = {Community:['movement','society','family','need'], Family:['family','romance','society'], Prosperity:['land','business','economy','class'], Freedom:['movement','crime','law'], Order:['crime','law','gov'], Nature:['farm','land','infrastructure'], Tradition:['gov','festival','family'], Craftsmanship:['business','land','career']}[j.values[0]] || [];
+    const heads = S.chronicle.filter(e=>e.t>=(d-1)*DAY && e.t<d*DAY && e.imp>=4 && !['week','weather'].includes(e.kind)).map(e=>[e, e.imp + (BEAT.includes(e.kind)?3:0) + (hash(j.id+e.text)%100)/100]).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>x[0].text);
+    const g = mindOf(j).griev[0];
+    const editorial = g ? `${pick(['It is time we talked about','Our town cannot ignore','Readers keep writing to us about'])} ${g.text}.` : pick(['A fine week for Pixel Town.','Mind the bridge, neighbours.','Support your local shops.']);
+    S.news.unshift({day:d, paper, editor:j.id, editorName:j.name, heads, scoop, editorial, griev:g?{kind:g.kind, text:g.text, key:g.key||null, target:g.target||null, id:g.id||null}:null});
+  });
+  S.news = S.news.slice(0,21);
+}
+function investigate(j){
+  const m = mindOf(j);
+  const s = S.secrets.filter(x=>!x.exposed && !x.who.includes(j.id)).sort((a,b)=>b.heat-a.heat)[0];
+  if (!s || rnd() > 0.06 + m.wit*0.18 + s.heat*0.04) return null;
+  expose(s, j, 'the newspaper'); return s.text;
+}
+function tryReadPaper(c){
+  const d = dayOf(S.minute), m = mindOf(c);
+  if (m.read===d || !isAdult(c) || c.wallet<20) return;
+  if (!(c.personality.openness + c.politics.civicEngagement > 0.9 || hash(c.id+d)%3===0)) return;
+  m.read = d;
+  if (!listed('good_newspaper') || !buy(c,'good_newspaper',1)) return;
+  consume(c,'good_newspaper');
+  const ed = S.news.find(e=>e.day===d && S.citizens.some(j=>j.id===e.editor && listed('good_newspaper', j.id)>=0)) || S.news[0]; if (!ed) return;
+  const ej = alive(ed.editor);
+  if (ej){ const P=c.politics, Q=ej.politics; P.economicLeaning = +(P.economicLeaning + (Q.economicLeaning-P.economicLeaning)*0.02).toFixed(3); P.orderLeaning = +(P.orderLeaning + (Q.orderLeaning-P.orderLeaning)*0.02).toFixed(3); }
+  if (ed.griev && c.values.some(v=>ej && ej.values.includes(v))) m.swayed = Object.assign({}, ed.griev, {s:0.3, until:d+5});
+  m.wit = +Math.min(0.97, m.wit+0.0005).toFixed(4);
+  if (ed.heads[0]) think(c, `Read in ${ed.paper}: ${ed.heads[0]}`);
+}
+
+// ---------- secrets, crime and the constables ----------
+function newSecret(kind, who, text, extra){ const s = Object.assign({id:'sec_'+(++S.secretSeq), kind, who:who.map(c=>c.id), day:dayOf(S.minute), heat:0, exposed:false, text}, extra||{}); S.secrets.push(s); return s; }
+function crime(kind, who, text){ S.crimes.unshift({day:dayOf(S.minute), kind, who:who.map(c=>c.id), text, caught:false}); S.crimes = S.crimes.slice(0,30); }
+function expose(s, by, how){
+  if (s.exposed) return; s.exposed = true; s.exposedDay = dayOf(S.minute); s.how = how;
+  const who = s.who.map(alive).filter(Boolean);
+  if (s.kind==='affair'){ discoverAffair(s, how); if (by && by.profession==='Journalist') chronicle(`${S.papers[by.id]||'The paper'} ran the story of the affair on its front page.`, 6, '📰', 'news'); return; }
+  const fine = {bribe:100, smuggle:40, sabotage:60, squat:0}[s.kind]||30;
+  who.forEach(c=>{ const f = Math.min(c.wallet, fine); c.wallet-=f; S.treasury+=f; mindOf(c).record++; feel(c,'shame',0.5,'Everyone knows what I did.'); remember(c, `I was caught: ${s.text}. It cost me ${f}¢.`, 9);
+    S.citizens.forEach(o=>{ if (o!==c && isAdult(o)){ const r=getRel(o,c.id); r.affinity = clamp(r.affinity-(o.values.includes('Order')?10:5),-100,100); r.trust = clamp(r.trust-0.1,0,1); } }); });
+  if (s.kind==='bribe') (s.officials||[]).map(alive).filter(Boolean).forEach(o=>{ mindOf(o).record++; feel(o,'shame',0.6);
+    if (o.office==='Councillor'){ S.gov.council = S.gov.council.filter(x=>x!==o.id); o.office=null; chronicle(`${o.name} resigned from the council in disgrace.`, 8, '🏛️', 'gov'); }
+    else if (o.office==='Leader'){ S.gov.leader=null; o.office=null; chronicle(`${o.name} resigned as Leader in disgrace. A new election will be called.`, 9, '🏛️', 'gov'); if (!S.gov.campaign) openCampaign(); }
+    const f=Math.min(o.wallet,100); o.wallet-=f; S.treasury+=f; });
+  if (s.kind==='smuggle'){ const t = S.teams.find(x=>x.id===s.team); if (t) disband(t,'was broken up by the law'); }
+  const c0 = S.crimes.find(x=>x.kind===s.kind && x.who.join()===s.who.join()); if (c0) c0.caught = true;
+  chronicle(`${by && by.profession==='Journalist' ? `SCANDAL in ${S.papers[by.id]||'the paper'}: ` : by && by.profession==='Constable' ? `Constable ${surnameOf(by)} caught them: ` : ''}${s.text}.${fine?` Fined ${fine}¢${who.length>1?' each':''}.`:''}`, 8, by && by.profession==='Journalist'?'📰':'🚨', 'crime');
+  S.week.society.push(`Exposed: ${s.text}`);
+}
+function policeDaily(){
+  const cops = S.citizens.filter(c=>c.profession==='Constable' && isAdult(c));
+  S.secrets.filter(s=>!s.exposed && s.kind!=='affair').forEach(s=>{
+    s.heat += 0.2;
+    const cop = cops.sort((a,b)=>mindOf(b).wit-mindOf(a).wit)[0];
+    const sly = s.who.map(alive).filter(Boolean).reduce((m,c)=>Math.max(m,mindOf(c).wit),0);
+    const p = (cop ? 0.05 + mindOf(cop).wit*0.12 : 0.012) + s.heat*0.01 - sly*0.04;
+    if (rnd() < p) expose(s, cop||null, 'caught');
+  });
+}
+
+// ---------- schemes: changing the town outside the rules ----------
+function activeSchemes(){ return S.schemes.filter(s=>s.status==='organizing' || s.status==='active'); }
+function schemeOf(c){ return activeSchemes().find(s=>s.members.includes(c.id)); }
+function sympathy(o, s){
+  const g = mindOf(o).griev; const same = g.find(x=>x.kind===s.gkind && (!s.target || x.target===s.target || x.id===s.target));
+  const leaderC = alive(s.leader); const aff = leaderC ? peekRel(o,leaderC.id).affinity/100 : 0;
+  let v = (same?same.s*0.9:0) + aff*0.35 + mindOf(o).emo.anger*0.3 + o.politics.civicEngagement*0.1 - (o.office?0.3:0);
+  if (ILLEGAL.has(s.kind)) v += -(o.traits.includes('Honest')?0.6:0) - (o.values.includes('Order')?0.5:0) + (o.traits.includes('Cunning')||o.traits.includes('Reckless')?0.15:0) - 0.25;
+  if (s.kind==='strike') v = o.profession===s.prof ? v + 0.2 : -1;
+  if (s.target && (s.target===o.id || (s.kind==='boycott' && propOf(s.bid) && propOf(s.bid).owner===o.id))) v = -1;
+  if (s.kind==='boycott' && o.partner===s.target) v = -1;
+  return v;
+}
+function planScheme(c, g){
+  const m = mindOf(c), wit = m.wit, honest = c.traits.includes('Honest') || c.values.includes('Order') || c.profession==='Constable';
+  const crooked = !honest && (c.traits.includes('Cunning') || c.traits.includes('Reckless') || c.traits.includes('Greedy') || c.agenda==='trouble');
+  const d = dayOf(S.minute);
+  let kind = null, extra = {};
+  switch (g.kind){
+    case 'law': kind = wit>0.6 && (c.cls==='Wealthy'||c.cls==='Upper') && crooked ? null : 'protest'; extra = {target:g.id, slogan:`Scrap the ${g.text.replace(/^the /,'')}!`}; break;
+    case 'leader': kind = wit>=0.5 ? 'petition' : 'protest'; extra = {target:g.target, slogan:`${lead(cById(g.target))} must go!`}; break;
+    case 'inequality': kind = wit>0.72 && c.wallet>120 && caresAbout(c,'Community') ? 'institution' : wit>0.58 ? 'initiative' : crooked && c.cls==='Poor' ? 'smuggle' : caresAbout(c,'Community') ? 'institution' : 'protest';
+      extra = kind==='initiative' ? {law:'wealth_tax', slogan:'Make the rich pay their share!'} : kind==='institution' ? {inst: c.cls==='Poor' ? 'aid_circle' : 'credit_union'} : {slogan:'Fair shares for all!'}; break;
+    case 'rent': kind = crooked && isLodging(c.home) ? 'squat' : wit>0.55 ? 'initiative' : 'protest'; extra = kind==='initiative' ? {law:'rent_cap', slogan:'Cap the rents!'} : {target:g.target, slogan:'Lower the rents!'}; break;
+    case 'hunger': kind = c.wallet>150 && (c.traits.includes('Generous')||caresAbout(c,'Community')) ? 'institution' : ['Farmer','Baker','Fisher'].includes(c.profession) && wit>0.4 ? 'strike' : wit>0.5 ? 'initiative' : 'protest';
+      extra = kind==='institution' ? {inst:'soup_kitchen'} : kind==='strike' ? {prof:c.profession, slogan:`Fair pay for ${profLabel(c.profession).toLowerCase()}s!`} : {law:'bread_subsidy', slogan:'Bread for everyone!'}; break;
+    case 'jobs': kind = wit>0.7 && c.wallet>100 ? 'institution' : 'protest'; extra = kind==='institution' ? {inst:'night_school'} : {slogan:'Work for the jobless!'}; break;
+    case 'business': kind = crooked && m.emo.anger>0.5 && wit<0.6 ? 'sabotage' : 'boycott'; extra = {target:g.target, bid:g.bid, slogan:`Don't spend a coin at ${LOC[g.bid]?LOC[g.bid].name:'that place'}!`}; break;
+    case 'order': kind = crooked ? (wit>0.5 ? 'smuggle' : 'sabotage') : 'protest'; extra = {slogan:'Less rules, more freedom!'}; if (kind==='sabotage'){ const b = BUILDINGS.find(b=>b.biz && propOf(b.id) && propOf(b.id).owner!=='town' && propOf(b.id).owner!==c.id); if (!b) return null; extra.bid=b.id; extra.target=propOf(b.id).owner; } break;
+  }
+  if (!kind) return null;
+  if (kind==='institution' && S.institutions.some(x=>x.key===extra.inst && x.active)){ const x = S.institutions.find(x=>x.key===extra.inst && x.active); const gift = Math.min(40, Math.floor(c.wallet*0.1)); if (gift>=5){ c.wallet-=gift; x.funds+=gift; think(c, `I gave ${gift}¢ to the ${x.name}. It's something.`); } kind = wit>0.58 ? 'initiative' : 'protest'; if (kind==='initiative') Object.assign(extra, {law: g.kind==='hunger'?'bread_subsidy':'wealth_tax', slogan: g.kind==='hunger'?'Bread for everyone!':'Make the rich pay their share!'}); }
+  if (kind==='initiative' && extra.law && (activeLaws().some(p=>p.key===extra.law) || S.gov.proposals.some(p=>p.key===extra.law && ['Debating','Voting'].includes(p.status)))) kind='protest';
+  if (kind==='squat' && !homeBuildings().some(b=>residentsOf(b.id).length===0 && b.style!=='palace')) kind='protest';
+  if (kind==='strike' && S.citizens.filter(o=>o.profession===c.profession).length<3) kind='protest';
+  if (kind==='protest' && activeSchemes().some(s=>s.kind==='protest')) { const s = activeSchemes().find(s=>s.kind==='protest'); if (sympathy(c,s)>0.2) s.members.push(c.id); return null; }
+  if (activeSchemes().some(s=>s.kind===kind && s.gkind===g.kind && (s.target||null)===(extra.target||null))) return null;
+  if (!extra.slogan) extra.slogan = {law:`Scrap ${g.text}!`, leader:'Time for a change!', inequality:'Fair shares for all!', rent:'Lower the rents!', hunger:'Bread for everyone!', jobs:'Work for the jobless!', business:'Fair prices!', order:'Less rules, more freedom!'}[g.kind] || 'Listen to us!';
+  const s = Object.assign({id:'sch_'+(++S.schemeSeq), kind, gkind:g.kind, leader:c.id, members:[c.id], text:g.text, started:d, actDay: d + (kind==='petition'||kind==='initiative'?3:kind==='boycott'?1:2), status:'organizing', log:[]}, extra);
+  S.schemes.push(s);
+  const what = ({protest:()=>`is organizing a protest against ${g.text}`, strike:()=>`is calling the ${profLabel(s.prof).toLowerCase()}s out on strike`, boycott:()=>`is calling for a boycott of ${g.text}`, petition:()=>`started a petition to recall ${g.text.replace(' running the town','')}`,
+    initiative:()=>`is gathering signatures to force a vote on a ${CANDIDATES[s.law]?CANDIDATES[s.law].title:'new law'}`, institution:()=>`is setting up a ${INSTITUTIONS[s.inst].name} because ${INSTITUTIONS[s.inst].why}`}[kind]||(()=>null))();
+  if (what) chronicle(`${c.name} ${what}.`, 6, kind==='institution'?'🏠':'📣', 'movement');
+  think(c, ILLEGAL.has(kind) ? `If the rules won't help me, I'll go around them. (${SCHEME_LABEL[kind]})` : `The council won't fix ${g.text}. We will.`);
+  remember(c, `I started something: ${SCHEME_LABEL[kind].toLowerCase()} over ${g.text}.`, 8);
+  if (!ILLEGAL.has(kind)) s.team = newTeam('movement', kind==='strike' ? `${profLabel(s.prof)}s' Union` : `Movement: ${s.slogan||SCHEME_LABEL[kind]}`, c, []).id;
+  return s;
+}
+function recruit(s, c, o, face){
+  if (s.members.includes(o.id) || schemeOf(o)) return false;
+  const pitch = mindOf(c).wit*0.3 + (c.traits.includes('Charismatic')?0.2:0) + (face?0.1:0);
+  if (sympathy(o,s) + pitch*0.5 > 0.55 + rnd()*0.3){ s.members.push(o.id); const t = S.teams.find(t=>t.id===s.team); if (t) joinTeam(t,o);
+    remember(o, `${c.name} talked me into joining the ${SCHEME_LABEL[s.kind].toLowerCase()} over ${s.text}.`, 5, [c.id]); feel(o,'pride',0.1); return true; }
+  return false;
+}
+function schemesDaily(){
+  const d = dayOf(S.minute), adults = S.citizens.filter(isAdult), N = Math.max(1,adults.length);
+  activeSchemes().forEach(s=>{
+    const c = alive(s.leader); if (!c){ s.status='failed'; s.result='its leader is gone'; return; }
+    s.members = s.members.filter(id=>alive(id));
+    // organize: members work their friends; clever, charismatic leaders reach further
+    if (s.status==='organizing' && !ILLEGAL.has(s.kind)){
+      const reach = 3 + Math.round(mindOf(c).wit*4) + (c.traits.includes('Charismatic')?2:0);
+      s.members.map(alive).filter(Boolean).forEach(m=>{ adults.filter(o=>!s.members.includes(o.id)).sort((a,b)=>peekRel(m,b.id).affinity-peekRel(m,a.id).affinity).slice(0,reach).forEach(o=>recruit(s,m,o,false)); });
+    }
+    if (ILLEGAL.has(s.kind) && s.status==='organizing' && ['smuggle'].includes(s.kind)){
+      adults.filter(o=>peekRel(c,o.id).affinity>45 && !o.traits.includes('Honest') && !o.values.includes('Order') && o.profession!=='Constable').slice(0,3).forEach(o=>recruit(s,c,o,true));
+    }
+    if (d < s.actDay) return;
+    const n = s.members.length, share = n/N;
+    switch (s.kind){
+      case 'protest': if (s.status==='organizing'){ s.status='active'; s.protestDay = d; chronicle(`${n} villagers plan to march on the town square this afternoon: "${s.slogan}"`, 6, '📣', 'movement'); } break;
+      case 'strike': if (s.status==='organizing'){ const prof = S.citizens.filter(o=>o.profession===s.prof).length; if (n>=2 && n/prof>=0.5){ s.status='active'; s.until=d+2; s.members.map(alive).forEach(m=>{ if (m) m.strikeUntil=d+2; }); chronicle(`STRIKE! ${n} of the town's ${prof} ${profLabel(s.prof).toLowerCase()}s have put down their tools: "${s.slogan}"`, 8, '✊', 'movement'); S.week.society.push(`${profLabel(s.prof)}s went on strike`); } else endScheme(s,false,`only ${n} of ${prof} ${profLabel(s.prof).toLowerCase()}s would walk out`); }
+        else if (d>=s.until){ const prof = S.citizens.filter(o=>o.profession===s.prof).length; if (n/Math.max(1,prof)>=0.5 && S.treasury>100){ enactDirect(`${profLabel(s.prof)} Strike Settlement`, 'Subsidy', [{effectType:'Subsidy', targetProfession:s.prof, magnitude:5}], 14, c, 'The council settled with the strikers to get the town working again.'); endScheme(s,true,'the council agreed to a daily wage top-up'); } else endScheme(s,false,'the council held firm'); s.members.map(alive).forEach(m=>{ if (m) m.strikeUntil=0; }); } break;
+      case 'boycott': if (s.status==='organizing'){ s.status='active'; s.until=d+7; chronicle(`${n} villagers are boycotting ${LOC[s.bid]?LOC[s.bid].name:'a business'}: "${s.slogan}"`, 6, '🚫', 'movement'); S.week.society.push(`Boycott of ${LOC[s.bid]?LOC[s.bid].name:'a business'}`); }
+        else { const o = alive(s.target), b = LOC[s.bid];
+          if (!o || !b) endScheme(s,false,'the business is gone');
+          else if (n>=Math.max(3,N*0.12) && (o.traits.includes('Honest')||o.traits.includes('Generous')||o.personality.agreeableness>0.65) && rnd()<0.35){ S.biz[s.bid] = S.biz[s.bid]||{mod:1,cust:0}; S.biz[s.bid].mod = Math.max(0.7, +(S.biz[s.bid].mod-0.15).toFixed(2)); endScheme(s,true,`${o.name} apologized and cut prices at ${b.name}`); }
+          else if (d>=s.until) endScheme(s, n>=N*0.15, n>=N*0.15 ? `${b.name} lost a week of customers` : 'it fizzled out'); } break;
+      case 'petition': { const need = Math.ceil(N*0.4); const L = alive(s.target);
+        if (!L || L.office!=='Leader') endScheme(s,false,'the leader was already out of office');
+        else if (n>=need){ L.office=null; S.gov.leader=null; chronicle(`RECALL! ${n} of ${N} adults signed ${c.name}'s petition. ${L.name} has been removed as Leader and a snap election is called.`, 9, '📜', 'gov'); feel(L,'shame',0.5); feel(L,'anger',0.4); if (!S.gov.campaign) openCampaign(); endScheme(s,true,`${L.name} was recalled`); }
+        else if (d>=s.actDay+3) endScheme(s,false,`only ${n} of the ${need} signatures needed`); } break;
+      case 'initiative': { const need = Math.ceil(N*0.2);
+        if (n>=need){ S.gov.forceKey = {key:s.law, proposer:c.id}; chronicle(`${c.name} delivered ${n} signatures to the town hall. The ${CANDIDATES[s.law].title} must now go to a vote, whether the council likes it or not.`, 8, '📜', 'movement'); endScheme(s,true,'the law goes to a town vote'); }
+        else if (d>=s.actDay+3) endScheme(s,false,`only ${n} of the ${need} signatures needed`); } break;
+      case 'institution': foundInstitution(s, c); break;
+      case 'smuggle': if (s.status==='organizing'){ s.status='active'; const t = newTeam('gang', `${pick(['Moonlight','Backdoor','Cellar','Night'])} ${pick(['Traders','Crew','Market','Runners'])}`, c, s.members.slice(1).map(alive).filter(Boolean)); s.team=t.id; s.until=d+21;
+          newSecret('smuggle', s.members.map(alive).filter(Boolean), `${s.members.map(id=>cById(id).name).join(', ')} ran a black market, dodging the town's taxes`, {team:t.id}); crime('smuggle', s.members.map(alive).filter(Boolean), 'untaxed black-market trading');
+          s.members.map(alive).forEach(m=>m && think(m,'Nobody needs to know where these goods came from.')); }
+        else { const sec = S.secrets.find(x=>x.team===s.team); if (!sec || sec.exposed){ endScheme(s,false,'the gang was caught'); break; }
+          s.members.map(alive).filter(Boolean).forEach(m=>{ m.wallet+=7; today(m).inc+=7; S.treasury = Math.max(0, S.treasury-3); });
+          if (d>=s.until) endScheme(s,true,'they got away with it'); } break;
+      case 'squat': { const vac = homeBuildings().filter(b=>residentsOf(b.id).length===0 && b.style!=='palace'); const b = vac[0];
+        if (s.status==='organizing'){ if (!b){ endScheme(s,false,'there was nowhere to take'); break; } const fam = moveHousehold(c, b.id); fam.forEach(f=>mindOf(f).squat=b.id); s.bid=b.id; s.status='active'; s.until=d+10;
+          chronicle(`${c.name} broke into ${b.name}, which stood empty, and moved in without paying: "Empty houses and homeless people. I fixed it."`, 7, '🏚️', 'movement'); crime('squat',[c],`squatting in ${b.name}`); S.week.society.push(`${c.name} squatted ${b.name}`); }
+        else { const pr = propOf(s.bid), o = pr && alive(pr.owner);
+          if (!pr || c.home!==s.bid){ endScheme(s,false,'they left'); break; }
+          if (o && (o.traits.includes('Generous') || o.values.includes('Community')) && rnd()<0.3){ householdOf(c).forEach(f=>mindOf(f).squat=null); endScheme(s,true,`${o.name} let them stay as tenants`); break; }
+          const cops = S.citizens.filter(x=>x.profession==='Constable').length;
+          if (cops && rnd()<0.2*cops){ householdOf(c).forEach(f=>{ mindOf(f).squat=null; }); moveHousehold(c, lodgingFor(householdOf(c).length)); mindOf(c).record++; feel(c,'anger',0.4); endScheme(s,false,'the constables evicted them'); break; }
+          if (d>=s.until){ householdOf(c).forEach(f=>mindOf(f).squat=null); endScheme(s,true,'nobody managed to throw them out, and the owner gave up'); } } } break;
+      case 'sabotage': { const b = LOC[s.bid], pr = propOf(s.bid); if (!b || !pr){ endScheme(s,false,'the target is gone'); break; }
+        S.biz[s.bid] = S.biz[s.bid]||{mod:1,cust:0}; S.biz[s.bid].closedUntil = d+2; const o = alive(pr.owner); if (o){ const f=Math.min(o.wallet,40); o.wallet-=f; feel(o,'anger',0.5); feel(o,'fear',0.2); mindOf(o).victim = true; }
+        chronicle(`Someone smashed up ${b.name} in the night. It is closed for repairs.`, 7, '🔨', 'crime'); crime('sabotage',[c],`smashing up ${b.name}`);
+        newSecret('sabotage', [c], `${c.name} smashed up ${b.name}`); feel(c,'anger',-0.4); feel(c,'fear',0.2,'I hope nobody saw me.'); endScheme(s,true,null); } break;
+    }
+  });
+  // bribery: clever, crooked rich villagers buy votes on a pending law that matters to them
+  const pend = S.gov.proposals.find(p=>p.status==='Debating');
+  if (pend && !S.secrets.some(x=>x.kind==='bribe' && x.pid===pend.proposalId)){
+    const briber = adults.filter(c=>(c.cls==='Wealthy'||c.cls==='Upper') && !c.office && mindOf(c).wit>=0.55 && !c.traits.includes('Honest') && !c.values.includes('Order') && (c.traits.includes('Cunning')||c.traits.includes('Greedy')) && c.wallet>150)
+      .map(c=>[c, projectedImpact(c,pend)/Math.max(50,weekSum(c,'inc')) + classStance(c,pend.key)]).filter(x=>Math.abs(x[1])>0.3).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]))[0];
+    if (briber && rnd()<0.3){ const [c, stake] = briber; const choice = stake>0?'Yes':'No';
+      const targets = officials().filter(o=>o!==c && !o.traits.includes('Honest') && (o.traits.includes('Greedy')||o.wallet<150||o.traits.includes('Cunning'))).slice(0,2);
+      const honest = officials().find(o=>o!==c && o.traits.includes('Honest'));
+      if (targets.length){ const each = 40 + Math.round(mindOf(c).wit*40); targets.forEach(o=>{ c.wallet-=each; o.wallet+=each; mindOf(o).bribe = {pid:pend.proposalId, choice}; think(o, `${lead(c)} paid me to vote ${choice} on the ${pend.title}.`); });
+        const sec = newSecret('bribe', [c], `${c.name} bribed ${targets.map(o=>o.name).join(' and ')} to vote ${choice} on the ${pend.title}`, {pid:pend.proposalId, officials:targets.map(o=>o.id)}); crime('bribe',[c],`bribing officials over the ${pend.title}`);
+        think(c, `A few coins in the right pockets and the ${pend.title} goes my way.`);
+        if (honest && rnd()<0.3) expose(sec, honest, 'an honest councillor reported it'); }
+    }
+  }
+}
+function endScheme(s, ok, result){
+  s.status = ok ? 'succeeded' : 'failed'; s.result = result; s.ended = dayOf(S.minute);
+  const c = alive(s.leader);
+  if (result) chronicle(`${SCHEME_LABEL[s.kind]} ${ok?'succeeded':'failed'}${c?` (${c.name})`:''}: ${result}.`, ok?7:5, ok?'✊':'🥀', 'movement');
+  s.members.map(alive).filter(Boolean).forEach(m=>{ if (ok){ feel(m,'pride',0.3); feel(m,'joy',0.2); feel(m,'anger',-0.3); } else { feel(m,'anger',0.1); feel(m,'sadness',0.15); } });
+  if (result) S.week.society.push(`${SCHEME_LABEL[s.kind]} ${ok?'won':'failed'}: ${result}`);
+  const t = S.teams.find(t=>t.id===s.team); if (t && t.kind==='movement') t.active = false;
+  S.schemes = S.schemes.filter(x=>activeSchemes().includes(x) || dayOf(S.minute)-(x.ended||0) < 28).slice(-40);
+}
+// protests happen on the square; the council caves when enough people turn up
+function resolveProtests(){
+  const d = dayOf(S.minute), N = Math.max(1,S.citizens.filter(isAdult).length);
+  S.schemes.filter(s=>s.kind==='protest' && s.status==='active' && s.protestDay===d).forEach(s=>{
+    const present = s.members.map(alive).filter(m=>m && m.rt.loc==='loc_town_square').length;
+    const c = alive(s.leader), share = present/N;
+    const need = 0.2 - (c && c.traits.includes('Charismatic') ? 0.04 : 0);
+    if (share>=need){
+      if (s.gkind==='law'){ const p = S.gov.proposals.find(p=>p.proposalId===s.target && p.status==='Enacted'); if (p){ p.status='Repealed'; S.gov.cooldown[p.key]=d+14; endScheme(s,true,`${present} marched and the council repealed the ${p.title}`); return; } }
+      if (s.gkind==='leader'){ const L = alive(s.target); if (L && L.office==='Leader'){ L.office=null; S.gov.leader=null; feel(L,'shame',0.4); if (!S.gov.campaign) openCampaign(); endScheme(s,true,`${present} marched and ${L.name} resigned as Leader`); return; } }
+      if (s.gkind==='inequality' || s.gkind==='jobs' || s.gkind==='hunger'){ enactDirect('Relief for the Poor', 'Subsidy', [{effectType:'Subsidy', targetProfession:'Unemployed', magnitude:5}], 14, c, 'The council gave in to the crowd on the square.'); endScheme(s,true,`${present} marched and the council granted relief to the jobless`); return; }
+      if (s.gkind==='rent' && !activeLaws().some(p=>p.key==='rent_cap')){ enactDirect(CANDIDATES.rent_cap.title, 'PriceControl', CANDIDATES.rent_cap.effects, 14, c, 'The council capped rents to calm the crowd.', 'rent_cap'); endScheme(s,true,`${present} marched and the council capped rents`); return; }
+      endScheme(s,true,`${present} marched and the council promised to listen`);
+    } else {
+      const rowdy = c && c.traits.includes('Reckless') && mindOf(c).emo.anger>0.4;
+      if (rowdy && S.citizens.some(x=>x.profession==='Constable' && x.rt.loc==='loc_town_square')){ const f=Math.min(c.wallet,20); c.wallet-=f; S.treasury+=f; mindOf(c).record++; endScheme(s,false,`only ${present} turned up, and the constables fined ${c.name} for disorder`); }
+      else endScheme(s,false,`only ${present} turned up`);
+    }
+  });
+}
+// a law the council makes on the spot, outside the usual town hall vote
+function enactDirect(title, category, effs, days, proposer, why, key){
+  const same = activeLaws().find(p=>p.title===title); if (same){ same.expiresAtMinute = Math.max(same.expiresAtMinute||0, S.minute+days*DAY); chronicle(`The ${title} was extended for another ${days} days.`, 6, '⚖️', 'law'); return same; }
+  if (activeLaws().length>=5) return null;
+  const p = {schemaVersion:1, proposalId:'law_'+String(S.gov.nextId++).padStart(4,'0'), key:key||'direct_'+S.gov.nextId, title, summary:why, category, proposerId:(proposer||officials()[0]||S.citizens[0]).id,
+    proposerRationale:why, proposedAtMinute:S.minute, triggeringIndicators:[], effects:JSON.parse(JSON.stringify(effs)), durationDays:days,
+    voting:{townHallAtMinute:S.minute, quorumFraction:0, passThreshold:0, eligibleVoterIds:[]}, votes:[], status:'Enacted', enactedAtMinute:S.minute, expiresAtMinute:S.minute+days*DAY, direct:true};
+  S.gov.proposals.push(p); chronicle(`⚖️ ${title} is now law for ${days} days, without a town hall vote. ${why}`, 8, '⚖️', 'law');
+  return p;
+}
+function foundInstitution(s, c){
+  const key = s.inst, I = INSTITUTIONS[key];
+  if (S.institutions.some(x=>x.key===key && x.active)){ const x = S.institutions.find(x=>x.key===key && x.active); const gift = Math.min(60, Math.floor(c.wallet*0.2)); c.wallet-=gift; x.funds+=gift; endScheme(s,true,`${c.name} gave ${gift}¢ to the existing ${I.name}`); return; }
+  const seed = Math.min(Math.floor(c.wallet*0.3), 150) + s.members.slice(1).map(alive).filter(Boolean).reduce((a,m)=>{ const g=Math.min(20,Math.floor(m.wallet*0.1)); m.wallet-=g; return a+g; },0);
+  c.wallet -= Math.min(Math.floor(c.wallet*0.3), 150);
+  const inst = {key, name:`${surnameOf(c)} ${I.name}`, founder:c.id, day:dayOf(S.minute), funds:seed, served:0, active:true, members:s.members.slice()};
+  S.institutions.push(inst);
+  if (key==='aid_circle') inst.team = newTeam('aid', inst.name, c, s.members.slice(1).map(alive).filter(Boolean)).id;
+  chronicle(`${c.name} opened the ${inst.name} with ${seed}¢ of their own${s.members.length>1?' and their supporters\'':''} money, because ${I.why}. No law required it; they just did it.`, 8, '🏠', 'society');
+  S.week.society.push(`${inst.name} founded`);
+  endScheme(s,true,null);
+}
+function institutionsDaily(){
+  const d = dayOf(S.minute);
+  S.institutions.filter(x=>x.active).forEach(x=>{
+    if (x.key==='soup_kitchen') S.citizens.filter(c=>c.needs.hunger<40).sort((a,b)=>a.needs.hunger-b.needs.hunger).slice(0,5).forEach(c=>{ if (x.funds<3) return; x.funds-=3; c.needs.hunger=clamp(c.needs.hunger+45,0,100); x.served++; feel(c,'joy',0.05); });
+    if (x.key==='night_school') S.citizens.filter(c=>isAdult(c) && mindOf(c).wit<0.65 && (c.cls==='Poor'||c.profession==='Unemployed')).slice(0,6).forEach(c=>{ if (x.funds<1) return; x.funds-=1; mindOf(c).wit = +Math.min(0.97, mindOf(c).wit+0.004).toFixed(4); x.served++; });
+    if (x.key==='credit_union') S.citizens.filter(c=>isAdult(c)).forEach(c=>{ const m=mindOf(c); if (m.cuLoan && c.wallet>140){ const due = Math.round(m.cuLoan*1.1); c.wallet-=due; x.funds+=due; m.cuLoan=0; } else if (!m.cuLoan && c.wallet<10 && x.funds>=30){ x.funds-=25; c.wallet+=25; m.cuLoan=25; x.served++; } });
+    if (x.key==='library') S.citizens.filter(c=>isAdult(c) && c.needs.fun<60).slice(0,6).forEach(c=>{ if (x.funds<1) return; x.funds-=1; c.needs.fun=clamp(c.needs.fun+8,0,100); mindOf(c).wit = +Math.min(0.97, mindOf(c).wit+0.001).toFixed(4); x.served++; });
+    if (x.key==='aid_circle'){ const t = S.teams.find(t=>t.id===x.team); if (!t || !t.active){ x.active=false; return; } const mem = t.members.map(alive).filter(Boolean);
+      mem.filter(m=>m.wallet>80).forEach(m=>{ const g=Math.min(10, Math.floor(m.wallet*0.04)); m.wallet-=g; x.funds+=g; }); mem.filter(m=>m.wallet<(x.funds>200?60:20)).sort((a,b)=>a.wallet-b.wallet).forEach(m=>{ const g=Math.min(15,x.funds); x.funds-=g; m.wallet+=g; if (g) x.served++; });
+      S.citizens.filter(o=>isAdult(o) && o.cls==='Poor' && !t.members.includes(o.id) && mem.some(m=>peekRel(m,o.id).affinity>40)).slice(0,1).forEach(o=>joinTeam(t,o)); }
+    if (x.funds<=0 && d-x.day>14 && !x.warned){ x.warned=true; chronicle(`The ${x.name} has run out of money.`, 4, '🥀', 'society'); }
+    if (x.funds>0) x.warned=false;
+  });
+  // weekly donations from the comfortable who care about the poor
+  if (d%7===3) S.citizens.filter(c=>(c.cls==='Wealthy'||c.cls==='Upper') && (c.traits.includes('Generous')||caresAbout(c,'Community'))).forEach(c=>{
+    const x = S.institutions.filter(x=>x.active).sort((a,b)=>a.funds-b.funds)[0]; if (!x) return;
+    const g = Math.min(60, Math.floor(c.wallet*0.05)); if (g<5) return; c.wallet-=g; x.funds+=g; feel(c,'pride',0.1); if (g>=40) chronicle(`${c.name} donated ${g}¢ to the ${x.name}.`, 3, '🎁', 'society'); });
+}
+
+// ---------- co-ops: friends pool their savings into a business they own together ----------
+function tryCoop(c){
+  if (teamsOf(c,'coop').length || !isAdult(c) || c.cls==='Wealthy') return;
+  const type = TRADE_BIZ[c.profession] || (mindOf(c).wit>0.6 ? pick(['bathhouse','tavern','bakery']) : null); if (!type) return;
+  const cost = BUILD_TYPES[type].cost;
+  const friends = S.citizens.filter(o=>o!==c && isAdult(o) && !teamsOf(o,'coop').length && peekRel(c,o.id).affinity>35 && peekRel(o,c.id).affinity>25 && o.wallet>40).sort((a,b)=>b.wallet-a.wallet).slice(0,4);
+  const put = o => Math.min(300, Math.floor(o.wallet*0.6));
+  const pool = friends.reduce((a,o)=>a+put(o),0) + Math.floor(c.wallet*0.8);
+  if (friends.length<2 || pool < cost+150) return;
+  const site = (()=>{ const tmp = c.wallet; c.wallet = pool; const st = siteFor(c, cost); c.wallet = tmp; return st; })(); if (!site) return;
+  friends.forEach(o=>{ const g=put(o); o.wallet-=g; c.wallet+=g; });
+  const t = newTeam('coop', `${pick(['Commons','Neighbours\'','People\'s','Riverside','Hearth'])} ${BUILD_TYPES[type].label} Co-op`, c, friends, {btype:type});
+  developOn(site, c, type);
+  site.p.owner = 'team:'+t.id; t.prop = site.p.id;
+  chronicle(`${[c].concat(friends).map(x=>lead(x)).join(', ')} pooled ${pool}¢ into a co-operative, the ${t.name}, and broke ground on a ${BUILD_TYPES[type].label.toLowerCase()} they will own together.`, 7, '🤝', 'society');
+  S.week.society.push(`${t.name} founded`);
+  [c].concat(friends).forEach(x=>{ feel(x,'pride',0.2); think(x, `Together we can own what none of us could alone.`); });
+}
+function teamsDaily(){
+  const d = dayOf(S.minute);
+  S.teams.filter(t=>t.active).forEach(t=>{
+    t.members = t.members.filter(id=>alive(id)); if (!t.members.length){ t.active=false; return; }
+    if (!alive(t.leader)) t.leader = t.members[0];
+    if (t.kind==='coop' && d%7===0 && t.funds>40){ const each = Math.floor((t.funds-20)/t.members.length); if (each>0){ t.members.map(alive).forEach(m=>{ m.wallet+=each; today(m).inc+=each; }); t.funds -= each*t.members.length; t.paid = (t.paid||0)+each*t.members.length; } }
+    if (t.kind==='band' && d%7===2 && t.members.length>=2 && rnd()<0.35){ const h = S.chronicle.filter(e=>e.imp>=7 && e.t>(d-7)*DAY).slice(-1)[0]; chronicle(`${t.name} wrote a new song${h?` about "${h.text.replace(/[.!]$/,'')}"`:''}. The taverns are already humming it.`, 4, '🎵', 'music'); }
+    if (t.kind==='movement' && !activeSchemes().some(s=>s.team===t.id)) t.active=false;
+  });
+  S.teams = S.teams.filter(t=>t.active || d - dayOf(t.founded) < 60).slice(-60);
+}
+
+// ---------- conversations ----------
+// who a villager chooses to talk to, and what they talk about
+function pickPartner(c, here){
+  const m = mindOf(c), s = schemeOf(c);
+  let best=here[0], bw=-1e9;
+  for (const o of here){ const r = peekRel(c,o.id);
+    let w = r.affinity*0.02 + (r.tags.includes('Lover')?1.5:0) + (r.tags.includes('Spouse')?0.6:0) + (hash(c.id+o.id+S.minute)%100)/60;
+    if (m.goal && m.goal.key==='love' && canRomance(c,o) && !o.partner) w += attraction(c,o)*2;
+    if (s && s.leader===c.id && !s.members.includes(o.id)) w += 0.8;
+    if (m.goal && m.goal.target===o.id) w += 1;
+    if (w>bw){ bw=w; best=o; } }
+  return best;
+}
+function socialize(c){
+  const here = S.citizens.filter(o => o!==c && !o.rt.path && o.rt.loc===c.rt.loc && ['Socializing','Idle','Working','AttendingTownHall'].includes(o.rt.state));
+  if (!here.length) return;
+  const o = pickPartner(c, here);
+  const m = mindOf(c), mo = mindOf(o), ra = peekRel(c,o.id);
+  const shared = c.values.filter(v=>o.values.includes(v)).length;
+  let delta = 0.5 + (c.personality.agreeableness + o.personality.agreeableness - 1)*1.2 + shared*0.6 + rnd()*2 - 1;
+  if (delta>0) delta *= Math.max(0.15, 1 - ra.affinity/110);
+  const rival = ra.tags.includes('Rival');
+  if (rival) delta -= 4;
+  const cop = here.some(x=>x.profession==='Constable') || c.profession==='Constable';
+  let quarrelChance = (c.agenda==='trouble'?0.05:0) + (rival?0.1:0.012) + (c.traits.includes('Stubborn')?0.03:0) + (o.traits.includes('Stubborn')?0.03:0) + (c.traits.includes('Reckless')&&isTavern(c.rt.loc)?0.04:0) + m.emo.anger*0.08 + (m.debts[o.id]&&peekRel(o,c.id).affinity<20?0.05:0);
+  if (cop) quarrelChance *= 0.4;
+  const place = placeName(c.rt.loc);
+  const bub = t => { S.bubbles.push({id:c.id, text:t, until:performance.now()+1800, gm:S.minute}); };
+  if (rnd() < quarrelChance){
+    delta = -9 - rnd()*8;
+    S.week.quarrels++;
+    const topic = m.debts[o.id] ? 'an unpaid debt' : m.griev[0] && hash(c.id+S.minute)%2 ? m.griev[0].text : pick(['the price of timber','an unpaid debt','the east grove','who gets the corner table','last week\'s vote','a borrowed cart','whose turn it is at the well','a runaway pig','the best fishing spot']);
+    chronicle(`${c.name} and ${o.name} argued about ${topic} at ${place}.`, rival?5:4, '💢', 'social');
+    remember(c,`Argued with ${o.name} about ${topic}.`,5,[o.id]); remember(o,`${c.name} picked a fight with me about ${topic}.`,5,[c.id]);
+    setEmotion(c,'Angry',180); setEmotion(o,'Angry',120);
+    S.bubbles.push({id:c.id, text:'!!', until:performance.now()+2500, gm:S.minute});
+    const cp = here.find(x=>x.profession==='Constable'); if (cp && rnd()<0.5){ const f=Math.min(c.wallet,5); c.wallet-=f; S.treasury+=f; chronicle(`Constable ${surnameOf(cp)} broke it up and fined ${lead(c)} ${f}¢.`, 2, '🚨', 'crime'); }
+    adjustRel(c,o,delta); adjustRel(o,c,delta*0.8);
+    return;
+  }
+  // choose what to talk about
+  const opts = [['chat',1]];
+  if (mo.emo.sadness>0.4 || mo.emo.fear>0.45) opts.push(['comfort', 1 + c.personality.agreeableness + (ra.affinity>40?1:0)]);
+  if (c.traits.includes('Gossip') || m.wit>0.6) opts.push(['gossip', c.traits.includes('Gossip')?2:0.8]);
+  if (m.griev.length && c.politics.civicEngagement>0.3) opts.push(['politics', 0.6 + c.politics.civicEngagement + m.emo.anger]);
+  const sch = schemeOf(c); if (sch && !sch.members.includes(o.id) && !ILLEGAL.has(sch.kind)) opts.push(['recruit', 2.5]);
+  if (canRomance(c,o) && (!c.partner || c.partner===o.id || loversOf(c).includes(o.id) || peekRel(c,c.partner).affinity<45 || c.traits.includes('Romantic')) && attraction(c,o)>0.45) opts.push(['flirt', 0.6 + attraction(c,o)*2 + (m.goal&&m.goal.key==='love'?1.5:0) + m.emo.love]);
+  if (c.wallet<25 && ra.affinity>40 && o.wallet>150 && !m.debts[o.id] && isAdult(c)) opts.push(['borrow', 2]);
+  if (m.debts[o.id] && c.wallet>m.debts[o.id]+60) opts.push(['repay', 4]);
+  if (rival && c.personality.agreeableness>0.55 && m.emo.anger<0.25) opts.push(['apologize', 1.5]);
+  if (m.wit-mo.wit>0.2 && (o.profession==='Child' || o.profession===c.profession)) opts.push(['teach', 1]);
+  if (c.personality.extraversion>0.5) opts.push(['joke', 0.8]);
+  if (c.traits.includes('Generous') && o.wallet<20 && c.wallet>80 && isAdult(o)) opts.push(['gift', 2]);
+  const tot = opts.reduce((a,x)=>a+x[1],0); let r = rnd()*tot, kind='chat'; for (const [k,w] of opts){ r-=w; if (r<=0){ kind=k; break; } }
+  switch (kind){
+    case 'comfort': mo.emo.sadness=Math.max(0,mo.emo.sadness-0.15); mo.emo.fear=Math.max(0,mo.emo.fear-0.1); delta+=4; remember(o, `${c.name} sat with me when I was low. It helped.`, 5, [c.id], 'Dialogue'); bub('♥'); think(o, `${lead(c)} is a true friend.`); break;
+    case 'gossip': { let tgt=null, tv=0; for (const id in c.rel){ const r=c.rel[id]; if (id!==o.id && Math.abs(r.affinity)>Math.abs(tv) && alive(id)){ tv=r.affinity; tgt=id; } }
+      if (tgt){ const ro = getRel(o,tgt), trust = peekRel(o,c.id).trust; ro.affinity = clamp(Math.round(ro.affinity + (tv-ro.affinity)*0.12*trust), -100, 100);
+        const sec = S.secrets.find(s=>!s.exposed && m.knows.includes(s.id) && !mindOf(o).knows.includes(s.id)); if (sec){ mindOf(o).knows.push(sec.id); sec.heat += 1; if (mindOf(o).knows.length>20) mindOf(o).knows.shift(); }
+        if (hash(c.id+S.minute)%5===0) remember(o, `${lead(c)} told me ${tv>0?'good':'bad'} things about ${cById(tgt).name}.`, 3, [c.id,tgt], 'Dialogue'); bub('…'); } break; }
+    case 'politics': { const g = m.griev[0]; const agree = mindOf(o).griev.some(x=>x.kind===g.kind) || o.values.some(v=>c.values.includes(v));
+      if (agree){ delta+=2; if (!mindOf(o).griev.some(x=>x.kind===g.kind)) mindOf(o).swayed = {kind:g.kind, text:g.text, key:g.key||null, target:g.target||null, id:g.id||null, s:0.25, until:dayOf(S.minute)+4}; feel(o,'anger',0.05); remember(o, `${lead(c)} and I agree about ${g.text}.`, 3, [c.id], 'Dialogue'); }
+      else { delta-=2; if (m.emo.anger>0.4 && rnd()<0.3){ chronicle(`${c.name} and ${o.name} had a heated argument about ${g.text}.`, 3, '🗣️', 'social'); delta-=5; } }
+      const pull = 0.01*peekRel(o,c.id).trust*(0.5+m.wit); o.politics.economicLeaning = +clamp(o.politics.economicLeaning + (c.politics.economicLeaning-o.politics.economicLeaning)*pull, -1, 1).toFixed(3); bub('!'); break; }
+    case 'recruit': if (recruit(sch, c, o, true)){ bub('✊'); if (sch.members.length%10===0) chronicle(`The ${SCHEME_LABEL[sch.kind].toLowerCase()} over ${sch.text} now has ${sch.members.length} supporters.`, 4, '📣', 'movement'); } else delta-=1; break;
+    case 'flirt': { const att = attraction(c,o), back = attraction(o,c) + peekRel(o,c.id).affinity/150 + (mindOf(o).goal&&mindOf(o).goal.key==='love'?0.2:0);
+      feel(c,'love',0.05); delta += back>0.5 ? 3 : -1; bub('♥');
+      if (back>0.55){ feel(o,'love',0.04); const ro = getRel(c,o.id); if (!ro.tags.includes('Crush') && !ro.tags.includes('Lover') && !ro.tags.includes('Spouse') && ro.affinity>60){ ro.tags.push('Crush'); remember(c,`I can't stop thinking about ${o.name}.`,6,[o.id]); } }
+      const both = peekRel(c,o.id).affinity>72 && peekRel(o,c.id).affinity>68 && back>0.6 && att>0.5;
+      if (both && !loversOf(c).includes(o.id) && c.partner!==o.id){
+        const married = (c.partner && c.partner!==o.id) || (o.partner && o.partner!==c.id);
+        if (!married && !loversOf(c).length && !loversOf(o).length && (c.courting===o.id || rnd()<0.15)) becomeLovers(c,o,false);
+        else if (married && !loversOf(c).length && !loversOf(o).length){ const weak = x => !x.partner || peekRel(x,x.partner).affinity<40 || x.traits.includes('Romantic') || x.traits.includes('Reckless');
+          const restraint = (c.traits.includes('Honest')?0.5:0) + c.personality.conscientiousness*0.5 + (c.values.includes('Family')?0.3:0);
+          if (weak(c) && weak(o) && rnd() < 0.05*(1.2-restraint)) becomeLovers(c,o,true); } }
+      break; }
+    case 'borrow': { const amt = 20 + Math.floor(mindOf(o).wit*0) + (hash(c.id+o.id)%3)*10; if (o.traits.includes('Frugal') && rnd()<0.6 || o.traits.includes('Greedy')){ remember(c, `${o.name} refused to lend me money.`, 5, [o.id]); delta-=3; feel(c,'shame',0.1); break; }
+      o.wallet-=amt; c.wallet+=amt; m.debts[o.id]=amt; remember(c, `${o.name} lent me ${amt}¢. I have to pay it back.`, 6, [o.id]); remember(o, `I lent ${c.name} ${amt}¢.`, 4, [c.id]); delta+=2; bub('¢'); break; }
+    case 'repay': { const amt = m.debts[o.id]; c.wallet-=amt; o.wallet+=amt; delete m.debts[o.id]; getRel(o,c.id).trust = clamp(getRel(o,c.id).trust+0.1,0,1); delta+=4; remember(o, `${c.name} paid back the ${amt}¢ they owed me.`, 4, [c.id]); bub('¢'); break; }
+    case 'apologize': { [[c,o],[o,c]].forEach(([x,y])=>{ const r=getRel(x,y.id); r.tags=r.tags.filter(t=>t!=='Rival'); r.affinity=Math.max(r.affinity,-5); });
+      chronicle(`${c.name} apologized to ${o.name}, and the two made peace.`, 5, '🕊️', 'social'); remember(o, `${c.name} apologized to me. Maybe we can be civil now.`, 6, [c.id]); delta=4; break; }
+    case 'teach': mo.wit = +Math.min(0.97, mo.wit+0.002).toFixed(4); delta+=1; if (hash(c.id+S.minute)%6===0) remember(o, `${lead(c)} taught me something new.`, 3, [c.id], 'Dialogue'); break;
+    case 'joke': feel(c,'joy',0.03); feel(o,'joy',0.04); delta+=1.5; bub('ha!'); break;
+    case 'gift': { c.wallet-=10; o.wallet+=10; delta+=5; feel(o,'joy',0.1); remember(o, `${c.name} slipped me 10¢. What a kind soul.`, 5, [c.id]); bub('¢'); break; }
+    default: if (hash(c.id+S.minute)%6===0) remember(c,`Chatted with ${o.name} at ${place}.`,2,[o.id],'Dialogue'); if (hash(c.id+S.minute)%4===0) bub(pick(['…','♪','ha!','?']));
+  }
+  adjustRel(c,o,delta); adjustRel(o,c,delta*0.8);
+  romance(c,o);
+}
+
+// ---------- acting on goals, every morning ----------
+function pursueGoals(){
+  const d = dayOf(S.minute);
+  S.citizens.filter(c=>isAdult(c)).forEach(c=>{
+    const m = mindOf(c); updateCares(c); const g = chooseGoal(c);
+    switch (g.key){
+      case 'help': { const o = alive(g.target); if (!o) break;
+        if (o.sick && c.wallet>40){ const doc = S.citizens.find(x=>x.profession==='Doctor' && x!==o); if (doc && rnd()<0.5){ const fee=S.goods.svc_medical_checkup.price; c.wallet-=fee; doc.wallet+=fee; o.sick=0; chronicle(`${c.name} paid Dr. ${surnameOf(doc)} to treat ${o.name}.`, 4, '🩺', 'social'); adjustRel(o,c,8); feel(c,'pride',0.1); } }
+        else if (o.wallet<15 && c.wallet>70 && rnd()<0.5){ const g2 = Math.min(40, Math.floor(c.wallet*0.15)); c.wallet-=g2; o.wallet+=g2; remember(o, `${c.name} gave me ${g2}¢ to get by.`, 6, [c.id]); adjustRel(o,c,8); think(c, `I couldn't watch ${lead(o)} go without.`); }
+        break; }
+      case 'change': { if (schemeOf(c)) break; if (d - (m.lastScheme||-99) < 10) break;
+        const s = activeSchemes().find(s=>s.gkind===g.g.kind && !ILLEGAL.has(s.kind) && sympathy(c,s)>0.2);
+        if (s){ s.members.push(c.id); const t=S.teams.find(t=>t.id===s.team); if (t) joinTeam(t,c); think(c, `I joined ${cById(s.leader).name}'s ${SCHEME_LABEL[s.kind].toLowerCase()}.`); break; }
+        if (rnd() < (0.12 + m.wit*0.12) * Math.min(1.5, g.s)){ if (planScheme(c, g.g)) m.lastScheme = d; }
+        break; }
+      case 'wealth': if (m.wit>0.45 && rnd()<0.04) tryCoop(c); break;
+      case 'belong': { const aid = S.teams.find(t=>t.active && t.kind==='aid' && c.cls==='Poor'); if (aid && !aid.members.includes(c.id) && rnd()<0.3) joinTeam(aid,c);
+        if (!mindOf(c).fan && clubs().length && rnd()<0.2){ mindOf(c).fan = clubs()[hash(c.id)%clubs().length].id; think(c, `I'm a ${teamName(mindOf(c).fan)} supporter now.`); } break; }
+      case 'revenge': { const o = alive(g.target); if (!o || rnd()>0.25) break;
+        const biz = BUILDINGS.find(b=>b.biz && propOf(b.id) && propOf(b.id).owner===o.id);
+        if (biz && !c.traits.includes('Honest') && (c.traits.includes('Reckless')||c.traits.includes('Cunning')) && m.emo.anger>0.5 && !schemeOf(c) && d-(m.lastScheme||-99)>=10){ planScheme(c, {kind:'business', target:o.id, bid:biz.id, text:`${o.name}'s ${biz.name}`, s:1}); m.lastScheme=d; }
+        else { S.citizens.filter(f=>peekRel(f,c.id).affinity>40 && f!==o).slice(0,4).forEach(f=>{ const r=getRel(f,o.id); r.affinity=clamp(r.affinity-4,-100,100); }); think(c, `I made sure everyone knows what ${lead(o)} is really like.`); feel(c,'anger',-0.1); }
+        break; }
+    }
+  });
+}
+
+// ---------- the daily society step ----------
+function societyDaily(){
+  const d = dayOf(S.minute);
+  if (!S.week.society) S.week.society = [];
+  // public servants are paid by the treasury
+  S.citizens.forEach(c=>{ const w = PUBLIC_WAGE[c.profession]; if (w && S.treasury>=w){ S.treasury-=w; c.wallet+=w; today(c).inc+=w; } });
+  // wealth tax, if the town has one
+  effects().filter(e=>e.effectType==='WealthTax').forEach(e=>S.citizens.forEach(c=>{ if (c.wallet>500){ const t=Math.floor((c.wallet-500)*e.magnitude); c.wallet-=t; S.treasury+=t; if (t>=5) feel(c,'anger',0.02); } }));
+  // children learn; faster with a teacher
+  const teachers = S.citizens.filter(c=>c.profession==='Teacher').length, kids = S.citizens.filter(c=>c.profession==='Child' && c.age>=5);
+  kids.forEach(k=>{ const m=mindOf(k); m.wit = +Math.min(0.97, m.wit + (teachers ? 0.003*Math.min(1, teachers*12/Math.max(1,kids.length)) : 0.0008)).toFixed(4); });
+  S.citizens.forEach(c=>{ if (c.strikeUntil && d>=c.strikeUntil) c.strikeUntil=0; });
+  S.citizens.filter(c=>c.profession==='Athlete').forEach(c=>{ const m=mindOf(c); m.fit = +Math.min(1, m.fit + (c.workAcc>60?0.02:0.008)).toFixed(3); c.workAcc = 0; });
+  papersDaily();
+  romanceDaily();
+  careersDaily();
+  sportsClubs(); bands();
+  pursueGoals();
+  schemesDaily();
+  institutionsDaily();
+  teamsDaily();
+  policeDaily();
+  // keep saves small: only the latest laws keep their full roll-call of votes
+  if (d%7===1) S.gov.proposals.slice(0,-12).forEach(p=>{ if (p.votes && p.votes.length) p.votes=[]; });
+}
+
 // ---------- day / hour / minute pipeline ----------
 function rollWeather(season){
   const r = rnd();
@@ -1990,6 +2817,7 @@ function dayStarted(){
   landDaily();
   politicsDaily();
   dailyGovernance();
+  societyDaily();
   S.citizens.forEach(c=>{ c.plan = buildPlan(c, d); c.rt.blockIdx = -1; });
 }
 function repairBridge(){
@@ -2015,18 +2843,20 @@ function wedding(a,b){
 }
 function hourTick(){
   reprice();
-  S.citizens.forEach(c=>{ updateMood(c); if (c.memory.since >= 50) reflect(c); });
+  S.citizens.forEach(c=>{ emotionsHour(c); updateMood(c); if (c.memory.since >= 50) reflect(c); });
   const hist = S.goods.good_timber.hist;
   if (hist.length>=25){ const p=hist[hist.length-1], q=hist[hist.length-25]; if (p>=q*1.3 && !S.week.scarce){ S.week.scarce=1; chronicle(`Timber is scarce: prices jumped from ${q} to ${p} coins in a day.`, 5, '🪵', 'economy'); } }
 }
 function updateMood(c){
   const n=c.needs; const avg=(n.hunger+n.energy+n.social+n.comfort+n.fun)/5; const mn=Math.min(n.hunger,n.energy,n.social,n.comfort,n.fun);
-  const target = clamp((avg-55)/45 + (c.wallet<20?-0.2:c.wallet>400?0.1:0) + (c.sick?-0.2:0), -1, 1);
+  const E = mindOf(c).emo;
+  const target = clamp((avg-55)/45 + (c.wallet<20?-0.2:c.wallet>400?0.1:0) + (c.sick?-0.2:0) + 0.3*(E.joy + 0.5*E.love + 0.4*E.pride - E.sadness - 0.6*E.fear - 0.3*E.anger - 0.5*E.shame), -1, 1);
   c.mood.valence = clamp(c.mood.valence + (target-c.mood.valence)*0.3, -1, 1);
   c.mood.stress = clamp(1 - mn/60 + (c.sick?0.2:0) + (c.wallet<20?0.2:0), 0, 1);
   c.mood.arousal = c.rt.state==='Sleeping'?0.1:c.rt.state==='Socializing'?0.7:0.4;
   let e;
   if (c.mood.emoForced && S.minute < c.mood.emoUntil) e = c.mood.emoForced;
+  else if (domEmotion(c)) { const k=domEmotion(c); e = k==='sadness' && E.sadness>0.7 ? 'Grieving' : EMO_LABEL[k]; }
   else if (c.mood.stress>0.65) e='Anxious'; else if (c.mood.valence<-0.3) e='Sad'; else if (n.fun<25) e='Bored'; else if (c.mood.valence>0.5) e='Joyful'; else e='Content';
   c.mood.emotion = e;
 }
@@ -2053,13 +2883,14 @@ function simTick(){
   governanceTick();                   // Order 200: governance
   for (const c of S.citizens) agentTick(c); // Order 300: agents (stable order)
   if (mod%60===0) hourTick();         // Order 400: economy
+  if (mod===16*60+55) resolveMatch(); if (mod===17*60+50) resolveProtests();
 }
 
 // ---------- weekly log ----------
 function openWeek(){
   const d = dayOf(S.minute);
   S.week = {n:weekNo(d), startDay:d - d%7, trades:0, volume:0, taxes:0, quarrels:0, events:[], hungry:[], rels:[], income:{}, spent:{}, weather:{},
-    prices:Object.fromEntries(GOOD_DEFS.map(g=>[g.id,S.goods[g.id].price])), treasuryStart:S.treasury, townHall:null, song:null, herdStart:Object.assign({},S.herd), births:[], deaths:[], arrivals:[], departures:[], sales:[], election:null, builds:[]};
+    prices:Object.fromEntries(GOOD_DEFS.map(g=>[g.id,S.goods[g.id].price])), treasuryStart:S.treasury, townHall:null, song:null, herdStart:Object.assign({},S.herd), births:[], deaths:[], arrivals:[], departures:[], sales:[], election:null, builds:[], society:[]};
 }
 function weekEntry(w, live){
   const byImp = w.events.slice().sort((a,b)=>b.imp-a.imp || b.t-a.t);
@@ -2073,7 +2904,7 @@ function weekEntry(w, live){
     townHall:w.townHall, laws:activeLaws().map(p=>p.title),
     topEarner: topE ? {name:cById(topE[0]).name, amt:topE[1]} : null, topSpender: topS ? {name:cById(topS[0]).name, amt:topS[1]} : null,
     hungry:w.hungry.slice(), rels:w.rels.slice(), highlights: byImp.slice(0,10).sort((a,b)=>a.t-b.t), song:w.song||null,
-    births:(w.births||[]).slice(), deaths:(w.deaths||[]).slice(), arrivals:(w.arrivals||[]).slice(), departures:(w.departures||[]).slice(), sales:(w.sales||[]).slice(), election:w.election||null, works:(w.builds||[]).slice(), classes:classCounts(),
+    births:(w.births||[]).slice(), deaths:(w.deaths||[]).slice(), arrivals:(w.arrivals||[]).slice(), departures:(w.departures||[]).slice(), sales:(w.sales||[]).slice(), election:w.election||null, works:(w.builds||[]).slice(), society:(w.society||[]).slice(), classes:classCounts(),
     leader: S.gov.leader && cById(S.gov.leader) ? cById(S.gov.leader).name : null};
 }
 function closeWeek(){
@@ -2108,6 +2939,7 @@ function weekToMarkdown(w, live){
   if ((w.departures||[]).length) L.push(`- Departures: ${w.departures.join('; ')}`);
   if ((w.sales||[]).length) L.push(`- Property: ${w.sales.join('; ')}`);
   if ((w.works||[]).length) L.push(`- Building & demolition: ${w.works.join('; ')}`);
+  if ((w.society||[]).length) L.push(`- Society: ${w.society.join('; ')}`);
   if (w.classes) L.push(`- Society: ${w.classes.Wealthy} wealthy, ${w.classes.Upper} upper class, ${w.classes.Middle} middle class, ${w.classes.Poor} poor`);
   L.push('- Prices: ' + w.prices.map(p=>`${p.name} ${p.start}→${p.end}`).join(', '));
   L.push('', '**Happenings**');
@@ -2155,6 +2987,8 @@ function migrateV2(st){
 function upgradeV3(st){
   st.biz = st.biz || {}; st.extraPlots = st.extraPlots || []; st.demolished = st.demolished || [];
   if (st.week && !Array.isArray(st.week.builds)) st.week.builds = [];
+  if (st.week && !st.week.society) st.week.society = [];
+  Object.entries({teams:[], schemes:[], secrets:[], crimes:[], news:[], papers:{}, league:{}, matches:[], institutions:[], teamSeq:0, schemeSeq:0, secretSeq:0}).forEach(([k,v])=>{ if (st[k]==null) st[k]=v; });
   GOOD_DEFS.forEach(g=>{ if (!st.goods[g.id]) st.goods[g.id] = {price:g.base, dem:new Array(24).fill(0), sup:new Array(24).fill(0), unmet:new Array(24).fill(0), hist:[g.base]}; if (st.week && st.week.prices && st.week.prices[g.id]==null) st.week.prices[g.id] = g.base; });
 }
 function fixPropTypes(){
@@ -2408,14 +3242,15 @@ function makeBuilding(b, season){
   return p.outline().done();
 }
 // --- grand buildings: palaces, apartment towers, hotels, bathhouses, theaters ---
-const FONT3 = {H:['101','101','111','101','101'],O:['111','101','101','101','111'],T:['111','010','010','010','010'],E:['111','100','110','100','111'],L:['100','100','100','100','111'],A:['010','101','111','101','101'],R:['110','101','110','101','101'],B:['110','101','110','101','110'],S:['011','100','010','001','110']};
+const FONT3 = {H:['101','101','111','101','101'],O:['111','101','101','101','111'],T:['111','010','010','010','010'],E:['111','100','110','100','111'],L:['100','100','100','100','111'],A:['010','101','111','101','101'],R:['110','101','110','101','101'],B:['110','101','110','101','110'],S:['011','100','010','001','110'],N:['101','111','111','111','101']};
 function text3(p, str, x, y, col){ [...str].forEach((ch,i)=>{ const g=FONT3[ch]; if (g) g.forEach((row,j)=>[...row].forEach((v,k)=>{ if (v==='1') p.set(x+i*4+k, y+j, col); })); }); }
 const GRAND = {
   palace: {floors:2, roofH:30, extra:18, wall:'#eae0c8', mat:'stone', roof:'#4a5a8a', trim:'#e8c050'},
   tall:   {floors:4, roofH:26, extra:6,  wall:'#b0583e', mat:'brick', roof:'#4a4448', trim:'#e0d0b0'},
   hotel:  {floors:3, roofH:28, extra:4,  wall:'#e8dcc0', mat:'plaster', roof:'#3a5a6a', trim:'#c8a050', label:'HOTEL'},
   bath:   {floors:1, roofH:30, extra:14, wall:'#dcd6c8', mat:'stone', roof:'#5a9a8a', trim:'#f4f0e6', label:'BATHS'},
-  theater:{floors:2, roofH:28, extra:10, wall:'#9a2a3a', mat:'plaster', roof:'#5a2030', trim:'#f2c14e', label:'THEATER'}
+  theater:{floors:2, roofH:28, extra:10, wall:'#9a2a3a', mat:'plaster', roof:'#5a2030', trim:'#f2c14e', label:'THEATER'},
+  arena:  {floors:1, roofH:36, extra:2,  wall:'#c8b89a', mat:'stone', roof:'#4a8a3a', trim:'#f4f0e6', label:'ARENA'}
 };
 function makeGrand(b, season){
   const G = GRAND[b.style], W=b.w*TILE, PADX=4, s=hash(b.id)%1000, winter=season===3;
@@ -2436,6 +3271,19 @@ function makeGrand(b, season){
     for (const cx2 of [ox+6, ox+18]){ for (let y=roofTop-4;y<roofTop+8;y++) for (let x=cx2;x<cx2+5;x++){ const br=brickAt(x,y,s+3); p.set(x,y, br.mortar?'#5a3a30':'#9a4a3a'); } p.rect(cx2-1,roofTop-5,7,2,'#3a2a28'); }
     if (winter) for (let x=ox;x<ox+W;x++) for (let y=roofTop+2;y<wallTop-2;y++) if (hashf(x,y,s+7)<0.7) p.set(x,y,'#eef2f8');
     b.chimney=[toWorld(ox+8,roofTop-6)[0], toWorld(ox+8,roofTop-6)[1]];
+  } else if (b.style==='arena'){
+    // an open pitch seen from above, ringed by wooden stands
+    for (let y=roofTop;y<wallTop;y++) for (let x=ox-1;x<ox+W+1;x++){
+      const edge = y<roofTop+6 || x<ox+5 || x>ox+W-6;
+      if (edge){ const row = (y<roofTop+6 ? y-roofTop : Math.min(x-ox+1, ox+W-x)) ; p.set(x,y, WOOD_R[1+((row+(x>>1))%2)+(row%3===0?1:0)]); if (hashf(x,y,s)<0.12) p.set(x,y, ['#e84a4a','#3a8ac8','#f2c14e','#e8e4d8'][Math.floor(hashf(y,x,s)*4)]); continue; }
+      const stripe = Math.floor((x-ox)/6)%2; let col = winter ? (stripe?'#e8eef4':'#dfe6ee') : (stripe?'#5a9a44':'#4e8a3c');
+      const px = x-ox, py = y-roofTop, mx = Math.round(W/2);
+      if (px===5 || px===W-6 || py===6 || y===wallTop-1 || px===mx || Math.abs(Math.hypot(px-mx, py-(G.roofH+6)/2)-6)<0.6) col = '#f4f0e6';
+      p.set(x,y,col);
+    }
+    for (const gx of [ox+5, ox+W-8]) p.rect(gx, roofTop+Math.round(G.roofH/2)-3, 3, 7, '#f4f0e6');
+    for (const fx of [ox, ox+W-2]){ p.rect(fx, roofTop-10, 1, 12, '#2a2a30'); p.rect(fx+1, roofTop-10, 5, 3, fx===ox?'#3a8ac8':'#e84a4a'); }
+    b.chimney=null;
   } else if (b.style==='bath'){
     for (let y=roofTop+10;y<wallTop;y++) for (let x=ox;x<ox+W;x++){ const l=0.55+(hashf(x,y,s)-0.5)*0.1-((y-roofTop)/G.roofH)*0.2; p.set(x,y,STONE_R[1+dith(l,x,y,5)]); }
     blob(p,[{x:cx,y:wallTop-10,r:W*0.3}],ramp(G.roof,5),{noise:.1,seed:s});
@@ -2514,7 +3362,7 @@ function makeGrand(b, season){
     p.ellipse(dx+doorW/2, dy-9, 2, 2, '#c83a4a');
     p.rect(ox+2, wallBot-1, 4, 2, '#3a6a3a'); p.rect(ox+W-6, wallBot-1, 4, 2, '#3a6a3a');
   }
-  if (b.style==='hotel' || b.style==='theater' || b.style==='bath'){
+  if (b.style==='hotel' || b.style==='theater' || b.style==='bath' || b.style==='arena'){
     const lab = G.label, lw = lab.length*4-1, ly = wallTop - 8;
     const bx0 = Math.round(cx-lw/2)-3;
     p.rect(bx0, ly-2, lw+6, 9, b.style==='theater'?'#1e1418':'#2a2030'); p.rect(bx0, ly-2, lw+6, 1, TR[3]); p.rect(bx0, ly+6, lw+6, 1, TR[1]);
@@ -2554,7 +3402,7 @@ const ICONS = {
   bread:['..aaaaa..','.abbbbba.','abbcbcbba','abbbbbbba','.aaaaaaa.'], mug:['.ddddd...','.ceeec.c.','.ceeecc.c','.ceeec.c.','.ccccc...'],
   anvil:['ggggggg..','.hhhhhhhh','...hhh...','..hhhhh..','.hhhhhhh.'], saw:['iiiiiiijj','hhhhhhhjj','h.h.h.h..','.........','.........'],
   cross:['...kk....','.kkkkkk..','.kkkkkk..','...kk....','...kk....'], fish:['.....l...','.lllll.ll','llmlllll.','.lllll.ll','.........'],
-  meat:['..nnnn...','.nnooon..','nnnooonpp','.nnnnn.pp','..nnn....']
+  meat:['..nnnn...','.nnooon..','nnnooonpp','.nnnnn.pp','..nnn....'], news:['ppppppp..','pmmpmmpp.','ppppppp..','pmpmmmpp.','ppppppp..']
 };
 const ICON_COL = {a:'#8a5a2a',b:'#d8a050',c:'#e8c860',d:'#ffffff',e:'#e0a030',g:'#c8c8d0',h:'#6a6a78',i:'#d8d8e0',j:'#8a5a2a',k:'#d83a3a',l:'#7a9ab8',m:'#1a1a2a',n:'#c83a3a',o:'#f0a0a0',p:'#f4f0e6'};
 function drawIcon(p,name,x,y){ (ICONS[name]||[]).forEach((row,j)=>[...row].forEach((ch,i)=>{ if (ch!=='.') p.set(x+i,y+j,ICON_COL[ch]); })); }
@@ -3114,6 +3962,7 @@ function weekHtml(w, live, idx){
     ${(w.arrivals||[]).length?`<p>🧳 Arrived: ${esc(w.arrivals.join('; '))}</p>`:''}${(w.departures||[]).length?`<p>🚶 Left town: ${esc(w.departures.join('; '))}</p>`:''}
     ${(w.sales||[]).length?`<p>🏠 Property: ${esc(w.sales.join('; '))}</p>`:''}
     ${(w.works||[]).length?`<p>🏗️ Building &amp; demolition: ${esc(w.works.join('; '))}</p>`:''}
+    ${(w.society||[]).length?`<p>🫂 Society: ${esc(w.society.join('; '))}</p>`:''}
     ${w.classes?`<p>💎 Society: ${w.classes.Wealthy} wealthy · ${w.classes.Upper} upper · ${w.classes.Middle} middle · ${w.classes.Poor} poor</p>`:''}
     <b>Happenings</b><ul>${w.highlights.map(h=>`<li>${esc(h.icon)} <span class="muted">${esc(fmtStamp(h.t))}</span> ${esc(h.text)}</li>`).join('')||'<li class="muted">Nothing notable yet.</li>'}</ul>
     <details><summary class="muted" style="cursor:pointer">Prices this week</summary><table><tr><th>Good</th><th class="num">Start</th><th class="num">End</th><th class="num">Δ</th></tr>${prices}</table></details>
@@ -3132,9 +3981,10 @@ function renderWeeks(){
 }
 function exportMd(){
   const md = `# Pixel Town Log\n\nExported ${new Date().toLocaleString()} · ${fmtDate(dayOf(S.minute))} ${fmtClock(S.minute)} · population ${S.citizens.length}\n\n` + [weekToMarkdown(liveWeekEntry(),true)].concat(S.weeks.slice().reverse().map(w=>weekToMarkdown(w))).join('\n\n') + '\n\n# Full chronicle\n\n' + S.chronicle.map(e=>`- ${fmtStamp(e.t)} ${e.icon} ${e.text}`).join('\n');
-  download('pixel-town-log.md', md, 'text/markdown');
+  download(logFileName('md'), md, 'text/markdown');
 }
-function exportJson(){ download('pixel-town-log.json', JSON.stringify({exportedAt:new Date().toISOString(), weeks:S.weeks, currentWeek:liveWeekEntry(), chronicle:S.chronicle, laws:S.gov.proposals}, null, 2), 'application/json'); }
+function logFileName(ext){ const d=dayOf(S.minute); return `pixel-town-log_Year${yearOf(d)}_${SEASONS[seasonOf(d)]}_Week${weekNo(d)}_Day${d+1}.${ext}`; }
+function exportJson(){ download(logFileName('json'), JSON.stringify({exportedAt:new Date().toISOString(), weeks:S.weeks, currentWeek:liveWeekEntry(), chronicle:S.chronicle, laws:S.gov.proposals}, null, 2), 'application/json'); }
 function download(name, text, type){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type})); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500); }
 function copyText(t, btn){
   const done = () => { if (btn){ const o=btn.textContent; btn.textContent='Copied ✓'; setTimeout(()=>btn.textContent=o,1500); } };
@@ -3184,6 +4034,7 @@ function inspector(c){
     <p>${c.traits.map(t=>`<span class="chip">${t}</span>`).join('')}${c.values.map(v=>`<span class="chip" style="border-color:var(--accent-2)">${v}</span>`).join('')}</p>
     <p class="muted" style="font-size:13px">Feeling <b style="color:var(--text)">${c.mood.emotion}</b> · valence ${c.mood.valence.toFixed(2)} · stress ${c.mood.stress.toFixed(2)}${c.sick?' · 🤒 sick':''}${c.partner?` · partner: ${esc(cById(c.partner).name)}`:c.courting?` · courting ${esc(cById(c.courting).name)}`:''}</p>
     <div class="needs">${['hunger','energy','social','comfort','fun'].map(k=>needBar(k,c.needs[k])).join('')}</div>
+    ${mindHtml(c)}
     <p style="font-size:13px">💰 ${c.wallet}¢ · last 7 days: +${inc} / −${exp}${TOOL_USERS.includes(c.profession)?` · tools ${Math.round(c.tool)}%`:''}<br>🎒 ${esc(inv)}</p>
     <b>Relationships</b><table>${rels.map(({o,r})=>`<tr><td>${esc(o.name)}</td><td class="num ${r.affinity>=0?'down':'up'}">${r.affinity}</td><td>${r.tags.filter(t=>t!=='Neighbor').map(t=>`<span class="chip">${t}</span>`).join('')}</td></tr>`).join('')}</table>
     <b style="display:block;margin-top:8px">Memory stream</b>${mem.map(m=>`<div class="vote"><span class="muted">${esc(fmtStamp(m.t))} · ${m.kind} · ★${m.imp}</span><br>${esc(m.text)}</div>`).join('')||'<p class="muted">No memories yet.</p>'}
@@ -3231,7 +4082,7 @@ const TEMPLATE_TEXT = `# Pixel Town villager template
 name: Rosalind Hale
 age: 34
 profession: Baker
-# Farmer, Rancher, Butcher, Fisher, Baker, Woodcutter, Miner, Blacksmith, Carpenter, TavernKeeper, Doctor, Merchant, Unemployed
+# Farmer, Rancher, Butcher, Fisher, Baker, Woodcutter, Miner, Blacksmith, Carpenter, TavernKeeper, Doctor, Merchant, Musician, Athlete, Journalist, Teacher, Constable, Unemployed
 traits: Generous, Ambitious
 # 2-4 of: Frugal, Generous, Greedy, Ambitious, Lazy, Hardworking, Gossip, Shy, Charismatic, Stubborn, Honest, Cunning, Romantic, Cautious, Reckless
 values: Community, Craftsmanship
@@ -3239,6 +4090,8 @@ values: Community, Craftsmanship
 agenda: Open a business
 # Make a fortune, Win public office, Open a business, Find love, Raise a family, Protect the land, Stir up trouble, Bring order, Start over quietly
 wallet: 250
+intelligence: 0.7
+# 0 to 1 (or: simple, average, clever, brilliant). Clever villagers spot what the town needs and find ways around the rules.
 personality: openness 0.6, conscientiousness 0.7, extraversion 0.5, agreeableness 0.8, neuroticism 0.3
 politics: economic 0.2, order -0.1, civic 0.7
 # economic: -1 communal .. +1 free market; order: -1 liberty .. +1 order; civic: 0..1 (how often they vote and run for office)
@@ -3265,7 +4118,7 @@ bio: An old lake fisher who has seen too many waters emptied. Will vote against 
 const SKIN_NAMES = {fair:'#f3d2b3', light:'#e8b890', tan:'#d8a070', olive:'#c08858', brown:'#9a6440', deep:'#74482c', dark:'#74482c'};
 const HAIR_NAMES = {black:'#1e1618','dark brown':'#3a2a1a',brown:'#5a3a22',auburn:'#8a5a2a',red:'#c8702a',ginger:'#c8702a',blonde:'#e0c070',blond:'#e0c070',grey:'#9a9aa0',gray:'#9a9aa0',white:'#d8d8d8',silver:'#d8d8d8'};
 const AGENDA_BY_LABEL = Object.fromEntries(Object.entries(AGENDAS).flatMap(([k,a])=>[[a.label.toLowerCase(),k],[k,k]]));
-const PROFS = Object.keys(PROF_COUNTS);
+const PROFS = Object.keys(PROF_COUNTS).concat(NEW_PROFS);
 function parseList(v){ return String(v||'').split(/[,;]/).map(x=>x.trim()).filter(Boolean); }
 function titleCase(x){ return x.charAt(0).toUpperCase()+x.slice(1).toLowerCase(); }
 function parseTemplates(text){
@@ -3303,13 +4156,15 @@ function parseTemplates(text){
     const friends = parseList(o.friends).map(n=>{ const c=findC(n); if (!c) warnings.push(`No villager called "${n}" (friends).`); return c; }).filter(Boolean);
     const rivals = parseList(o.rivals).map(n=>{ const c=findC(n); if (!c) warnings.push(`No villager called "${n}" (rivals).`); return c; }).filter(Boolean);
     let partner = o.partner ? findC(o.partner) : null; if (o.partner && !partner) warnings.push(`No villager called "${o.partner}" (partner).`); if (partner && partner.partner){ warnings.push(`${partner.name} is already married.`); partner=null; }
-    const def = {name, age, prof, traits, values, agenda, p, pol, wallet, bio: o.bio || `Arrived in Pixel Town with a story still untold.`, look: lookFor(prof, mapRand(hash(name)), skin, hair, style, beard), friends, rivals, partner};
+    let wit = null; if (o.intelligence){ const w = String(o.intelligence).toLowerCase(); wit = {genius:0.95, brilliant:0.9, clever:0.75, smart:0.75, sharp:0.7, average:0.5, simple:0.3, slow:0.2}[w.trim()] ?? parseFloat(w); if (isNaN(wit)){ warnings.push(`Intelligence "${o.intelligence}" not understood; using the default.`); wit=null; } else wit = clamp(wit>1?wit/100:wit, 0.05, 0.97); }
+    const def = {name, age, prof, traits, values, agenda, p, pol, wallet, wit, bio: o.bio || `Arrived in Pixel Town with a story still untold.`, look: lookFor(prof, mapRand(hash(name)), skin, hair, style, beard), friends, rivals, partner};
     return {def, errors, warnings};
   });
 }
 function addTemplateCitizen(def){
   const d = Object.assign({}, def, {id: uniqueId('cit_'+def.name.toLowerCase().replace(/[^a-z]+/g,'_'))});
   const c = makeCitizen(d);
+  if (def.wit!=null) mindOf(c).wit = +def.wit.toFixed(2);
   if (def.partner && !def.partner.partner){ c.partner=def.partner.id; def.partner.partner=c.id; [[c,def.partner],[def.partner,c]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=85; R.trust=.9; R.tags=['Spouse','Family']; }); }
   def.friends.forEach(f=>{ [[c,f],[f,c]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=55; R.trust=.65; R.tags=['Friend']; }); });
   def.rivals.forEach(f=>{ [[c,f],[f,c]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=-50; R.trust=.2; R.tags=['Rival']; }); });
@@ -3323,7 +4178,7 @@ function citizenToTemplate(c){
   const agenda = c.agenda ? AGENDAS[c.agenda].label : '';
   const P = c.personality, Q = c.politics;
   const tagged = t => Object.entries(c.rel).filter(([id,r])=>r.tags.includes(t) && alive(id)).map(([id])=>cById(id).name).join(', ');
-  return [`name: ${c.name}`, `age: ${c.age}`, `profession: ${c.profession}`, `traits: ${c.traits.join(', ')}`, `values: ${c.values.join(', ')}`, `agenda: ${agenda}`, `wallet: ${c.wallet}`,
+  return [`name: ${c.name}`, `age: ${c.age}`, `profession: ${c.profession}`, `traits: ${c.traits.join(', ')}`, `values: ${c.values.join(', ')}`, `agenda: ${agenda}`, `wallet: ${c.wallet}`, `intelligence: ${mindOf(c).wit}`,
     `personality: openness ${P.openness}, conscientiousness ${P.conscientiousness}, extraversion ${P.extraversion}, agreeableness ${P.agreeableness}, neuroticism ${P.neuroticism}`,
     `politics: economic ${Q.economicLeaning}, order ${Q.orderLeaning}, civic ${Q.civicEngagement}`,
     `skin: ${c.look.skin}`, `hair: ${c.look.hair}`, `hairstyle: ${c.look.style}`, `beard: ${c.look.beard?'yes':'no'}`,
@@ -3406,11 +4261,71 @@ function govHeader(){
     ${camp}${hist?`<h2>Past elections</h2>${hist}`:''}`;
 }
 
+// ---------- Society tab ----------
+function nm(id){ const c=cById(id); return c ? esc(c.name) : '?'; }
+function renderSociety(){
+  const d = dayOf(S.minute);
+  const papers = []; const seen = new Set(); S.news.forEach(e=>{ if (!seen.has(e.paper) && papers.length<3){ seen.add(e.paper); papers.push(e); } });
+  const news = papers.length ? papers.map(e=>`<div class="law"><b>📰 ${esc(e.paper)}</b> <span class="muted">day ${e.day+1} · edited by ${esc(e.editorName)}</span>
+      ${e.scoop?`<div style="margin:4px 0"><b class="No">SCOOP:</b> ${esc(e.scoop)}</div>`:''}
+      <ul style="margin:4px 0;padding-left:18px;font-size:13px">${e.heads.map(h=>`<li>${esc(h)}</li>`).join('')||'<li class="muted">A slow news day.</li>'}</ul>
+      <div class="muted" style="font-size:12px"><i>Editorial:</i> ${esc(e.editorial)}</div></div>`).join('') : '<p class="muted">No newspaper yet. Once a villager decides the town needs one, a journalist will start printing.</p>';
+  const needs = townNeeds();
+  const counts = NEW_PROFS.map(p=>`${profLabel(p)}s: ${S.citizens.filter(c=>c.profession===p).length}`).join(' · ');
+  const needHtml = (needs.length ? needs.map(n=>`<div class="vote">🧭 <b>${esc(profLabel(n.prof))}</b> <span class="muted">(${n.score})</span>: ${esc(n.why)}</div>`).join('') : '<p class="muted">Nobody sees anything missing right now.</p>') + `<p class="muted" style="font-size:12px">${counts}</p>`;
+  const sch = S.schemes.slice().reverse();
+  const act = sch.filter(s=>s.status==='organizing'||s.status==='active'), done = sch.filter(s=>!(s.status==='organizing'||s.status==='active')).slice(0,10);
+  const schRow = s => `<div class="law ${s.status==='failed'?'rej':s.status==='succeeded'?'':'pending'}"><b>${ILLEGAL.has(s.kind)?'🔒 ':''}${SCHEME_LABEL[s.kind]}</b> <span class="chip">${s.status}</span> led by ${nm(s.leader)}<br>
+    <span style="font-size:13px">Over ${esc(s.text)}${s.slogan?` · "${esc(s.slogan)}"`:''}</span><br><span class="muted" style="font-size:12px">${s.members.length} ${s.members.length===1?'member':'members'}${s.members.length>1?`: ${s.members.slice(0,8).map(nm).join(', ')}${s.members.length>8?'…':''}`:''}${s.result?` · ${esc(s.result)}`:''}${ILLEGAL.has(s.kind)&&!S.secrets.some(x=>x.exposed && x.who.includes(s.leader) && x.kind===s.kind)?' · secret: only you know':''}</span></div>`;
+  const kinds = {coop:'🤝 Co-ops', band:'🎻 Bands', club:'⚽ Sports clubs', movement:'📣 Movements', gang:'🔒 Gangs', aid:'🫂 Aid circles'};
+  const teams = Object.entries(kinds).map(([k,label])=>{ const ts = S.teams.filter(t=>t.active && t.kind===k); if (!ts.length) return '';
+    return `<p style="margin:6px 0 2px"><b>${label}</b></p>` + ts.map(t=>`<div class="vote">${esc(t.name)} <span class="muted">· ${t.members.length} members${t.leader?` · led by ${nm(t.leader)}`:''}${t.kind==='coop'?` · funds ${t.funds}¢, paid out ${t.paid||0}¢`:''}</span><br><span style="font-size:12px">${t.members.slice(0,10).map(nm).join(', ')}</span></div>`).join(''); }).join('') || '<p class="muted">No teams yet.</p>';
+  const lg = clubs().map(t=>({t, L:S.league[t.id]||{p:0,w:0,d:0,l:0,gf:0,ga:0,pts:0}})).sort((a,b)=>b.L.pts-a.L.pts || (b.L.gf-b.L.ga)-(a.L.gf-a.L.ga));
+  const next = (()=>{ for (let k=0;k<7;k++){ const m=matchToday(d+k); if (m) return `Next match: ${esc(teamName(m.a))} v ${esc(teamName(m.b))}, ${WEEKDAYS[(d+k)%7]} 15:00 at ${esc(placeName(m.loc))}`; } return ''; })();
+  const sport = lg.length ? `<table><tr><th>Club</th><th class="num">P</th><th class="num">W</th><th class="num">D</th><th class="num">L</th><th class="num">GD</th><th class="num">Pts</th></tr>${lg.map(({t,L})=>`<tr><td>${esc(t.name)}</td><td class="num">${L.p}</td><td class="num">${L.w}</td><td class="num">${L.d}</td><td class="num">${L.l}</td><td class="num">${L.gf-L.ga}</td><td class="num"><b>${L.pts}</b></td></tr>`).join('')}</table>
+    <p class="muted" style="font-size:12px">${next}</p>${S.matches.slice(0,5).map(m=>`<div class="vote"><span class="muted">Day ${m.day+1}</span> ${esc(m.a)} <b>${m.ga}–${m.gb}</b> ${esc(m.b)} <span class="muted">· ${m.fans} fans · gate ${m.gate}¢</span></div>`).join('')}`
+    : '<p class="muted">No league yet. It starts once four villagers take up sport.</p>';
+  const inst = S.institutions.length ? S.institutions.map(x=>`<div class="vote">🏠 <b>${esc(x.name)}</b> <span class="muted">· founded day ${x.day+1} by ${nm(x.founder)} · funds ${x.funds}¢ · helped ${x.served} times${x.active?'':' · closed'}</span></div>`).join('') : '<p class="muted">None yet. Villagers found these themselves, without the council.</p>';
+  const couples = S.citizens.filter(c=>c.partner && c.id<c.partner).map(c=>`${esc(lead(c))} & ${nm(c.partner)}`);
+  const lovers = []; S.citizens.forEach(c=>loversOf(c).forEach(id=>{ if (c.id<id) lovers.push({a:c.id,b:id,secret:peekRel(c,id).tags.includes('Secret')}); }));
+  const hearts = `<p style="font-size:13px">💍 ${couples.length} married couples · 💗 ${lovers.filter(x=>!x.secret).length} open lovers · 🔒 ${lovers.filter(x=>x.secret).length} secret affairs</p>
+    ${lovers.map(x=>`<div class="vote">${x.secret?'🔒':'💗'} ${nm(x.a)} & ${nm(x.b)}${x.secret?' <span class="muted">(secret: only you know)</span>':''}</div>`).join('')}`;
+  const crimes = S.crimes.length ? S.crimes.slice(0,10).map(x=>`<div class="vote"><span class="muted">Day ${x.day+1}</span> ${x.caught?'🚨':'❓'} ${esc(x.text)} <span class="muted">· ${x.caught?`caught: ${x.who.map(nm).join(', ')}`:'unsolved'}</span></div>`).join('') : '<p class="muted">No crimes so far.</p>';
+  $('p-soc').innerHTML = `<h2>The newspapers</h2>${news}
+    <h2>What the town needs</h2><p class="muted" style="font-size:12px">Villagers notice gaps from their own lives (bored people see the need for music, parents see the need for a teacher) and clever ones see the whole town. Unhappy or poorly paid villagers switch careers to fill them.</p>${needHtml}
+    <h2>Movements &amp; schemes</h2><p class="muted" style="font-size:12px">When the council won't fix what angers them, villagers act on their own: protests, strikes, boycotts, recall petitions, citizens' initiatives, new institutions, and, for the less scrupulous, bribes, black markets, squatting and sabotage. 🔒 marks what is still secret.</p>
+    ${act.map(schRow).join('')||'<p class="muted">Nothing brewing right now.</p>'}${done.length?`<details><summary class="muted" style="cursor:pointer">Recent outcomes (${done.length})</summary>${done.map(schRow).join('')}</details>`:''}
+    <h2>Teams</h2>${teams}
+    <h2>Sport</h2>${sport}
+    <h2>Institutions</h2>${inst}
+    <h2>Love &amp; scandal</h2>${hearts}
+    <h2>Crime</h2>${crimes}`;
+}
+function mindHtml(c){
+  const m = mindOf(c), E = m.emo;
+  const bars = EMOS.map(k=>`<span>${k}</span><div class="bar"><i style="width:${Math.round(E[k]*100)}%;background:${EMO_COL[k]}"></i></div><span class="num">${Math.round(E[k]*100)}</span>`).join('');
+  const cares = m.cares.map(x=>x.kind==='person' ? nm(x.id) : esc(CAUSE_OF[x.key]||x.key)).join(', ') || 'nothing yet';
+  const g = m.goal;
+  const teams = teamsOf(c).map(t=>esc(t.name)).join(', ');
+  const lov = loversOf(c).map(id=>`${nm(id)}${peekRel(c,id).tags.includes('Secret')?' (secret)':''}`).join(', ');
+  const debts = Object.entries(m.debts).filter(([id])=>alive(id)).map(([id,a])=>`${a}¢ to ${nm(id)}`).join(', ');
+  const sch = schemeOf(c);
+  return `<div style="margin:8px 0;padding:8px;border:1px solid var(--line);border-radius:4px">
+    <b>Mind</b> <span class="muted" style="font-size:12px">intelligence ${Math.round(m.wit*100)}/100${m.record?` · 🚨 record: ${m.record}`:''}${m.fan?` · supports the ${esc(teamName(m.fan))}`:''}</span>
+    ${g?`<p style="margin:4px 0;font-size:13px">🎯 Wants to <b>${esc(g.text)}</b> <span class="muted">(driven by ${esc(g.why)})</span></p>`:''}
+    <p style="margin:4px 0;font-size:13px">❤️ Cares about: ${cares}</p>
+    ${m.griev.length?`<p style="margin:4px 0;font-size:13px">😤 Upset about: ${m.griev.map(x=>esc(x.text)).join('; ')}</p>`:''}
+    ${sch?`<p style="margin:4px 0;font-size:13px">📣 ${sch.leader===c.id?'Leading':'Part of'} a ${SCHEME_LABEL[sch.kind].toLowerCase()}${ILLEGAL.has(sch.kind)?' (secret)':''} over ${esc(sch.text)}</p>`:''}
+    ${teams?`<p style="margin:4px 0;font-size:13px">🫂 Teams: ${teams}</p>`:''}${lov?`<p style="margin:4px 0;font-size:13px">💗 Lover: ${lov}</p>`:''}${debts?`<p style="margin:4px 0;font-size:13px">🧾 Owes ${debts}</p>`:''}
+    <div class="needs">${bars}</div>
+    ${m.thoughts.length?`<b style="display:block;margin-top:6px;font-size:13px">Thoughts</b>${m.thoughts.slice().reverse().map(t=>`<div class="vote" style="font-size:13px"><span class="muted">${esc(fmtStamp(t.t))}</span> <i>"${esc(t.text)}"</i></div>`).join('')}`:''}
+  </div>`;
+}
 function renderLaws(){
   const P = S.gov.proposals.slice().reverse();
   const card = p => {
     const cls = ['Debating','Voting','Passed'].includes(p.status)?'pending':['Rejected','Expired','Repealed'].includes(p.status)?'rej':'';
-    const eff = p.effects.map(e=> e.effectType==='SalesTax'?`${Math.round(e.magnitude*100)}% sales tax on ${e.targetGoodId?GD[e.targetGoodId].name:e.targetCategory}`: e.effectType==='Subsidy'?`${e.magnitude}¢/day subsidy for each ${profLabel(e.targetProfession)}`: e.effectType==='Curfew'?`Curfew at ${LOC[e.targetZoneId].name} ${fmtClock(e.startMinuteOfDay)}–${fmtClock(e.endMinuteOfDay)}`: e.effectType==='Annexation'?`Annex ${TERRITORIES.find(t=>t.id===e.targetZoneId).name} for ${e.magnitude}¢`: `${GD[e.targetGoodId].name} price ×${e.magnitude}`).join('; ');
+    const eff = p.effects.map(e=> e.effectType==='SalesTax'?`${Math.round(e.magnitude*100)}% sales tax on ${e.targetGoodId?GD[e.targetGoodId].name:e.targetCategory}`: e.effectType==='Subsidy'?`${e.magnitude}¢/day subsidy for each ${profLabel(e.targetProfession)}`: e.effectType==='Curfew'?`Curfew at ${LOC[e.targetZoneId].name} ${fmtClock(e.startMinuteOfDay)}–${fmtClock(e.endMinuteOfDay)}`: e.effectType==='Annexation'?`Annex ${TERRITORIES.find(t=>t.id===e.targetZoneId).name} for ${e.magnitude}¢`: e.effectType==='WealthTax'?`${Math.round(e.magnitude*100)}% a day on savings above 500¢`: e.effectType==='RentCap'?`Rent capped at ${e.magnitude}¢ a day`: `${GD[e.targetGoodId].name} price ×${e.magnitude}`).join('; ');
     const votes = p.votes.length ? `<details ${p.status==='Voting'?'open':''}><summary class="muted" style="cursor:pointer">Votes (${p.votes.length})</summary>${p.votes.map(v=>`<div class="vote"><b class="${v.choice}">${v.choice}</b> ${esc(cById(v.citizenId).name)} <span class="muted">· ${v.primaryMotivation} · conf ${v.confidence}</span><br>"${esc(v.publicStatement)}"</div>`).join('')}</details>` : '';
     return `<div class="law ${cls}"><b>${esc(p.title)}</b> <span class="chip">${p.status}</span> <span class="muted">${p.proposalId}</span><br>
       <span style="font-size:13px">${esc(p.summary)}</span><br><span class="muted" style="font-size:12px">${esc(eff)} · proposed by ${esc(cById(p.proposerId).name)} ${esc(fmtStamp(p.proposedAtMinute))}${p.expiresAtMinute?` · expires ${esc(fmtStamp(p.expiresAtMinute))}`:''}${p.tally?` · ${p.tally.yes}–${p.tally.no}, ${p.tally.abstain} abstain, ${p.tally.absent} absent`:''}${p.rejectReason?` · ${esc(p.rejectReason)}`:''}</span>${votes}</div>`;
@@ -3431,6 +4346,7 @@ function renderPanels(force){
   if (t==='land' && (force || !$('p-land').matches(':hover'))) renderLand();
   if (t==='market') renderMarket();
   if (t==='laws' && !$('p-laws').matches(':hover')) renderLaws();
+  if (t==='soc' && (force || !$('p-soc').matches(':hover'))) renderSociety();
   if (t==='music' && force) music.renderPanel();
 }
 $('tabs').onclick = e => { const b=e.target.closest('button'); if (!b) return; ui.tab=b.dataset.p; document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id==='p-'+ui.tab)); ui.dirty=true; renderPanels(true); };
@@ -3684,6 +4600,7 @@ function welcome(upgraded){
     <li>Homes, businesses and plots are bought and sold, and the town can vote to annex new territory (<b>Land</b> tab).</li>
     <li>Villagers are wealthy, upper, middle class or poor. The rich build palaces, hotels, apartment towers, bathhouses and theaters, rivals open competing shops, and you can build or demolish from the <b>Land</b> tab.</li>
     <li>Villagers marry, have children and pass away; newcomers arrive with their own agendas. Add your own in <b>People</b> using the villager template.</li>
+    <li>Villagers think and feel: emotions and the people they care about drive their goals. They team up, fall in love (sometimes with the wrong person), take up careers the town is missing, play sport, make music, print a newspaper, and sometimes try to change the town outside the rules (<b>Society</b> tab).</li>
     <li>Turn on the soundtrack in <b>Music</b>, and add your own Suno songs there.</li></ul>
     <div class="row" style="margin-top:10px"><button class="btn primary" id="ovGo">Enter town</button><button class="btn" id="ovMusic">Enter with music ♪</button></div>`);
   $('ovGo').onclick = ()=>overlay('');
