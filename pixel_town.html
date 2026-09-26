@@ -4683,9 +4683,11 @@ async function toggle3D(force){
   const want = force!=null ? !!force : !R3.on;
   if (want && !R3.ready){
     if (R3.loading) return; R3.loading = true; $('z3d').textContent = '…';
-    try { THREE = await import('./vendor/three.module.min.js'); r3Init(); R3.ready = true; const r = $('viewWrap').getBoundingClientRect(); if (r.height > r.width) R3.dist = 50; }
+    // a self-contained copy of the page carries Three.js inline; the website loads it from vendor/
+    const inline = document.getElementById('three-src');
+    try { THREE = await import(inline ? URL.createObjectURL(new Blob([inline.textContent], {type:'text/javascript'})) : './vendor/three.module.min.js'); r3Init(); R3.ready = true; const r = $('viewWrap').getBoundingClientRect(); if (r.height > r.width) R3.dist = 50; }
     catch(e){ R3.loading = false; $('z3d').textContent = '3D'; console.error(e);
-      alert(location.protocol==='file:' ? 'The 3D view needs the page to be opened from its web address (the GitHub Pages site or a local web server), not straight from a file.' : 'Sorry, the 3D view could not start in this browser: '+(e && e.message || e)); return; }
+      alert(location.protocol==='file:' && !inline ? 'The 3D view needs the page to be opened from its web address (the GitHub Pages site or a local web server), not straight from a file.' : 'Sorry, the 3D view could not start in this browser: '+(e && e.message || e)); return; }
     R3.loading = false;
   }
   R3.on = want;
@@ -5152,7 +5154,7 @@ function boot(){
   resizeCanvas(); cam.x = 26*TILE; cam.y = 24*TILE; clampCam();
   renderPanels(true);
   requestAnimationFrame(frame);
-  try { if (localStorage.getItem('pixeltown.view')==='3d' && location.protocol!=='file:') toggle3D(true); } catch(e){}
+  try { if (localStorage.getItem('pixeltown.view')==='3d' && (location.protocol!=='file:' || document.getElementById('three-src'))) toggle3D(true); } catch(e){}
 }
 let resetting = false;
 document.addEventListener('visibilitychange', ()=>{ if (document.hidden && !resetting) saveGame(true); });
