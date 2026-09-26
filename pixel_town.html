@@ -420,7 +420,7 @@ function spotsFor(locId){
   if (locId==='loc_well') out = out.filter(([x,y])=>Math.abs(x-WELL[0]-0.5)<=2.5 && Math.abs(y-WELL[1]-0.5)<=2.5);
   return SPOTS[locId]=out;
 }
-function spotFor(c,locId){ const L=LOC[locId]; if (L.indoor) return L.door; const sp=spotsFor(locId); return sp[hash(c.id+locId)%sp.length]; }
+function spotFor(c,locId){ const L=LOC[locId]; if (!L) return spotFor(c,'loc_town_square'); if (L.indoor) return L.door; const sp0=spotsFor(locId); if (!sp0.length) return spotFor(c,'loc_town_square'); const sp=spotsFor(locId); return sp[hash(c.id+locId)%sp.length]; }
 
 // ---------- goods ----------
 const GOOD_DEFS = [
@@ -438,7 +438,9 @@ const GOOD_DEFS = [
   {id:'good_tools',     name:'Iron Tools',kind:'Resource', cat:'Crafted', base:40, floor:15, ceil:120, e:0.5, a:0.2,  by:['Blacksmith'], recipe:{good_ore:2,good_timber:1}},
   {id:'good_furniture', name:'Furniture', kind:'Resource', cat:'Crafted', base:60, floor:20, ceil:180, e:0.5, a:0.2,  by:['Carpenter'], recipe:{good_timber:2,good_ore:1}, need:{comfort:30}},
   {id:'svc_medical_checkup',name:'Medical Checkup',kind:'Service',cat:'Care',base:20,floor:8,ceil:60,e:0.5,a:0.2, by:['Doctor'], svc:{prof:'Doctor',dur:30,cap:8,loc:'loc_clinic'}, need:{comfort:20}},
-  {id:'svc_hot_meal',   name:'Hot Meal',  kind:'Service', cat:'Hospitality',base:8,floor:3,ceil:14,e:0.6,a:0.25, by:['TavernKeeper'], svc:{prof:'TavernKeeper',dur:30,cap:12,loc:'loc_tavern'}, need:{hunger:50,social:10}},
+  {id:'svc_hot_meal',   name:'Hot Meal',  kind:'Service', cat:'Hospitality',base:8,floor:3,ceil:14,e:0.6,a:0.25, by:['TavernKeeper'], svc:{prof:'TavernKeeper',dur:30,cap:12,loc:'biz:tavern'}, need:{hunger:50,social:10}},
+  {id:'svc_bath',       name:'Bathhouse Visit',kind:'Service',cat:'Hospitality',base:12,floor:4,ceil:36,e:0.5,a:0.2, by:['Bathkeeper'], svc:{prof:'Bathkeeper',dur:60,cap:14,loc:'biz:bathhouse'}, need:{comfort:25,fun:10}},
+  {id:'svc_show',       name:'Theater Show',kind:'Service',cat:'Hospitality',base:15,floor:5,ceil:45,e:0.5,a:0.2, by:['Showman'], svc:{prof:'Showman',dur:90,cap:30,loc:'biz:theater'}, need:{fun:40,social:15}},
   {id:'svc_home_repair',name:'Home Repair',kind:'Service',cat:'Labor',  base:15, floor:5,  ceil:45,  e:0.5, a:0.2,  by:['Carpenter'], svc:{prof:'Carpenter',dur:60,cap:4,loc:null}, need:{comfort:22}}
 ];
 const GD = Object.fromEntries(GOOD_DEFS.map(g=>[g.id,g]));
@@ -462,7 +464,8 @@ const CIT_DEFS = [
 ];
 const PROF_COUNTS = {Farmer:9,Rancher:4,Butcher:3,Fisher:5,Baker:4,Woodcutter:4,Miner:4,Blacksmith:2,Carpenter:4,TavernKeeper:3,Doctor:2,Merchant:2,Unemployed:4};
 const WORKPLACE = {Carpenter:'loc_carpentry',Woodcutter:'loc_east_grove',Miner:'loc_mine',Blacksmith:'loc_smithy',Baker:'loc_bakery',TavernKeeper:'loc_tavern',Doctor:'loc_clinic',Merchant:'loc_market',Farmer:'loc_farm',Rancher:'loc_pasture',Butcher:'loc_butcher',Fisher:'loc_docks',Unemployed:null};
-const PROF_LABEL = {TavernKeeper:'Tavern keeper'};
+const PROF_LABEL = {TavernKeeper:'Tavern keeper', Bathkeeper:'Bath keeper'};
+Object.assign(WORKPLACE, {Hotelier:null, Bathkeeper:null, Showman:null});
 WORKPLACE.Child = 'loc_school';
 const profLabel = p => PROF_LABEL[p]||p;
 const OUTDOOR_WORK = ['Farmer','Woodcutter','Unemployed','Fisher','Rancher'];
@@ -479,7 +482,7 @@ const PROF_BIO = {
   Farmer:'Works the big wheatfields south of the square', Rancher:'Keeps the cows, sheep, pigs and chickens in the west pasture', Butcher:'Breaks the rancher\'s animals down into cuts at the Hock & Cleaver',
   Fisher:'Casts lines off the lake docks at first light', Baker:'Kneads dough at Marsh Bakery before the sun is up', Woodcutter:'Fells timber in the east grove across the river',
   Miner:'Hauls iron ore out of Deepvein Mine', Blacksmith:'Hammers tools at the Brandt Smithy', Carpenter:'Builds chairs, tables and beds at Holt & Finch',
-  TavernKeeper:'Pours ale and plates hot meals at the Tipsy Lantern', Doctor:'Treats the sick at the clinic', Merchant:'Haggles over every coin at the market stalls', Unemployed:'Between jobs, picking up odd work where it can be found'
+  TavernKeeper:'Pours ale and plates hot meals at the Tipsy Lantern', Hotelier:'Runs the front desk and keeps the rooms at a hotel', Bathkeeper:'Heats the water and hands out towels at a bathhouse', Showman:'Puts on plays and music at a theater', Doctor:'Treats the sick at the clinic', Merchant:'Haggles over every coin at the market stalls', Unemployed:'Between jobs, picking up odd work where it can be found'
 };
 const TRAIT_BIO = {Frugal:'Famously tight with a coin.',Generous:'Would give away their last loaf.',Greedy:'Always counting.',Ambitious:'Wants a bigger house and a bigger name.',Lazy:'Never early for anything.',Hardworking:'First to arrive, last to leave.',Gossip:'Knows everything about everyone.',Shy:'Rarely speaks at the town hall.',Charismatic:'Draws a crowd without trying.',Stubborn:'Never changes their mind.',Honest:'Can\'t tell a lie to save their life.',Cunning:'Always two moves ahead.',Romantic:'Falls in love every other season.',Cautious:'Checks the bridge twice before crossing.',Reckless:'Has the scars to prove it.'};
 const INIT_RELS = [
@@ -506,6 +509,9 @@ function lookFor(prof, r, skin, hair, style, beard){
     Blacksmith:{shirt:['#4a4a54'], pants:'#2e2a30', hat:'bandana', hatCol:'#8a2a2a', apron:'#6a4028'},
     Carpenter:{shirt:['#b0703a','#6a7a4a'], pants:'#4a3a2a', hat:'cap', hatCol:'#5a4a3a', apron:'#8a6a44'},
     TavernKeeper:{shirt:['#8a2a5a','#2a4a6a'], pants:'#2e2a30', apron:'#e0d8c8'},
+    Hotelier:{shirt:['#2a3a6a','#5a1a2a'], pants:'#1e1a24', coat:null, trim:true, hat:'tricorn', hatCol:'#1e1a24'},
+    Bathkeeper:{shirt:['#e8f0f4','#bcd8e8'], pants:'#4a6a8a', apron:'#f4f8fa'},
+    Showman:{shirt:['#c83a6a','#e8a030','#6a3ac8'], pants:'#1e1a24', hat:'tricorn', hatCol:'#8a1a3a', trim:true},
     Doctor:{shirt:['#dfe8f6'], pants:'#3a3a4a', coat:'#f4f6fa'},
     Merchant:{shirt:['#6a3aa0','#2a6a6a'], pants:'#2e2a30', hat:'tricorn', hatCol:'#3a2050', coat:null, trim:true},
     Unemployed:{shirt:['#4a7ab0','#8a5a3a','#6a6a4a'], pants:'#3a3a4a', trim:true},
@@ -525,7 +531,7 @@ function newState(){
     goods:{}, listings:[], citizens:[],
     gov:{proposals:[], nextId:1, cooldown:{}, leader:null, council:[], elections:[], campaign:null, platforms:{}},
     chronicle:[], weeks:[], week:null,
-    terr:{t_core:true, t_grove:true}, props:{}, land:{sales:[]}, built:[], deceased:[], departed:[]
+    terr:{t_core:true, t_grove:true}, props:{}, land:{sales:[]}, built:[], deceased:[], departed:[], biz:{}, extraPlots:[], demolished:[]
   };
   GOOD_DEFS.forEach(g => st.goods[g.id] = {price:g.base, dem:new Array(24).fill(0), sup:new Array(24).fill(0), unmet:new Array(24).fill(0), hist:[g.base]});
   const r = mapRand(4242);
@@ -686,16 +692,22 @@ function hasIngredient(p){ return MEAL_INGREDIENTS.some(g=>p.inventory[g]>0); }
 function providerAvailable(p, svc){
   const spec = GD[svc].svc;
   if (p.profession!==spec.prof || p.rt.state!=='Working' || p.rt.path) return false;
-  if (spec.loc && p.rt.loc!==spec.loc) return false;
+  if (spec.loc){ if (spec.loc.startsWith('biz:')){ if (bizType(p.rt.loc)!==spec.loc.slice(4)) return false; } else if (p.rt.loc!==spec.loc) return false; }
   if (svc==='svc_hot_meal' && !hasIngredient(p)) return false;
   return p.svcUsed < spec.cap;
 }
-function buyService(c, svc){
+// services: prefer a provider where the customer is standing, else the cheapest competitor in town
+function buyService(c, svc, at){
   recordDemand(svc, 1);
-  const prov = S.citizens.find(p => p!==c && providerAvailable(p, svc));
-  const price = S.goods[svc].price, tax = Math.round(price*lawQuery.salesTax(svc));
+  const provs = S.citizens.filter(p => p!==c && providerAvailable(p, svc));
+  const here = at && GD[svc].svc.loc && GD[svc].svc.loc==='biz:'+bizType(at);
+  const prov = provs.find(p=>at && p.rt.loc===at) || (here ? null : provs.sort((a,b)=>bizMod(a.rt.loc)-bizMod(b.rt.loc))[0]);
+  const price = Math.max(1, Math.round(S.goods[svc].price * (prov && prov.rt.loc ? bizMod(prov.rt.loc) : 1))), tax = Math.round(price*lawQuery.salesTax(svc));
   if (!prov || c.wallet < price+tax){ recordUnmet(svc,1); return false; }
   pay(c, prov, svc, price); prov.svcUsed++;
+  const bl = prov.rt.loc;
+  if (bl && ['tavern','bathhouse','theater'].includes(bizType(bl))){ S.biz = S.biz||{}; (S.biz[bl] = S.biz[bl] || {mod:1,cust:0}).cust++;
+    const pr = propOf(bl); if (pr && pr.owner!==prov.id && BUILD_TYPES[pr.type] && BUILD_TYPES[pr.type].staff===prov.profession){ const cut = Math.floor(price*0.5); prov.wallet -= cut; today(prov).inc -= cut; payTo(pr.owner, cut); } }
   if (svc==='svc_hot_meal'){ const g = MEAL_INGREDIENTS.find(g=>prov.inventory[g]>0); prov.inventory[g]--; if (!prov.inventory[g]) delete prov.inventory[g]; }
   applyNeeds(c, GD[svc].need);
   return prov;
@@ -719,7 +731,7 @@ function reprice(){
 // ---------- planning (deterministic fallback planner) ----------
 function isTownHallDay(d){ return d%7===6; }
 function buildPlan(c, day){
-  const B=[]; let t=0; const home=c.home, work=c.work||'loc_town_square';
+  const B=[]; let t=0; const home=LOC[c.home]?c.home:'loc_town_square', work=c.work&&LOC[c.work]?c.work:'loc_town_square';
   const add=(end,act,loc,note,target)=>{ end=Math.min(DAY,Math.round(end)); if (end<=t) return; B.push({s:t,d:end-t,act,loc,note,target}); t=end; };
   if (c.profession==='Child'){
     add(7*60+hash(c.id+day)%30,'Sleep',home,'Sleeping'); add(t+30,'Eat',home,'Breakfast');
@@ -737,43 +749,59 @@ function buildPlan(c, day){
   const outdoor = OUTDOOR_WORK.includes(c.profession);
   const storm = S.weather==='Storm';
   const bridgeOut = S.bridge.closed && ['Woodcutter','Miner','Unemployed'].includes(c.profession);
-  let wake = {Baker:270, Farmer:330, Fisher:300, Rancher:330, TavernKeeper:480}[c.profession] || 360;
+  let wake = {Baker:270, Farmer:330, Fisher:300, Rancher:330, TavernKeeper:480, Showman:480, Bathkeeper:420}[c.profession] || 360;
   if (has('Lazy')) wake += 60; if (has('Hardworking')) wake -= 20; wake += jit;
   add(wake,'Sleep',home,'Sleeping');
   add(t+30,'Eat',home,'Breakfast at home');
   const hh = HOUSEHOLDS[home]||[c.id];
   if (hh[day % hh.length]===c.id && c.profession!=='Baker') add(t+40,'Chore','loc_well','Fetching water from the well');
   if (c.sick && c.profession!=='Doctor') add(t+60,'Trade','loc_clinic','Seeing the doctor','svc_medical_checkup');
-  const workLoc = c.profession==='Unemployed' ? (bridgeOut ? 'loc_town_square' : 'loc_east_grove') : work;
+  const sites = Object.keys(LOC).filter(k=>k.startsWith('site_')).sort();
+  const carps = c.profession==='Carpenter' && sites.length ? S.citizens.filter(o=>o.profession==='Carpenter' && isAdult(o)).map(o=>o.id).sort() : [];
+  const ci = carps.indexOf(c.id);
+  // up to two carpenters per site; at least one always stays at the workbench
+  const site = ci>=0 && ci < Math.min(sites.length*2, carps.length-1) ? sites[ci % sites.length] : null;
+  const workLoc = c.profession==='Unemployed' ? (bridgeOut ? 'loc_town_square' : 'loc_east_grove') : site || work;
   const cantWork = (storm && outdoor) || bridgeOut;
-  const workNote = cantWork ? (storm ? 'Sheltering from the storm' : 'The bridge is out; stuck on this side') : ({Farmer:'Tending the wheatfields',Rancher:'Tending the herd in the pasture',Butcher:'Butchering at the Hock & Cleaver',Fisher:'Fishing off the lake docks',Woodcutter:'Felling timber in the east grove',Miner:'Digging ore in Deepvein Mine',Blacksmith:'Working the forge',Carpenter:'At the workbench',Baker:'Baking bread',TavernKeeper:'Running the tavern',Doctor:'Seeing patients',Merchant:'Minding the market stalls',Unemployed:'Odd jobs chopping wood'}[c.profession]);
+  const workNote = cantWork ? (storm ? 'Sheltering from the storm' : 'The bridge is out; stuck on this side') : ({Farmer:'Tending the wheatfields',Rancher:'Tending the herd in the pasture',Butcher:'Butchering at the Hock & Cleaver',Fisher:'Fishing off the lake docks',Woodcutter:'Felling timber in the east grove',Miner:'Digging ore in Deepvein Mine',Blacksmith:'Working the forge',Carpenter:'At the workbench',Baker:'Baking bread',TavernKeeper:'Running the tavern',Doctor:'Seeing patients',Merchant:'Minding the market stalls',Unemployed:'Odd jobs chopping wood',Hotelier:'Minding the front desk',Bathkeeper:'Heating the baths',Showman:'Rehearsing the next show'}[c.profession]);
+  const workNote2 = site && !cantWork ? `Building: ${LOC[site].name.replace(/^Building site \((.*)\)$/,'$1').toLowerCase()}` : workNote;
   const workAct = cantWork ? 'Leisure' : (c.profession==='Unemployed' && has('Lazy') && hash(c.id+day+'l')%3===0 ? 'Leisure' : 'Work');
   const wLoc = cantWork ? home : workLoc;
   const curfew = lawQuery.curfew('loc_tavern');
   const tavernClose = curfew ? curfew[0] : 23*60;
-  if (c.profession==='TavernKeeper'){
-    add(15*60, 'Work','loc_tavern','Opening up the Tipsy Lantern');
-    add(15*60+30,'Eat','loc_tavern','Quick bite in the kitchen');
-    if (hall){ add(17*60+45,'Work','loc_tavern','Serving the afternoon crowd'); add(19*60+30,'AttendTownHall','loc_town_hall','Town hall meeting'); }
-    add(tavernClose,'Work','loc_tavern', curfew ? 'Serving until the curfew bell' : 'Serving the evening crowd');
+  if (['TavernKeeper','Showman','Bathkeeper'].includes(c.profession)){
+    const tv = c.work && LOC[c.work] ? c.work : c.profession==='TavernKeeper' ? 'loc_tavern' : 'loc_town_square';
+    const close = c.profession==='TavernKeeper' ? tavernClose : c.profession==='Showman' ? 22*60+30 : 21*60+30;
+    const serve = {TavernKeeper:'Serving the evening crowd', Showman:'Putting on the evening show', Bathkeeper:'Tending the hot baths'}[c.profession];
+    add(15*60, 'Work',tv,`Opening up ${LOC[tv].name}`);
+    add(15*60+30,'Eat',tv,'Quick bite in the back');
+    if (hall){ add(17*60+45,'Work',tv,'Serving the afternoon crowd'); add(19*60+30,'AttendTownHall','loc_town_hall','Town hall meeting'); }
+    add(close,'Work',tv, curfew && c.profession==='TavernKeeper' ? 'Serving until the curfew bell' : serve);
     add(tavernClose+30,'Leisure',home,'Counting the till');
     add(DAY,'Sleep',home,'Sleeping');
     return {day, by:'Fallback', blocks:B};
   }
   const endMorning = c.profession==='Baker' ? 11*60 : 12*60;
-  add(endMorning, workAct, wLoc, workNote);
+  add(endMorning, workAct, wLoc, workNote2);
+  const tav = tavernFor(c, day);
   if (has('Frugal') || c.wallet<25) add(t+60,'Eat',home,'Cheap lunch at home');
-  else add(t+60,'Eat','loc_tavern','Lunch at the Tipsy Lantern','svc_hot_meal');
+  else add(t+60,'Eat',tav,`Lunch at ${LOC[tav].name}`,'svc_hot_meal');
   let endWork = c.profession==='Baker' ? 15*60 : has('Hardworking') ? 18*60 : has('Lazy') ? 16*60+30 : 17*60+30;
   if (hall) endWork = Math.min(endWork, 17*60+30);
-  add(endWork, workAct, wLoc, workNote);
+  add(endWork, workAct, wLoc, workNote2);
   const civicSkip = c.politics.civicEngagement < .25 && hash(c.id+day+'h')%2===0;
   if (hall && !civicSkip){ add(17*60+45,'Leisure','loc_town_square','Heading to the town hall'); add(19*60+30,'AttendTownHall','loc_town_hall','Town hall meeting'); }
   const social = c.personality.extraversion>.5 || has('Gossip') || has('Charismatic');
   if (S.festival){ add(16*60,'Leisure',home,'Getting ready for the festival'); add(21*60+30,'Socialize','loc_town_square','Season festival on the square'); }
-  else if (social && !storm){
+  else if (!storm && (c.cls==='Wealthy'||c.cls==='Upper'||c.wallet>150) && (bizList('theater').length||bizList('bathhouse').length) && hash(c.id+day+'x')%3===0){
+    const th = bizList('theater'), bt = bizList('bathhouse');
+    const show = th.length && (!bt.length || hash(c.id+day)%2===0);
+    const L = show ? th.slice().sort((a,b)=>bizMod(a.id)-bizMod(b.id))[hash(c.id+day)%Math.min(2,th.length)] : bt.slice().sort((a,b)=>bizMod(a.id)-bizMod(b.id))[hash(c.id+day)%Math.min(2,bt.length)];
+    add(Math.max(t+30, 19*60), show?'Socialize':'Leisure', L.id, show ? `A night at ${L.name}` : `Soaking at ${L.name}`, show?'svc_show':'svc_bath');
+    add(t+45,'Eat',home,'Late supper at home');
+  } else if (social && !storm){
     const end = Math.min(tavernClose, 21*60 + (has('Reckless')?120:30));
-    if (end > t+30) add(end,'Socialize','loc_tavern','Evening at the tavern','svc_hot_meal');
+    if (end > t+30) add(end,'Socialize',tav,`Evening at ${LOC[tav].name}`,'svc_hot_meal');
   } else {
     if (!storm) add(Math.max(t,19*60),'Leisure','loc_town_square','Evening stroll by the fountain');
     add(t+45,'Eat',home,'Supper at home');
@@ -835,15 +863,20 @@ function arrive(c, b){
   if (b.act==='Eat' && !c.rt.did){ c.rt.did=true; doMeal(c,b); }
   if (b.act==='Trade' && b.target==='svc_medical_checkup' && !c.rt.did){ c.rt.did=true; clinicVisit(c); }
   if (b.act==='Chore' && !c.rt.did){ c.rt.did=true; c.needs.comfort=clamp(c.needs.comfort+6,0,100); }
-  if (b.act==='Socialize' && b.loc==='loc_tavern' && !c.rt.did){
+  if (b.target && b.target!=='svc_hot_meal' && b.target!=='svc_medical_checkup' && !c.rt.did){ c.rt.did=true;
+    const p = buyService(c, b.target, b.loc);
+    if (p && hash(c.id+S.minute)%4===0) remember(c, b.target==='svc_show' ? `Saw a show at ${LOC[b.loc].name}. ${p.name} was on stage.` : `Had a long soak at ${LOC[b.loc].name}.`, 3, [p.id]);
+    if (!p) setEmotion(c,'Bored',60);
+  }
+  if (b.act==='Socialize' && isTavern(b.loc) && !c.rt.did){
     c.rt.did=true;
-    if (c.needs.hunger<70){ const p=buyService(c,'svc_hot_meal'); if (!p) eatSomething(c); }
+    if (c.needs.hunger<70){ const p=buyService(c,'svc_hot_meal',b.loc); if (!p) eatSomething(c); }
     if (c.needs.fun<85 && buy(c,'good_ale',1)) consume(c,'good_ale');
   }
 }
 function doMeal(c,b){
   if (c.needs.hunger>85) return;
-  if (b.target==='svc_hot_meal'){ const p=buyService(c,'svc_hot_meal'); if (p){ if (hash(c.id+S.minute)%9===0) remember(c, `Had a hot meal at the Tipsy Lantern. ${p.name} served it.`, 2, [p.id]); return; } }
+  if (b.target==='svc_hot_meal'){ const p=buyService(c,'svc_hot_meal',b.loc); if (p){ if (hash(c.id+S.minute)%9===0) remember(c, `Had a hot meal at ${LOC[b.loc]?LOC[b.loc].name:'the tavern'}. ${p.name} served it.`, 2, [p.id]); return; } }
   if (!eatSomething(c)) remember(c, 'Skipped a meal; there was nothing I could afford.', 4);
 }
 function foodValue(g){ return S.goods[g].price / GD[g].need.hunger; }
@@ -877,7 +910,7 @@ function activity(c, b, mod){
     case 'Work': work(c); break;
     case 'Socialize': n.social=clamp(n.social+0.32,0,100); n.fun=clamp(n.fun+0.14,0,100);
       if ((mod+hash(c.id))%20===0) socialize(c);
-      if (c.traits.includes('Reckless') && b.loc==='loc_tavern' && (mod%90===0) && n.fun<95 && buy(c,'good_ale',1)) consume(c,'good_ale');
+      if (c.traits.includes('Reckless') && isTavern(b.loc) && (mod%90===0) && n.fun<95 && buy(c,'good_ale',1)) consume(c,'good_ale');
       break;
     case 'Leisure': n.fun=clamp(n.fun+0.16,0,100); if (!LOC[b.loc].indoor && (mod+hash(c.id))%30===0) socialize(c); break;
     case 'Chore': if ((mod+hash(c.id))%15===0) socialize(c); break;
@@ -903,7 +936,9 @@ function useTool(c, every){
     else if (!c.lastTry.toolLog){ c.lastTry.toolLog=1; remember(c,'My tools are worn out and I can\'t replace them.',5); } }
   return every*2;
 }
+function isTavern(bid){ return bizType(bid)==='tavern'; }
 function work(c){
+  if (c.rt.loc && c.rt.loc.startsWith('site_')){ c.needs.energy = clamp(c.needs.energy-0.02,0,100); return; }
   const P = PROD[c.profession]; if (!P) return;
   const season = seasonOf(dayOf(S.minute));
   let every = P.every;
@@ -977,7 +1012,7 @@ function socialize(c){
   if (delta>0) delta *= Math.max(0.15, 1 - ra.affinity/110);
   const rival = ra.tags.includes('Rival');
   if (rival) delta -= 4;
-  const quarrelChance = (c.agenda==='trouble'?0.05:0) + (rival?0.1:0.012) + (c.traits.includes('Stubborn')?0.03:0) + (o.traits.includes('Stubborn')?0.03:0) + (c.traits.includes('Reckless')&&c.rt.loc==='loc_tavern'?0.04:0);
+  const quarrelChance = (c.agenda==='trouble'?0.05:0) + (rival?0.1:0.012) + (c.traits.includes('Stubborn')?0.03:0) + (o.traits.includes('Stubborn')?0.03:0) + (c.traits.includes('Reckless')&&isTavern(c.rt.loc)?0.04:0);
   const place = placeName(c.rt.loc);
   if (rnd() < quarrelChance){
     delta = -9 - rnd()*8;
@@ -1152,7 +1187,7 @@ function castVote(c, p){
   const tbl = VALUE_TABLE[p.category] || {plus:[],minus:[]};
   let V = 0; c.values.forEach(v=>{ if (tbl.plus.includes(v)) V+=.5; if (tbl.minus.includes(v)) V-=.5; });
   if ((p.key==='lumber_tax'||p.key==='fish_limit'||p.key==='meat_tax') && (c.values.includes('Nature')||c.agenda==='nature')) V += .5;
-  if (p.key==='annex' && c.agenda==='nature') V -= .5; if (p.key==='annex' && (c.agenda==='business'||c.agenda==='fortune'||c.home==='loc_tavern')) V += .5;
+  if (p.key==='annex' && c.agenda==='nature') V -= .5; if (p.key==='annex' && (c.agenda==='business'||c.agenda==='fortune'||isLodging(c.home))) V += .5;
   if (p.key==='tavern_curfew' && c.agenda==='order') V += .5;
   // political stance sharpens the values term (Pixel Town addition to the TDD fallback)
   const P = c.politics;
@@ -1271,23 +1306,51 @@ const AGENDA_PLATFORM = {nature:'land', order:'order', fortune:'low_tax', busine
 const BIZ_VALUE = {loc_tavern:700, loc_bakery:450, loc_clinic:500, loc_carpentry:450, loc_smithy:500, loc_butcher:420, loc_fisher_hut:300, loc_barn:400, loc_mine:900};
 const BIZ_OWNER = {loc_tavern:'cit_greta_cole', loc_bakery:'cit_pell_marsh', loc_clinic:'cit_iris_vance', loc_carpentry:'cit_mara_holt', loc_smithy:'cit_hugo_brandt', loc_butcher:'Butcher', loc_fisher_hut:'Fisher', loc_barn:'Rancher', loc_mine:'town'};
 const PLOT_VALUE = {t_core:160, t_grove:120, t_south:140, t_east:130, t_high:110};
-const SHOP_TRADES = {Baker:'Bakery', Carpenter:'Workshop', Blacksmith:'Forge', Butcher:'Butchery'};
-const POP_CAP = 110, BUILD_COST = 170, BUILD_DAYS = 4;
+const POP_CAP = 110, BUILD_DAYS = 4;
 const isAdult = c => c.age>=16 && c.profession!=='Child';
 const alive = id => { const c=cById(id); return c && !c.dead ? c : null; };
 const surnameOf = c => c.name.split(' ').slice(1).join(' ') || c.name;
 
 // ---------- properties ----------
+// what can be built on a plot; homes house people, businesses make money
+const BUILD_TYPES = {
+  house:     {label:'House',           kind:'home',     cost:170, days:4, style:'house',   cap:5,  value:320},
+  palace:    {label:'Palace',          kind:'home',     cost:950, days:8, style:'palace',  cap:4,  value:1400},
+  apartments:{label:'Apartment block', kind:'home',     cost:600, days:7, style:'tall',    cap:12, value:900},
+  hotel:     {label:'Hotel',           kind:'business', cost:700, days:7, style:'hotel',   lodging:12, staff:'Hotelier', value:1000},
+  bathhouse: {label:'Bathhouse',       kind:'business', cost:500, days:6, style:'bath',    staff:'Bathkeeper', svc:'svc_bath', value:700},
+  theater:   {label:'Theater',         kind:'business', cost:650, days:6, style:'theater', staff:'Showman', svc:'svc_show', value:900},
+  tavern:    {label:'Tavern',          kind:'business', cost:320, days:5, style:'tavern',  trade:'TavernKeeper', svc:'svc_hot_meal', sign:'mug', value:600},
+  bakery:    {label:'Bakery',          kind:'business', cost:260, days:4, style:'house',   trade:'Baker', sign:'bread', value:450},
+  workshop:  {label:'Workshop',        kind:'business', cost:260, days:4, style:'house',   trade:'Carpenter', sign:'saw', value:450},
+  forge:     {label:'Forge',           kind:'business', cost:300, days:4, style:'stone',   trade:'Blacksmith', sign:'anvil', value:500},
+  butchery:  {label:'Butchery',        kind:'business', cost:260, days:4, style:'house',   trade:'Butcher', sign:'meat', value:420}
+};
+const TRADE_BIZ = {Baker:'bakery', Carpenter:'workshop', Blacksmith:'forge', Butcher:'butchery', TavernKeeper:'tavern'};
+const BIZ_ORIG = {loc_tavern:'tavern', loc_bakery:'bakery', loc_carpentry:'workshop', loc_smithy:'forge', loc_butcher:'butchery', loc_clinic:'clinic', loc_fisher_hut:'fishhut', loc_barn:'barn', loc_mine:'mine'};
+const PROTECTED = new Set(['loc_tavern','bld_town_hall','loc_mine','loc_barn','loc_fisher_hut','loc_clinic']);
+BUILDINGS.forEach(b=>{ if (BIZ_ORIG[b.id]) b.biz = BIZ_ORIG[b.id]; if (b.house){ b.cap = 5; b.type='house'; } });
+const CLASSES = ['Wealthy','Upper','Middle','Poor'];
+const CLASS_COL = {Wealthy:'#f2c14e', Upper:'#8fb8ff', Middle:'#7fd1ae', Poor:'#c8a0a0'};
 function homeBuildings(){ return BUILDINGS.filter(b=>b.house); }
 function propOf(bid){ return S.props[bid] || Object.values(S.props).find(p=>p.bid===bid); }
-function propName(pr){ if (pr.kind==='plot') return `Plot ${pr.id.slice(5)} (${TERRITORIES.find(t=>t.id===pr.terr).name})`; const b=BUILDINGS.find(b=>b.id===pr.bid); return b?b.name:pr.id; }
+function plotOf(p){ return PLOTS.find(x=>x.id===p.plot); }
+function propName(pr){ if (pr.kind==='plot'){ const pl=plotOf(pr); const t=TERRITORIES.find(t=>t.id===pr.terr); return `Plot ${String(pr.plot).replace('plot_','')} (${t?t.name:'town'})`; } const b=BUILDINGS.find(b=>b.id===pr.bid); return b?b.name:pr.id; }
 function residentsOf(bid){ return (HOUSEHOLDS[bid]||[]).map(cById).filter(c=>c && !c.dead); }
+function bizType(bid){ const L = LOC[bid]; return L && L.b ? L.b.biz || null : null; }
+function bizList(type){ return BUILDINGS.filter(b=>b.biz===type); }
+function capOf(b){ return b.cap || (b.house?5:0); }
+function isLodging(bid){ return bid==='loc_tavern' || bizType(bid)==='hotel'; }
+function lodgingCap(bid){ return bid==='loc_tavern' ? 8 : 12; }
+function lodgers(){ return S.citizens.filter(c=>isLodging(c.home) && c.work!==c.home); }
+function lodgingFor(n){ n=n||1; const opts = BUILDINGS.filter(b=>isLodging(b.id)).map(b=>({id:b.id, free:lodgingCap(b.id)-residentsOf(b.id).filter(c=>c.work!==b.id).length})).filter(x=>x.free>=n).sort((a,b)=>(a.id==='loc_tavern')-(b.id==='loc_tavern')); return opts[0] ? opts[0].id : 'loc_tavern'; }
+function lodgingName(bid){ return bid==='loc_tavern' ? 'a room at the Tipsy Lantern' : `a room at ${LOC[bid].name}`; }
 function initProperties(st){
   const props = {};
   BUILDINGS.forEach(b=>{
     if (b.id.startsWith('bld_')) return;
-    if (b.house){ const res = st.citizens.filter(c=>c.home===b.id).sort((a,b2)=>b2.age-a.age); props[b.id] = {id:b.id, kind:'home', bid:b.id, owner: res[0] ? res[0].id : 'town', value:320, forSale:false, ask:0}; }
-    else { let o = BIZ_OWNER[b.id]||'town'; if (o!=='town' && !o.startsWith('cit_')){ const w = st.citizens.find(c=>c.profession===o); o = w ? w.id : 'town'; } props[b.id] = {id:b.id, kind:'business', bid:b.id, owner:o, value:BIZ_VALUE[b.id]||400, forSale:false, ask:0}; }
+    if (b.house){ const res = st.citizens.filter(c=>c.home===b.id).sort((a,b2)=>b2.age-a.age); props[b.id] = {id:b.id, kind:'home', type:'house', bid:b.id, owner: res[0] ? res[0].id : 'town', value:320, forSale:false, ask:0}; }
+    else { let o = BIZ_OWNER[b.id]||'town'; if (o!=='town' && !o.startsWith('cit_')){ const w = st.citizens.find(c=>c.profession===o); o = w ? w.id : 'town'; } props[b.id] = {id:b.id, kind:'business', type:b.biz||null, bid:b.id, owner:o, value:BIZ_VALUE[b.id]||400, forSale:false, ask:0}; }
   });
   PLOTS.forEach(pl=>{ props[pl.id] = {id:pl.id, kind:'plot', plot:pl.id, terr:pl.terr, owner:'town', value:PLOT_VALUE[pl.terr], forSale:true, ask:PLOT_VALUE[pl.terr]}; });
   return props;
@@ -1295,16 +1358,15 @@ function initProperties(st){
 function ownerName(id){ return id==='town' ? 'the town' : (cById(id) ? cById(id).name : id); }
 function propsOf(c){ return Object.values(S.props).filter(p=>p.owner===c.id); }
 function claimed(tid){ return !!S.terr[tid]; }
-function payTo(ownerId, amt, from){ if (amt<=0) return; if (ownerId==='town'){ S.treasury+=amt; return; } const o=alive(ownerId); if (!o){ S.treasury+=amt; return; } o.wallet+=amt; today(o).inc+=amt; }
+function payTo(ownerId, amt){ if (amt<=0) return; if (ownerId==='town'){ S.treasury+=amt; return; } const o=alive(ownerId); if (!o){ S.treasury+=amt; return; } o.wallet+=amt; today(o).inc+=amt; }
 function prosperity(){ const ad=S.citizens.filter(isAdult); const avg = ad.reduce((a,c)=>a+c.wallet,0)/Math.max(1,ad.length); return clamp(0.7 + avg/450 + S.citizens.length/220, 0.6, 1.9); }
-function revalue(){
-  const k = prosperity();
-  Object.values(S.props).forEach(p=>{ const base = p.kind==='plot' ? PLOT_VALUE[p.terr] : p.kind==='home' ? 320 : (BIZ_VALUE[p.bid]||400); p.value = Math.round(base*k/10)*10; });
-}
+function baseValue(p){ if (p.kind==='plot') return PLOT_VALUE[p.terr]||150; if (p.type && BUILD_TYPES[p.type] && !BIZ_VALUE[p.bid]) return BUILD_TYPES[p.type].value; return p.kind==='home' ? 320 : (BIZ_VALUE[p.bid]||400); }
+function revalue(){ const k = prosperity(); Object.values(S.props).forEach(p=>{ p.value = Math.round(baseValue(p)*k/10)*10; }); }
 function listProp(p, ask, why){ if (p.forSale) return; p.forSale=true; p.ask=Math.max(20,Math.round(ask)); if (why) chronicle(`${propName(p)} is up for sale at ${p.ask}¢ (${why}).`, 4, '🪧', 'land'); }
-function transferProp(p, buyer, price){
+function poolFunds(c, need){ const sp = c.partner && alive(c.partner); if (sp && c.wallet < need){ const take = Math.min(sp.wallet, need - c.wallet); sp.wallet -= take; c.wallet += take; } }
+function transferProp(p, buyer, price, extra){
   const seller = p.owner;
-  const sp = buyer.partner && alive(buyer.partner); if (sp && buyer.wallet < price + (p.kind==='plot'?BUILD_COST:0)){ const need = Math.min(sp.wallet, price + (p.kind==='plot'?BUILD_COST:0) - buyer.wallet); sp.wallet -= need; buyer.wallet += need; }
+  poolFunds(buyer, price + (extra||0));
   buyer.wallet -= price; today(buyer).exp += price; payTo(seller, price);
   p.owner = buyer.id; p.forSale=false; p.ask=0;
   S.land.sales.unshift({day:dayOf(S.minute), prop:p.id, name:propName(p), from:ownerName(seller), to:buyer.name, price}); S.land.sales = S.land.sales.slice(0,40);
@@ -1312,31 +1374,52 @@ function transferProp(p, buyer, price){
   chronicle(`${buyer.name} bought ${propName(p)} from ${ownerName(seller)} for ${price}¢.`, 6, '🏠', 'land');
   remember(buyer, `I bought ${propName(p)}. It's mine now.`, 7);
 }
-function moveHousehold(c, bid){
-  const movers = [c]; const sp = c.partner && alive(c.partner); if (sp && sp.home===c.home) movers.push(sp);
-  S.citizens.forEach(k=>{ if (k.profession==='Child' && k.home===c.home && k.parents.includes(c.id)) movers.push(k); });
-  movers.forEach(m=>{ m.home = bid; });
-  indexCitizens();
-  return movers;
+function householdOf(c){ const movers = [c]; const sp = c.partner && alive(c.partner); if (sp && sp.home===c.home) movers.push(sp); S.citizens.forEach(k=>{ if (k.profession==='Child' && k.home===c.home && k.parents.includes(c.id) && !movers.includes(k)) movers.push(k); }); return movers; }
+function moveHousehold(c, bid){ const movers = householdOf(c); movers.forEach(m=>{ m.home = bid; }); indexCitizens(); return movers; }
+function wantsHome(c){ if (projects().some(p=>(p.build.returners||[]).includes(c.id) || p.build.by===c.id && BUILD_TYPES[p.build.type].kind==='home')) return false; const b = LOC[c.home] && LOC[c.home].b; return isLodging(c.home) || (b && residentsOf(c.home).length > capOf(b)) || c.agenda==='family' && residentsOf(c.home).length>=3; }
+
+// ---------- social class: wealthy, upper, middle, poor (by net worth, relative to the town) ----------
+function netWorth(c){ let w = c.wallet; for (const p of Object.values(S.props)) if (p.owner===c.id) w += p.value; return w; }
+function updateClasses(){
+  const ad = S.citizens.filter(isAdult); if (!ad.length) return;
+  const ws = ad.map(netWorth).sort((a,b)=>a-b); const q = f=>ws[Math.min(ws.length-1, Math.floor(f*ws.length))];
+  const p90=q(0.9), p65=q(0.65), p20=q(0.2);
+  ad.forEach(c=>{ const w=netWorth(c); c.worth=w; const was=c.cls;
+    c.cls = w>=Math.max(1500,p90) ? 'Wealthy' : w>=Math.max(600,p65) ? 'Upper' : (w<Math.max(100,p20) || w<60) ? 'Poor' : 'Middle';
+    if (was && was!==c.cls && (c.cls==='Wealthy' || was==='Wealthy')){ chronicle(c.cls==='Wealthy' ? `${c.name} has joined the ranks of the wealthy (worth ${w}¢).` : `${c.name} is no longer among the wealthy.`, 5, c.cls==='Wealthy'?'💎':'📉', 'class'); remember(c, c.cls==='Wealthy'?'I am one of the richest people in Pixel Town now.':'I have lost my place among the rich.', 7); }
+    if (was==='Middle' && c.cls==='Poor') remember(c, 'Money is tight. I have fallen on hard times.', 6);
+  });
+  S.citizens.filter(c=>!isAdult(c)).forEach(k=>{ const par=k.parents.map(alive).filter(Boolean)[0]; k.cls = par ? par.cls : 'Poor'; k.worth = k.wallet; });
 }
-function wantsHome(c){ return c.home==='loc_tavern' || residentsOf(c.home).length>=5 || c.agenda==='family' && residentsOf(c.home).length>=3; }
+function classCounts(){ const n={Wealthy:0,Upper:0,Middle:0,Poor:0}; S.citizens.filter(isAdult).forEach(c=>{ n[c.cls||'Middle']++; }); return n; }
+
+// ---------- the land market ----------
 function landDaily(){
   const d = dayOf(S.minute);
-  // rent: tenants pay the owner of the home they live in; lodgers pay the tavern's owner
-  homeBuildings().concat(BUILDINGS.filter(b=>b.id==='loc_tavern')).forEach(b=>{
+  updateClasses();
+  // rent: tenants pay their home's owner; lodgers pay the inn or hotel's owner; hotel owners pay their staff
+  BUILDINGS.forEach(b=>{
     const pr = propOf(b.id); if (!pr) return;
-    residentsOf(b.id).forEach(r=>{ if (!isAdult(r) || r.id===pr.owner || (r.partner && r.partner===pr.owner)) return; if (b.id==='loc_tavern' && r.profession==='TavernKeeper') return;
-      const rent = b.id==='loc_tavern' ? 4 : 3; if (r.wallet>=rent){ r.wallet-=rent; today(r).exp+=rent; payTo(pr.owner, rent); } });
+    if (b.house) residentsOf(b.id).forEach(r=>{ if (!isAdult(r) || r.id===pr.owner || (r.partner && r.partner===pr.owner)) return; const rent = b.style==='tall' ? 4 : 3; if (r.wallet>=rent){ r.wallet-=rent; today(r).exp+=rent; payTo(pr.owner, rent); } });
+    if (isLodging(b.id)) residentsOf(b.id).forEach(r=>{ if (!isAdult(r) || r.work===b.id || r.id===pr.owner) return; const rent = b.id==='loc_tavern' ? 4 : 6; if (r.wallet>=rent){ r.wallet-=rent; today(r).exp+=rent; payTo(pr.owner, rent); } });
   });
-  // leases: workers in a business owned by someone else pay a small lease
-  Object.values(S.props).filter(p=>p.kind==='business').forEach(p=>{ S.citizens.forEach(w=>{ if (w.work===p.bid && w.id!==p.owner && w.wallet>=3 && isAdult(w)){ w.wallet-=3; today(w).exp+=3; payTo(p.owner,3); } }); });
+  Object.values(S.props).filter(p=>p.kind==='business').forEach(p=>{ S.citizens.forEach(w=>{ if (w.work!==p.bid || w.id===p.owner || !isAdult(w)) return;
+    const staff = BUILD_TYPES[p.type] && BUILD_TYPES[p.type].staff===w.profession;
+    if (staff){ const o = alive(p.owner); if (o && o.wallet>=8){ o.wallet-=8; w.wallet+=8; today(w).inc+=8; } else if (p.owner==='town' && S.treasury>=8){ S.treasury-=8; w.wallet+=8; } }
+    else if (w.wallet>=3){ w.wallet-=3; today(w).exp+=3; payTo(p.owner,3); } }); });
+  // travelers on the King's Road stay at the hotels; cheaper hotels get more guests
+  const hotels = bizList('hotel');
+  if (hotels.length){ const guests = 1 + Math.floor(S.citizens.length/30) + Math.floor(rnd()*3) + (S.festival?3:0);
+    const wts = hotels.map(b=>1/bizMod(b.id)), tw = wts.reduce((a,x)=>a+x,0);
+    hotels.forEach((b,i)=>{ const g = Math.round(guests*wts[i]/tw); const pr = propOf(b.id); if (!pr || !g) return; const st = (S.biz[b.id] = S.biz[b.id] || {mod:1,cust:0}); st.cust += g;
+      const coins = Math.round(g*8*bizMod(b.id)); payTo(pr.owner, coins); S.week.hotelGuests = (S.week.hotelGuests||0) + g; }); }
   // sellers
   Object.values(S.props).forEach(p=>{
-    if (p.forSale || p.status==='construction') return;
+    if (p.forSale || p.status==='construction' || p.status==='rubble') return;
     if (p.kind==='plot'){ if (p.owner==='town' && claimed(p.terr)) listProp(p, p.value); return; }
     const o = p.owner==='town' ? null : alive(p.owner);
     const vacant = p.kind==='home' && residentsOf(p.bid).length===0;
-    if (!o){ if (vacant || p.owner==='town' && p.kind==='home') listProp(p, p.value); return; }
+    if (!o){ if (vacant || p.owner==='town' && p.kind==='home' && p.type==='house') listProp(p, p.value); return; }
     const livesThere = o.home===p.bid;
     if (o.wallet<25 && !livesThere) listProp(p, p.value*0.85, `${o.name} needs the coin`);
     else if (o.agenda==='fortune' && propsOf(o).length>=2 && !livesThere && rnd()<0.04) listProp(p, p.value*1.25, `${o.name} is cashing in`);
@@ -1347,60 +1430,206 @@ function landDaily(){
   const forSale = Object.values(S.props).filter(p=>p.forSale && (p.kind!=='plot' || claimed(p.terr))).sort((a,b)=>a.ask-b.ask);
   for (const p of forSale){
     if (deals>=2) break;
-    const buyers = S.citizens.filter(c=>c.age>=18 && isAdult(c) && c.id!==p.owner && c.wallet + (c.partner && alive(c.partner) ? alive(c.partner).wallet*0.5 : 0) >= p.ask + 60 + (p.kind==='plot'?BUILD_COST:0)).filter(c=>{
+    const funds = c => c.wallet + (c.partner && alive(c.partner) ? alive(c.partner).wallet*0.5 : 0);
+    const buyers = S.citizens.filter(c=>c.age>=18 && isAdult(c) && c.id!==p.owner && funds(c) >= p.ask + 60 + (p.kind==='plot'?BUILD_TYPES.house.cost:0)).filter(c=>{
       if (p.kind==='home'){ const vac = residentsOf(p.bid).length===0; return (vac && wantsHome(c)) || c.agenda==='fortune' || (c.traits.includes('Ambitious') && c.wallet>p.ask*2.5); }
-      if (p.kind==='business'){ const b = BUILDINGS.find(b=>b.id===p.bid); return c.agenda==='business' || c.agenda==='fortune' || c.work===p.bid || (c.traits.includes('Greedy')||c.traits.includes('Cunning')) && c.wallet>p.ask*2; }
-      return c.agenda==='business' && SHOP_TRADES[c.profession] || wantsHome(c) || c.agenda==='family' || c.agenda==='fortune' && c.wallet>p.ask*3;
+      if (p.kind==='business') return c.agenda==='business' || c.agenda==='fortune' || c.work===p.bid || (c.traits.includes('Greedy')||c.traits.includes('Cunning')) && c.wallet>p.ask*2;
+      if (projects().some(pp=>pp.build.by===c.id)) return false;
+      return (c.agenda==='business' && TRADE_BIZ[c.profession] && bizList(TRADE_BIZ[c.profession]).length<3 && !propsOf(c).some(q=>q.kind==='business')) || wantsHome(c) || (c.agenda==='family' && !propsOf(c).some(q=>q.kind==='home' || q.kind==='plot'));
     }).sort((a,b)=>b.wallet-a.wallet);
     const buyer = buyers[0]; if (!buyer || rnd()>0.4) continue;
-    transferProp(p, buyer, p.ask); deals++;
+    const type = p.kind==='plot' ? ((buyer.agenda==='business' && TRADE_BIZ[buyer.profession] && buyer.wallet>=BUILD_TYPES[TRADE_BIZ[buyer.profession]].cost+p.ask) ? TRADE_BIZ[buyer.profession] : 'house') : null;
+    transferProp(p, buyer, p.ask, type ? BUILD_TYPES[type].cost : 0); deals++;
     if (p.kind==='home' && residentsOf(p.bid).length===0 && wantsHome(buyer)){ const m = moveHousehold(buyer, p.bid); chronicle(`${m.map(x=>x.name.split(' ')[0]).join(', ')} moved into ${propName(p)}.`, 5, '📦', 'land'); }
-    if (p.kind==='plot') startConstruction(p, buyer);
+    if (p.kind==='plot') startConstruction(p, buyer, type);
   }
-  // construction progress
-  Object.values(S.props).forEach(p=>{ if (p.status==='construction' && d>=p.build.until) finishConstruction(p); });
+  // construction, rubble clearing, rentals, developers
+  Object.values(S.props).forEach(p=>{ if (p.status==='construction' && d>=p.build.until) finishConstruction(p); if (p.status==='rubble' && d>=p.rubbleUntil){ p.status='plot'; bumpWorld(); } });
   rentVacancies();
-  // public housing: when newcomers crowd the tavern, the town builds a rental cottage on a free plot
-  const lodgers = residentsOf('loc_tavern').filter(c=>c.profession!=='TavernKeeper');
-  const busy = Object.values(S.props).some(p=>p.status==='construction' && p.build.by==='town');
-  const plot = Object.values(S.props).filter(p=>p.kind==='plot' && claimed(p.terr) && p.owner==='town' && p.status!=='construction').sort((a,b)=>a.value-b.value)[0];
-  if (lodgers.length>=3 && !busy && plot && S.treasury >= BUILD_COST + 250) startConstruction(plot, null);
-  if (d%7===0) revalue();
+  developDaily();
+  // public housing when newcomers crowd the inns
+  const lod = lodgers().length;
+  const busy = projects().some(p=>p.build.by==='town');
+  const plot = freePlotsList().filter(p=>p.owner==='town').sort((a,b)=>a.value-b.value)[0];
+  if (!busy && plot){
+    if (lod>=6 && S.treasury >= BUILD_TYPES.apartments.cost + 250) startConstruction(plot, null, 'apartments');
+    else if (lod>=3 && S.treasury >= BUILD_TYPES.house.cost + 250) startConstruction(plot, null, 'house');
+  }
+  if (d%7===0){ revalue(); priceWars();
+    // businesses left without anyone behind the counter hire again
+    BUILDINGS.forEach(b=>{ const bt = BUILD_TYPES[b.biz]; if (!bt || !b.id.startsWith('loc_b_')) return; const prof = bt.staff || bt.trade; if (prof && !S.citizens.some(c=>c.work===b.id && c.profession===prof)){ const pr=propOf(b.id); const o = pr && alive(pr.owner); if (o && o.profession===prof && !(o.work && o.work.startsWith('loc_b_') && LOC[o.work])) o.work = b.id; else hireStaff(b.id, prof, o||null); } }); }
 }
-function startConstruction(p, owner){
-  const shop = owner && owner.agenda==='business' && SHOP_TRADES[owner.profession];
+function projects(){ return Object.values(S.props).filter(p=>p.status==='construction'); }
+function freePlotsList(){ return Object.values(S.props).filter(p=>p.kind==='plot' && claimed(p.terr) && p.status!=='construction' && p.status!=='rubble' && (p.owner==='town' || p.forSale)); }
+// where a developer could build: land they already own, else the cheapest plot on the market
+function siteFor(c, cost){
+  const own = Object.values(S.props).find(p=>p.owner===c.id && p.kind==='plot' && p.status!=='construction' && p.status!=='rubble');
+  if (own) return {p:own, buy:false};
+  const oldHouse = Object.values(S.props).find(p=>p.owner===c.id && p.kind==='home' && p.type==='house' && residentsOf(p.bid).length===0 && !PROTECTED.has(p.bid));
+  if (oldHouse) return {p:oldHouse, buy:false, demolish:true};
+  const pl = freePlotsList().filter(p=>p.owner!==c.id).sort((a,b)=>(a.ask||a.value)-(b.ask||b.value))[0];
+  if (pl && c.wallet >= (pl.ask||pl.value) + cost + 100) return {p:pl, buy:true};
+  const old = Object.values(S.props).filter(p=>p.forSale && p.kind==='home' && p.type==='house' && p.owner!==c.id && residentsOf(p.bid).length===0 && !PROTECTED.has(p.bid)).sort((a,b)=>a.ask-b.ask)[0];
+  if (old && c.wallet >= old.ask + cost + 100) return {p:old, buy:true, demolish:true};
+  return null;
+}
+function developOn(site, c, type){
+  const p = site.p;
+  if (site.buy){ if (!p.forSale) listProp(p, p.value); transferProp(p, c, p.ask, BUILD_TYPES[type].cost); }
+  if (site.demolish) demolish(p, `${c.name} is clearing it for a ${BUILD_TYPES[type].label.toLowerCase()}`);
+  startConstruction(p, c, type);
+}
+function developDaily(){
+  const active = projects();
+  const busyOwner = id => active.some(p=>p.build.by===id);
+  // the wealthy tear down their houses and build palaces
+  S.citizens.filter(c=>isAdult(c) && c.cls==='Wealthy' && !busyOwner(c.id)).forEach(c=>{
+    const hp = propOf(c.home); const b = LOC[c.home] && LOC[c.home].b;
+    if (!hp || hp.owner!==c.id || hp.kind!=='home' || !b || b.style!=='house' || PROTECTED.has(b.id)) return;
+    if (c.wallet < BUILD_TYPES.palace.cost + 250 || rnd()>0.05) return;
+    rebuild(hp, 'palace', c);
+  });
+  if (projects().length>=3) return;
+  // investors fill gaps in the market
+  const lod = lodgers().length, crowded = homeBuildings().filter(b=>residentsOf(b.id).length>capOf(b)).length;
+  const hotelFull = bizList('hotel').every(b=>residentsOf(b.id).length>=lodgingCap(b.id)-1);
+  const want = [];
+  const rich = S.citizens.filter(c=>c.cls==='Wealthy'||c.cls==='Upper').length, poor = S.citizens.filter(c=>c.cls==='Poor').length;
+  const vacant = homeBuildings().filter(b=>residentsOf(b.id).length===0).length;
+  const nOf = t => bizList(t).length + projects().filter(p=>p.build.type===t).length;
+  const hs = bizList('hotel'), busyHotel = hs.length && hs.every(b=>((S.biz[b.id]||{}).cust||0) >= 18);
+  if (!nOf('hotel') && S.citizens.length>=40) want.push('hotel');
+  if ((lod>=4 && hotelFull || busyHotel) && nOf('hotel')<3) want.push('hotel');
+  if (lod>=3 || crowded>=3 || (poor>=12 && vacant===0 && nOf('apartments')+homeBuildings().filter(b=>b.style==='tall').length<2)) want.push('apartments');
+  if (nOf('bathhouse') < (rich>=14?2:1) && rich>=6) want.push('bathhouse');
+  if (nOf('theater') < (rich>=16?2:1) && S.citizens.length>=40 && rich>=6) want.push('theater');
+  if (want.length){
+    const investors = S.citizens.filter(c=>isAdult(c) && (c.cls==='Wealthy'||c.cls==='Upper') && (c.agenda==='fortune'||c.agenda==='business'||['Greedy','Cunning','Ambitious'].some(t=>c.traits.includes(t))) && !busyOwner(c.id)).sort((a,b)=>(b.worth||0)-(a.worth||0));
+    for (const inv of investors){ if (rnd()>0.3) continue; const type = want.find(t=>inv.wallet >= BUILD_TYPES[t].cost + 150); if (!type) continue; const site = siteFor(inv, BUILD_TYPES[type].cost); if (!site) continue; developOn(site, inv, type); return; }
+  }
+  // competitors: tradespeople open rival shops of their own trade
+  for (const c of S.citizens){
+    const type = TRADE_BIZ[c.profession]; if (!type || !isAdult(c) || busyOwner(c.id) || c.cls==='Poor') continue;
+    const drive = c.agenda==='business' ? 0.08 : ['Ambitious','Cunning','Greedy'].some(t=>c.traits.includes(t)) ? 0.04 : c.cls==='Wealthy'||c.cls==='Upper' ? 0.015 : 0;
+    if (!drive || propsOf(c).some(p=>p.kind==='business') || bizList(type).length>=3) continue;
+    const bt = BUILD_TYPES[type]; if (c.wallet + (c.partner && alive(c.partner) ? alive(c.partner).wallet*0.5 : 0) < bt.cost + 80 || rnd()>drive) continue;
+    const site = siteFor(c, bt.cost); if (!site) continue;
+    developOn(site, c, type); return;
+  }
+}
+// tear a home down and rebuild it; the household lodges at an inn meanwhile and moves back in afterwards
+function rebuild(p, type, c){
+  const fam = residentsOf(p.bid).map(r=>r.id);
+  chronicle(`${c.name} is tearing down ${propName(p)} to build a ${BUILD_TYPES[type].label.toLowerCase()}.`, 7, '🏗️', 'land');
+  demolish(p, null, true);
+  startConstruction(p, c, type, {returners:fam});
+}
+function demolish(p, why, quiet){
+  const b = BUILDINGS.find(x=>x.id===p.bid); if (!b || PROTECTED.has(b.id)) return false;
+  const name = b.name;
+  const res = residentsOf(b.id);
+  res.forEach(r=>{ r.home = lodgingFor(); });
+  S.citizens.forEach(w=>{ if (w.work===b.id){ const def = WORKPLACE[w.profession]; w.work = def && def!==b.id && LOC[def] ? def : null; if (BUILD_TYPES[p.type] && BUILD_TYPES[p.type].staff===w.profession){ w.profession='Unemployed'; w.work=null; w.look = lookFor('Unemployed', mapRand(hash(w.id+'u')), w.look.skin, w.look.hair, w.look.style, w.look.beard); delete ART.people[w.id]; delete THUMBS[w.id]; } } });
+  BUILDINGS.splice(BUILDINGS.indexOf(b),1); delete LOC[b.id]; delete ART.bld[b.id];
+  for (let y=b.y;y<b.y+b.h;y++) for (let x=b.x;x<b.x+b.w;x++) MAP[y][x]=T.GRASS;
+  let pl = PLOTS.find(x=>x.x===b.x && x.y===b.y);
+  if (!pl){ pl = {id:'plot_x'+(S.extraPlots.length+1), x:b.x, y:b.y, w:b.w, h:b.h, terr:(terrAt(b.x,b.y)||{id:'t_core'}).id}; PLOTS.push(pl); S.extraPlots.push(pl); }
+  S.built = S.built.filter(r=>r.bid!==b.id); if (!b.id.startsWith('loc_b_')) S.demolished.push(b.id);
+  if (S.biz) delete S.biz[b.id];
+  p.kind='plot'; p.plot=pl.id; p.terr=pl.terr; p.bid=null; p.type=null; p.status='rubble'; p.rubbleUntil=dayOf(S.minute)+1; p.forSale=false; p.value=PLOT_VALUE[pl.terr]||150;
+  indexCitizens(); bumpWorld();
+  if (!quiet) chronicle(`${name} was demolished${why?` (${why})`:''}.${res.length?` ${res.map(r=>r.name.split(' ')[0]).join(', ')} moved into lodgings.`:''}`, 7, '🧱', 'land');
+  S.week.builds.push(`${name} demolished`);
+  return true;
+}
+function addSite(p){ const pl = plotOf(p); const id='site_'+p.id; LOC[id] = {id, name:`Building site (${BUILD_TYPES[p.build.type].label})`, indoor:false, rects:[[pl.x-1,pl.y+pl.h,pl.x+pl.w,pl.y+pl.h],[pl.x-1,pl.y,pl.x-1,pl.y+pl.h-1],[pl.x+pl.w,pl.y,pl.x+pl.w,pl.y+pl.h-1]]}; delete SPOTS[id]; }
+function startConstruction(p, owner, type, opts){
+  opts = opts || {};
+  type = type || 'house';
+  const bt = BUILD_TYPES[type], cost = bt.cost;
+  const payer = opts.townPays ? null : owner;
+  if (payer){ poolFunds(payer, cost); payer.wallet -= cost; today(payer).exp += cost; } else S.treasury -= cost;
   const carps = S.citizens.filter(c=>c.profession==='Carpenter' && isAdult(c));
-  const cost = BUILD_COST;
-  if (owner){ owner.wallet -= cost; today(owner).exp += cost; } else S.treasury -= cost;
-  carps.forEach(c=>{ const share=Math.floor(cost/Math.max(1,carps.length)); c.wallet+=share; today(c).inc+=share; });
-  let logs=0; if (owner) while (logs<6 && buy(owner,'good_timber',1)) { logs++; owner.inventory.good_timber--; if (!owner.inventory.good_timber) delete owner.inventory.good_timber; }
-  clearPlot(PLOTS.find(x=>x.id===p.plot));
-  p.status='construction'; p.build = {by:owner?owner.id:'town', kind: shop?'shop':'home', trade: shop?owner.profession:null, until: dayOf(S.minute) + BUILD_DAYS + (owner && logs<3?2:0)};
-  if (!owner){ p.owner='town'; p.forSale=false; }
-  chronicle(`${owner?owner.name:'The town'} broke ground on ${shop?`a new ${SHOP_TRADES[owner.profession].toLowerCase()}`:owner?'a new house':'a rental cottage for newcomers'} (${propName(p)}). The carpenters were paid ${cost}¢.`, 6, '🏗️', 'land');
+  if (carps.length) carps.forEach(c=>{ const share=Math.floor(cost*0.8/carps.length); c.wallet+=share; today(c).inc+=share; }); else S.treasury += Math.round(cost*0.8);
+  let logs=0; if (payer) while (logs<Math.ceil(cost/60) && buy(payer,'good_timber',1)) { logs++; payer.inventory.good_timber--; if (!payer.inventory.good_timber) delete payer.inventory.good_timber; }
+  clearPlot(plotOf(p));
+  p.status='construction'; p.forSale=false;
+  p.build = {by: owner?owner.id:'town', type, started:dayOf(S.minute), until: dayOf(S.minute) + bt.days + (payer && logs<2?1:0), returners: opts.returners||[]};
+  if (!owner) p.owner = p.owner==='town' || !alive(p.owner) ? 'town' : p.owner;
+  addSite(p);
+  const what = type==='house' && !owner ? 'a rental cottage for newcomers' : `a new ${bt.label.toLowerCase()}`;
+  chronicle(`${owner?owner.name:'The town'} broke ground on ${what} (${propName(p)}). ${carps.length?'The carpenters are on site.':'There are no carpenters, so it will be slow going.'} Cost: ${cost}¢.`, 6, '🏗️', 'land');
+  S.week.builds.push(`${bt.label} started by ${owner?owner.name:'the town'}`);
   bumpWorld();
+}
+function buildingName(type, owner, pl){
+  const sur = owner ? surnameOf(owner) : null, n = hash(pl.id);
+  const adj = ['Golden','Rusty','Silver','Merry','Crooked','Laughing','Copper','Lucky'][n%8], noun = ['Kettle','Goose','Anchor','Stag','Barrel','Lantern','Fiddle','Crown'][(n>>3)%8];
+  switch(type){
+    case 'house': return sur ? `${sur} House` : `Town Cottage ${pl.id.replace('plot_','')}`;
+    case 'palace': return `${sur||'The'} Palace`;
+    case 'apartments': return sur ? `${sur} Apartments` : `Town Apartments ${pl.id.replace('plot_','')}`;
+    case 'hotel': return `The ${adj} ${['Hotel','Inn','Lodge'][n%3]}`;
+    case 'bathhouse': return `${sur||'Town'} Bathhouse`;
+    case 'theater': return `The ${sur||'Town'} Playhouse`;
+    case 'tavern': return `The ${adj} ${noun}`;
+    default: return `${sur||'Town'} ${BUILD_TYPES[type].label}`;
+  }
 }
 function finishConstruction(p){
-  const owner = alive(p.build.by) || alive(p.owner);
-  const pl = PLOTS.find(x=>x.id===p.plot);
-  const rec = {plot:pl.id, bid:'loc_b_'+pl.id.slice(5), kind:p.build.kind, trade:p.build.trade, name: owner ? (p.build.kind==='shop' ? `${surnameOf(owner)} ${SHOP_TRADES[p.build.trade]}` : `${surnameOf(owner)} House`) : `Town Cottage ${pl.id.slice(5)}`, roof: HOUSE_ROOFS[hash(pl.id)%HOUSE_ROOFS.length]};
-  S.built.push(rec); applyBuilt(rec);
-  p.kind = rec.kind==='shop' ? 'business' : 'home'; p.bid = rec.bid; p.status='built'; p.value = rec.kind==='shop' ? 420 : 320;
-  chronicle(`${rec.name} is finished${owner?` and ${owner.name} has the keys`:''}.`, 7, '🏡', 'land');
-  if (!owner) rentVacancies();
+  const type = p.build.type || (p.build.kind==='shop' ? TRADE_BIZ[p.build.trade] : 'house'), bt = BUILD_TYPES[type];
+  const owner = (p.build.by!=='town' && alive(p.build.by)) || (p.owner!=='town' && alive(p.owner)) || null;
+  const pl = plotOf(p);
+  const rec = {plot:pl.id, bid:'loc_b_'+pl.id.replace('plot_',''), type, name: buildingName(type, owner, pl), roof: HOUSE_ROOFS[hash(pl.id+type)%HOUSE_ROOFS.length]};
+  S.built = S.built.filter(r=>r.bid!==rec.bid); S.built.push(rec); applyBuilt(rec);
+  delete LOC['site_'+p.id];
+  p.kind = bt.kind; p.bid = rec.bid; p.type = type; p.status='built'; p.value = Math.round(bt.value*prosperity()/10)*10;
+  if (bt.kind==='business'){ S.biz = S.biz || {}; S.biz[rec.bid] = {mod: 1, cust:0}; }
+  chronicle(`${rec.name} is finished${owner?` and ${owner.name} has the keys`:''}.`, 7, type==='palace'?'🏰':type==='apartments'||type==='hotel'?'🏢':'🏡', 'land');
+  S.week.builds.push(`${rec.name} (${bt.label}) finished`);
+  (p.build.returners||[]).map(alive).filter(Boolean).forEach(r=>{ if (isLodging(r.home)) r.home = rec.bid; });
   if (owner){
-    if (rec.kind==='home' || wantsHome(owner)) moveHousehold(owner, rec.bid);
-    if (rec.kind==='shop') owner.work = rec.bid;
-    remember(owner, `My new ${rec.kind==='shop'?'shop':'home'} is finished.`, 8);
+    if (bt.kind==='home' && (type==='palace' || wantsHome(owner))) moveHousehold(owner, rec.bid);
+    if (bt.trade && owner.profession===bt.trade){ owner.work = rec.bid; openedRival(owner, type, rec); }
+    remember(owner, `My new ${bt.label.toLowerCase()} is finished.`, 8);
   }
+  if (bt.staff) hireStaff(rec.bid, bt.staff, owner);
+  else if (bt.trade && (!owner || owner.profession!==bt.trade)) hireStaff(rec.bid, bt.trade, owner);
+  indexCitizens(); rentVacancies();
   bumpWorld();
+}
+function openedRival(owner, type, rec){
+  const others = bizList(type).filter(b=>b.id!==rec.bid).map(b=>propOf(b.id)).filter(Boolean);
+  if (!others.length) return;
+  const rivals = others.map(o=>alive(o.owner)).filter(Boolean);
+  chronicle(`${owner.name} opened ${rec.name}, a rival to ${others.map(o=>propName(o)).join(' and ')}. Let the price war begin!`, 7, '⚔️', 'business');
+  rivals.forEach(r=>{ [[owner,r],[r,owner]].forEach(([a,b])=>{ const R=getRel(a,b.id); R.affinity=Math.min(R.affinity,-30); if (!R.tags.includes('Rival')) R.tags.push('Rival'); }); remember(r, `${owner.name} opened a shop to compete with mine.`, 7, [owner.id]); });
+}
+// hire someone to staff a new business: an unemployed villager if possible, otherwise the poorest adult without a business
+function hireStaff(bid, prof, owner){
+  const pool = S.citizens.filter(c=>isAdult(c) && !c.office && c!==owner && !propsOf(c).some(p=>p.kind==='business') && c.work!==bid);
+  const count = pr => S.citizens.filter(o=>o.profession===pr && isAdult(o)).length;
+  const pickC = pool.filter(c=>c.profession==='Unemployed').sort((a,b)=>a.wallet-b.wallet)[0] || pool.filter(c=>c.cls==='Poor' && !['Doctor','TavernKeeper','Hotelier','Bathkeeper','Showman'].includes(c.profession) && count(c.profession)>=4).sort((a,b)=>a.wallet-b.wallet)[0];
+  const pick2 = pickC || pool.filter(c=>!['Doctor','TavernKeeper','Hotelier','Bathkeeper','Showman','Child'].includes(c.profession) && count(c.profession)>=5).sort((a,b)=>a.wallet-b.wallet)[0];
+  if (!pick2) return null;
+  return employ(pick2, bid, prof);
+}
+function employ(pickC, bid, prof){
+  const was = pickC.profession;
+  pickC.profession = prof; pickC.work = bid;
+  pickC.look = lookFor(prof, mapRand(hash(pickC.id+prof)), pickC.look.skin, pickC.look.hair, pickC.look.style, pickC.look.beard); delete ART.people[pickC.id]; delete THUMBS[pickC.id];
+  chronicle(`${pickC.name} (${profLabel(was).toLowerCase()}) was hired to work at ${LOC[bid].name} as a ${profLabel(prof).toLowerCase()}.`, 5, '🧑‍🍳', 'business');
+  remember(pickC, `I have a new job at ${LOC[bid].name}.`, 7);
+  return pickC;
 }
 // turn a finished plot into a real building on the map (also replayed on load)
 function applyBuilt(rec){
   if (BUILDINGS.some(b=>b.id===rec.bid)) return;
   const pl = PLOTS.find(x=>x.id===rec.plot); if (!pl) return;
   clearPlot(pl);
-  const b = {id:rec.bid, name:rec.name, x:pl.x, y:pl.y, w:4, h:4, style:rec.kind==='shop'?'stone':'house', roof:rec.roof, house:rec.kind==='home', sign: rec.kind==='shop' ? {Baker:'bread',Carpenter:'saw',Blacksmith:'anvil',Butcher:'meat'}[rec.trade] : null};
+  const type = rec.type || (rec.kind==='shop' ? TRADE_BIZ[rec.trade] : 'house'); rec.type = type;
+  const bt = BUILD_TYPES[type];
+  const b = {id:rec.bid, name:rec.name, x:pl.x, y:pl.y, w:pl.w, h:pl.h, style:bt.style, roof:rec.roof, house:bt.kind==='home', cap:bt.cap||0, type, biz: bt.kind==='business' ? type : null, sign: bt.sign||null};
   b.door = [b.x+Math.floor(b.w/2), b.y+b.h];
   BUILDINGS.push(b); LOC[b.id] = {id:b.id, name:b.name, indoor:true, door:b.door, b};
   for (let y=b.y;y<b.y+b.h;y++) for (let x=b.x;x<b.x+b.w;x++) MAP[y][x]=T.BUILD;
@@ -1408,14 +1637,48 @@ function applyBuilt(rec){
   const road = astar(b.door[0], b.door[1], 26, 25, (x,y)=>{ const t=MAP[y][x]; return t===T.PATH||t===T.PLAZA?0.5:t===T.BRIDGE?1:(t===T.GRASS||t===T.FLOWER||t===T.SAND)?1:t===T.TREE?2.5:t===T.ROCK?6:Infinity; });
   if (road) road.forEach(([x,y])=>{ const t=MAP[y][x]; if (t===T.GRASS||t===T.FLOWER||t===T.SAND||t===T.TREE||t===T.ROCK) MAP[y][x]=T.PATH; });
 }
-// tavern lodgers rent any empty home they can afford
-function rentVacancies(){
-  const vac = homeBuildings().filter(b=>residentsOf(b.id).length===0);
-  const lodgers = residentsOf('loc_tavern').filter(c=>c.profession!=='TavernKeeper' && isAdult(c) && c.wallet>=15);
-  for (const b of vac){ const c = lodgers.shift(); if (!c) break; const m = moveHousehold(c, b.id); chronicle(`${m.map(x=>x.name.split(' ')[0]).join(', ')} moved out of the tavern and into ${b.name}, renting from ${ownerName(propOf(b.id).owner)}.`, 5, '📦', 'land'); lodgers.splice(0, lodgers.length, ...lodgers.filter(x=>x.home==='loc_tavern')); }
+// replay demolitions of original buildings and extra plots on load
+function applyWorldChanges(){
+  (S.extraPlots||[]).forEach(pl=>{ if (!PLOTS.some(x=>x.id===pl.id)) PLOTS.push(pl); });
+  (S.demolished||[]).forEach(bid=>{ const b = BUILDINGS.find(x=>x.id===bid); if (!b) return; BUILDINGS.splice(BUILDINGS.indexOf(b),1); delete LOC[bid]; for (let y=b.y;y<b.y+b.h;y++) for (let x=b.x;x<b.x+b.w;x++) MAP[y][x]=T.GRASS; });
+  (S.built||[]).forEach(applyBuilt);
+  Object.values(S.props||{}).forEach(pr=>{ if (pr.status==='construction'){ clearPlot(plotOf(pr)); addSite(pr); } });
 }
-// clear trees and rocks from a plot and a one-tile border so the new building stands in a clearing
-function clearPlot(pl){ for (let y=pl.y-1;y<=pl.y+pl.h;y++) for (let x=pl.x-1;x<=pl.x+pl.w;x++){ const t=(MAP[y]||[])[x]; if (t===T.TREE||t===T.ROCK) MAP[y][x]=T.GRASS; } }
+// lodgers rent empty homes, or rooms in apartment blocks with space
+function rentVacancies(){
+  const homes = homeBuildings().filter(b=>b.style!=='palace');
+  const lod = lodgers().filter(c=>isAdult(c) && c.wallet>=15);
+  const done = new Set();
+  for (const c of lod){
+    if (done.has(c.id) || !isLodging(c.home) || !wantsHome(c)) continue;
+    const fam = householdOf(c); const n = fam.length;
+    const b = homes.find(h=>{ const r=residentsOf(h.id).length; return (r===0 && capOf(h)>=n) || (h.style==='tall' && r+n<=capOf(h)); });
+    if (!b) break;
+    const from = c.home; moveHousehold(c, b.id); fam.forEach(m=>done.add(m.id));
+    chronicle(`${fam.map(x=>x.name.split(' ')[0]).join(', ')} moved out of ${from==='loc_tavern'?'the tavern':LOC[from]?LOC[from].name:'their lodgings'} and into ${b.name}, renting from ${ownerName(propOf(b.id).owner)}.`, 4, '📦', 'land');
+  }
+}
+// competition: every week, businesses that lost customers cut prices and the busiest raise theirs
+function priceWars(){
+  S.biz = S.biz || {};
+  ['tavern','bathhouse','theater','hotel'].forEach(type=>{
+    const list = bizList(type).map(b=>({b, st: S.biz[b.id] || (S.biz[b.id]={mod:1,cust:0})}));
+    list.forEach(x=>x.st.last = x.st.cust);
+    if (list.length<2){ list.forEach(x=>x.st.cust=0); return; }
+    list.sort((a,b)=>b.st.cust-a.st.cust);
+    const top = list[0];
+    top.st.mod = Math.min(1.3, top.st.mod + 0.04);
+    list.slice(1).forEach(x=>{ if (x.st.cust < top.st.cust*0.8){ const was = x.st.mod; x.st.mod = Math.max(0.7, +(x.st.mod - 0.08).toFixed(2));
+      if (x.st.mod < was) chronicle(`${x.b.name} cut its prices to ${Math.round(x.st.mod*100)}% of the going rate to win customers back from ${top.b.name}.`, 5, '💸', 'business');
+      else { x.st.losing = (x.st.losing||0)+1; const pr = propOf(x.b.id); if (x.st.losing>=3 && pr && !pr.forSale && pr.owner!=='town'){ listProp(pr, pr.value*0.8, `${ownerName(pr.owner)} is losing the price war`); x.st.losing = 0; } } }
+      else x.st.losing = 0; });
+    list.forEach(x=>x.st.cust=0);
+  });
+}
+function bizMod(bid){ return (S.biz && S.biz[bid] && S.biz[bid].mod) || 1; }
+function nearest(list, c){ return list.slice().sort((a,b)=>Math.hypot(a.door[0]-c.rt.x,a.door[1]-c.rt.y)-Math.hypot(b.door[0]-c.rt.x,b.door[1]-c.rt.y))[0]; }
+function tavernFor(c, day){ const ts = bizList('tavern'); if (ts.length<=1) return 'loc_tavern'; return ts.map(b=>[b, bizMod(b.id) + (hash(c.id+b.id+day)%100)/250 - (c.cls==='Poor'?0:0)]).sort((a,b)=>a[1]-b[1])[0][0].id; }
+function clearPlot(pl){ if (!pl) return; for (let y=pl.y-1;y<=pl.y+pl.h;y++) for (let x=pl.x-1;x<=pl.x+pl.w;x++){ const t=(MAP[y]||[])[x]; if (t===T.TREE||t===T.ROCK) MAP[y][x]=T.GRASS; } }
 function bumpWorld(){ groundKey=''; pathCache.clear(); for (const k in SPOTS) delete SPOTS[k]; S.worldVer=(S.worldVer||0)+1; }
 
 // ---------- annexation ----------
@@ -1425,7 +1688,7 @@ function annexCandidate(bonus){
   const t = nextTerritory(); if (!t) return null;
   if (S.gov.lastAnnex!=null && dayOf(S.minute)-S.gov.lastAnnex < 28) return null;
   if (freePlots()>1 || S.treasury < t.cost + 150) return null;
-  const need = 0.35 + (residentsOf('loc_tavern').filter(c=>c.profession!=='TavernKeeper').length>=2 ? 0.25 : 0) + (S.citizens.length>70 ? 0.15 : 0);
+  const need = 0.35 + (lodgers().length>=2 ? 0.25 : 0) + (S.citizens.length>70 ? 0.15 : 0) + (freePlots()===0 ? 0.15 : 0);
   return {score: need + (bonus||0), t};
 }
 function annexProposalDef(t){
@@ -1546,9 +1809,9 @@ function lifeDaily(){
   // immigration: newcomers arrive on the King's Road with their own agendas
   const mood = S.citizens.reduce((a,c)=>a+c.mood.valence,0)/Math.max(1,S.citizens.length);
   const vacancies = homeBuildings().filter(b=>residentsOf(b.id).length===0).length;
-  const lodgers = residentsOf('loc_tavern').filter(c=>c.profession!=='TavernKeeper').length;
+  const lodgerN = lodgers().length, room = BUILDINGS.filter(b=>isLodging(b.id)).reduce((a,b)=>a+lodgingCap(b.id),0);
   const chance = 0.06 + Math.max(0,mood)*0.12 + vacancies*0.04 + (d<7?0.1:0);
-  if (S.citizens.length < POP_CAP && (vacancies>0 || lodgers<8) && rnd()<chance) arriveNewcomers();
+  if (S.citizens.length < POP_CAP && (vacancies>0 || lodgerN<room) && rnd()<chance) arriveNewcomers();
 }
 function newcomerDef(r, sur, opts){
   const first = FIRST_NAMES[Math.floor(r()*FIRST_NAMES.length)];
@@ -1569,7 +1832,7 @@ function newcomerDef(r, sur, opts){
 }
 function settleNewcomer(c){
   const vac = homeBuildings().filter(b=>residentsOf(b.id).length===0);
-  c.home = vac.length ? vac[Math.floor(rnd()*vac.length)].id : 'loc_tavern';
+  c.home = vac.length ? vac[Math.floor(rnd()*vac.length)].id : lodgingFor(1);
   S.citizens.push(c); indexCitizens();
   c.rt.x=c.rt.ox=0; c.rt.y=c.rt.oy=20; c.rt.loc=null; c.arrived=S.minute;
   c.plan = buildPlan(c, dayOf(S.minute)); c.rt.blockIdx=-1;
@@ -1586,10 +1849,10 @@ function arriveNewcomers(){
     if (roll>0.85 && lead.age<45){ const kr=mapRand(hash(lead.id+'kid')); const kd=newcomerDef(kr, sur, {age:4+Math.floor(kr()*10), prof:'Child'}); kd.prof='Child'; kd.agenda=null; kd.wallet=0; kd.look=lookForChild(kr, lead.look.skin, sp.look.hair, 'short'); kd.parents=[lead.id,sp.id]; kd.bio=`Moved to Pixel Town with ${lead.name} and ${sp.name}.`; const kid=makeCitizen(kd); group.push(kid);
       [lead,sp].forEach(p=>{ p.kids.push(kid.id); const R=getRel(p,kid.id); R.affinity=90; R.tags=['Family']; const R2=getRel(kid,p.id); R2.affinity=90; R2.tags=['Family']; }); } }
   const vac = homeBuildings().filter(b=>residentsOf(b.id).length===0);
-  const home = vac.length ? vac[Math.floor(r()*vac.length)].id : 'loc_tavern';
+  const home = vac.length ? vac[Math.floor(r()*vac.length)].id : lodgingFor(group.length);
   group.forEach(c=>{ c.home = home; S.citizens.push(c); c.rt.x=c.rt.ox=0; c.rt.y=c.rt.oy=20; c.arrived=S.minute; });
   indexCitizens(); group.forEach(c=>{ c.plan = buildPlan(c, dayOf(S.minute)); c.rt.blockIdx=-1; });
-  const where = home==='loc_tavern' ? 'taking a room at the Tipsy Lantern' : `moving into ${LOC[home].name}`;
+  const where = isLodging(home) ? `taking ${lodgingName(home)}` : `moving into ${LOC[home].name}`;
   chronicle(`${group.map(c=>c.name).join(', ')} arrived on the King's Road, ${where}. ${lead.name.split(' ')[0]} hopes to ${AGENDAS[lead.agenda].phrase}.`, 6, '🧳', 'arrival');
   group.forEach(c=>S.week.arrivals.push(`${c.name} (${profLabel(c.profession)}${c.agenda?`, ${AGENDAS[c.agenda].label.toLowerCase()}`:''})`));
 }
@@ -1617,6 +1880,8 @@ function voterScore(v, k, platform){
   const aff = v===k ? 1.5 : r.affinity/100;
   let align = v.values.filter(x=>P.plus.includes(x)).length*0.5 + (P.econ||0)*v.politics.economicLeaning*0.5 + (P.order||0)*v.politics.orderLeaning*0.5;
   if (v.agenda && AGENDA_PLATFORM[v.agenda]===platform) align += 0.5;
+  const CA = {Poor:{feed:.4, low_tax:-.2}, Wealthy:{low_tax:.4, feed:-.2, grow:.2}, Upper:{low_tax:.2, grow:.1}}[v.cls];
+  if (CA && CA[platform]) align += CA[platform];
   const charisma = (k.traits.includes('Charismatic')?0.3:0) + k.personality.extraversion*0.3;
   const mood = S.citizens.reduce((a,c)=>a+c.mood.valence,0)/S.citizens.length;
   const incumbent = k.office ? (v.agenda==='trouble' ? -0.4 : mood*0.4) : 0;
@@ -1794,7 +2059,7 @@ function simTick(){
 function openWeek(){
   const d = dayOf(S.minute);
   S.week = {n:weekNo(d), startDay:d - d%7, trades:0, volume:0, taxes:0, quarrels:0, events:[], hungry:[], rels:[], income:{}, spent:{}, weather:{},
-    prices:Object.fromEntries(GOOD_DEFS.map(g=>[g.id,S.goods[g.id].price])), treasuryStart:S.treasury, townHall:null, song:null, herdStart:Object.assign({},S.herd), births:[], deaths:[], arrivals:[], departures:[], sales:[], election:null};
+    prices:Object.fromEntries(GOOD_DEFS.map(g=>[g.id,S.goods[g.id].price])), treasuryStart:S.treasury, townHall:null, song:null, herdStart:Object.assign({},S.herd), births:[], deaths:[], arrivals:[], departures:[], sales:[], election:null, builds:[]};
 }
 function weekEntry(w, live){
   const byImp = w.events.slice().sort((a,b)=>b.imp-a.imp || b.t-a.t);
@@ -1808,7 +2073,7 @@ function weekEntry(w, live){
     townHall:w.townHall, laws:activeLaws().map(p=>p.title),
     topEarner: topE ? {name:cById(topE[0]).name, amt:topE[1]} : null, topSpender: topS ? {name:cById(topS[0]).name, amt:topS[1]} : null,
     hungry:w.hungry.slice(), rels:w.rels.slice(), highlights: byImp.slice(0,10).sort((a,b)=>a.t-b.t), song:w.song||null,
-    births:(w.births||[]).slice(), deaths:(w.deaths||[]).slice(), arrivals:(w.arrivals||[]).slice(), departures:(w.departures||[]).slice(), sales:(w.sales||[]).slice(), election:w.election||null,
+    births:(w.births||[]).slice(), deaths:(w.deaths||[]).slice(), arrivals:(w.arrivals||[]).slice(), departures:(w.departures||[]).slice(), sales:(w.sales||[]).slice(), election:w.election||null, works:(w.builds||[]).slice(), classes:classCounts(),
     leader: S.gov.leader && cById(S.gov.leader) ? cById(S.gov.leader).name : null};
 }
 function closeWeek(){
@@ -1842,6 +2107,8 @@ function weekToMarkdown(w, live){
   if ((w.arrivals||[]).length) L.push(`- Arrivals: ${w.arrivals.join('; ')}`);
   if ((w.departures||[]).length) L.push(`- Departures: ${w.departures.join('; ')}`);
   if ((w.sales||[]).length) L.push(`- Property: ${w.sales.join('; ')}`);
+  if ((w.works||[]).length) L.push(`- Building & demolition: ${w.works.join('; ')}`);
+  if (w.classes) L.push(`- Society: ${w.classes.Wealthy} wealthy, ${w.classes.Upper} upper class, ${w.classes.Middle} middle class, ${w.classes.Poor} poor`);
   L.push('- Prices: ' + w.prices.map(p=>`${p.name} ${p.start}→${p.end}`).join(', '));
   L.push('', '**Happenings**');
   w.highlights.forEach(h=>L.push(`- ${fmtStamp(h.t)} ${h.icon} ${h.text}`));
@@ -1883,6 +2150,16 @@ function migrateV2(st){
     for (const id in c.rel){ const r=c.rel[id]; if (r.affinity===5 && r.tags.length===1 && r.tags[0]==='Neighbor') delete c.rel[id]; } });
   st.props = initProperties(st);
   if (st.week) Object.assign(st.week, {births:[], deaths:[], arrivals:[], departures:[], sales:[], election:null});
+}
+// older v3 saves (before palaces, hotels and demolition)
+function upgradeV3(st){
+  st.biz = st.biz || {}; st.extraPlots = st.extraPlots || []; st.demolished = st.demolished || [];
+  if (st.week && !Array.isArray(st.week.builds)) st.week.builds = [];
+  GOOD_DEFS.forEach(g=>{ if (!st.goods[g.id]) st.goods[g.id] = {price:g.base, dem:new Array(24).fill(0), sup:new Array(24).fill(0), unmet:new Array(24).fill(0), hist:[g.base]}; if (st.week && st.week.prices && st.week.prices[g.id]==null) st.week.prices[g.id] = g.base; });
+}
+function fixPropTypes(){
+  Object.values(S.props).forEach(p=>{ if (p.bid && !p.type){ const b = LOC[p.bid] && LOC[p.bid].b; p.type = b ? (b.type || b.biz || (b.house?'house':null)) : null; }
+    if (p.status==='construction' && p.build && !p.build.type) p.build.type = p.build.kind==='shop' ? TRADE_BIZ[p.build.trade] : 'house'; });
 }
 
 /* =====================================================================
@@ -2018,6 +2295,7 @@ function makeBush(season, v){
 // --- buildings ---
 function brickAt(x,y,s){ const row=Math.floor(y/4), off=(row%2)*4; const bx=Math.floor((x+off)/8); const mortar = y%4===3 || (x+off)%8===7; return {mortar, v:hashf(bx,row,s)}; }
 function makeBuilding(b, season){
+  if (GRAND[b.style]){ b.windows=[]; b.chimney=null; return makeGrand(b, season); }
   const W=b.w*TILE, H=b.h*TILE, PADX=4, TOP=18;
   const p=new Pix(W+PADX*2, H+TOP+2);
   const ox=PADX, oy=TOP;
@@ -2127,6 +2405,149 @@ function makeBuilding(b, season){
     drawIcon(p, b.sign, bx+1, by+1);
   }
   if (style==='tavern'){ for (const lx of [dx-6,dx+doorW+14]){ p.rect(lx,dy+2,4,5,'#2a2a30'); p.rect(lx+1,dy+3,2,3,'#f8d070'); } }
+  return p.outline().done();
+}
+// --- grand buildings: palaces, apartment towers, hotels, bathhouses, theaters ---
+const FONT3 = {H:['101','101','111','101','101'],O:['111','101','101','101','111'],T:['111','010','010','010','010'],E:['111','100','110','100','111'],L:['100','100','100','100','111'],A:['010','101','111','101','101'],R:['110','101','110','101','101'],B:['110','101','110','101','110'],S:['011','100','010','001','110']};
+function text3(p, str, x, y, col){ [...str].forEach((ch,i)=>{ const g=FONT3[ch]; if (g) g.forEach((row,j)=>[...row].forEach((v,k)=>{ if (v==='1') p.set(x+i*4+k, y+j, col); })); }); }
+const GRAND = {
+  palace: {floors:2, roofH:30, extra:18, wall:'#eae0c8', mat:'stone', roof:'#4a5a8a', trim:'#e8c050'},
+  tall:   {floors:4, roofH:26, extra:6,  wall:'#b0583e', mat:'brick', roof:'#4a4448', trim:'#e0d0b0'},
+  hotel:  {floors:3, roofH:28, extra:4,  wall:'#e8dcc0', mat:'plaster', roof:'#3a5a6a', trim:'#c8a050', label:'HOTEL'},
+  bath:   {floors:1, roofH:30, extra:14, wall:'#dcd6c8', mat:'stone', roof:'#5a9a8a', trim:'#f4f0e6', label:'BATHS'},
+  theater:{floors:2, roofH:28, extra:10, wall:'#9a2a3a', mat:'plaster', roof:'#5a2030', trim:'#f2c14e', label:'THEATER'}
+};
+function makeGrand(b, season){
+  const G = GRAND[b.style], W=b.w*TILE, PADX=4, s=hash(b.id)%1000, winter=season===3;
+  const wallH = G.floors*17+5, ph = Math.max(b.h*TILE+20, wallH+G.roofH+G.extra+6);
+  const p = new Pix(W+PADX*2, ph), ox=PADX;
+  const wallBot = ph-3, wallTop = wallBot-wallH+1, roofTop = wallTop-G.roofH, TOPg = ph - b.h*TILE - 2;
+  const toWorld = (x,y)=>[b.x*TILE-PADX+x, b.y*TILE-TOPg+y];
+  const RR = ramp(G.roof,5), WR = ramp(G.wall,5), TR = ramp(G.trim,4);
+  const cx = ox+W/2;
+  // roof
+  if (b.style==='tall'){
+    for (let y=roofTop;y<wallTop;y++) for (let x=ox;x<ox+W;x++){ const l=0.35+(hashf(x,y,s)-0.5)*0.12+(y<roofTop+2?0.3:0); p.set(x,y,RR[dith(l,x,y,5)]); }
+    for (let x=ox-1;x<ox+W+1;x++){ p.set(x,roofTop,WR[4]); p.set(x,roofTop+1,WR[2]); p.set(x,wallTop-1,WR[1]); }
+    for (let y=roofTop;y<wallTop;y++){ p.set(ox-1,y,WR[3]); p.set(ox+W,y,WR[1]); }
+    // water tank and chimney stacks
+    const tx=ox+W-22, ty=roofTop-8; for (let y=ty;y<ty+18;y++) for (let x=tx;x<tx+14;x++){ const l=0.75-((x-tx)/14)*0.5; p.set(x,y, (y-ty)%5===0?WOOD_R[0]:WOOD_R[1+dith(l,x,y,4)]); }
+    for (let x=tx-1;x<tx+15;x++) p.set(x,ty-1,WOOD_R[0]); for (const lx of [tx+1,tx+11]) p.rect(lx,ty+18,2,4,'#2a2a30');
+    for (const cx2 of [ox+6, ox+18]){ for (let y=roofTop-4;y<roofTop+8;y++) for (let x=cx2;x<cx2+5;x++){ const br=brickAt(x,y,s+3); p.set(x,y, br.mortar?'#5a3a30':'#9a4a3a'); } p.rect(cx2-1,roofTop-5,7,2,'#3a2a28'); }
+    if (winter) for (let x=ox;x<ox+W;x++) for (let y=roofTop+2;y<wallTop-2;y++) if (hashf(x,y,s+7)<0.7) p.set(x,y,'#eef2f8');
+    b.chimney=[toWorld(ox+8,roofTop-6)[0], toWorld(ox+8,roofTop-6)[1]];
+  } else if (b.style==='bath'){
+    for (let y=roofTop+10;y<wallTop;y++) for (let x=ox;x<ox+W;x++){ const l=0.55+(hashf(x,y,s)-0.5)*0.1-((y-roofTop)/G.roofH)*0.2; p.set(x,y,STONE_R[1+dith(l,x,y,5)]); }
+    blob(p,[{x:cx,y:wallTop-10,r:W*0.3}],ramp(G.roof,5),{noise:.1,seed:s});
+    for (let y=wallTop-10;y<wallTop;y++) for (let x=Math.floor(cx-W*0.3);x<=cx+W*0.3;x++) if (p.alpha(x,y)) p.set(x,y, y>=wallTop-3?STONE_R[3]:STONE_R[2]);
+    p.rect(Math.round(cx)-1, wallTop-10-Math.round(W*0.3)-6, 2, 6, TR[3]); p.ellipse(cx, wallTop-10-W*0.3-7, 2, 2, TR[3]);
+    if (winter) for (let x=0;x<p.w;x++) for (let y=0;y<wallTop-14;y++) if (p.alpha(x,y) && hashf(x,y,s)<0.5 && y < wallTop-10-W*0.12) p.set(x,y,'#f4f8fc');
+    b.chimney=[toWorld(ox+8,roofTop+8)[0], toWorld(ox+8,roofTop+8)[1]];
+  } else {
+    // mansard / hipped roof
+    for (let y=roofTop;y<wallTop;y++){
+      const t=(y-roofTop)/G.roofH, inset=Math.round((1-t)*7);
+      for (let x=ox-1+inset;x<ox+W+1-inset;x++){ const row=Math.floor((y-roofTop)/3), gap=(x+(row%2)*3)%6===0, side = x<ox+inset+4 || x>ox+W-inset-5;
+        let l = 0.85 - t*0.45 + ((y-roofTop)%3===0?0.1:0) - (gap?0.22:0) - (side?0.18:0);
+        if (winter && t<0.45){ p.set(x,y, side?'#c6d2e2':'#f4f8fc'); continue; }
+        p.set(x,y,RR[dith(l,x,y,5)]); }
+    }
+    for (let x=ox+6;x<ox+W-6;x++) p.set(x,roofTop-1,TR[3]);
+    // dormers
+    for (let dx=ox+10; dx<ox+W-14; dx+=18){ const dy=roofTop+Math.round(G.roofH*0.45); for (let y=dy;y<dy+9;y++) for (let x=dx;x<dx+8;x++) p.set(x,y, (x===dx||x===dx+7||y===dy)?G.trim:'#2a3450'); p.set(dx+2,dy+2,'#8aa6d0'); for (let k=0;k<5;k++){ p.set(dx+3-k,dy-1-k<dy-4?dy-4:dy-1-k,RR[4]); } b.windows=b.windows||[]; }
+  }
+  // towers (palace) with cone roofs and flags
+  if (b.style==='palace'){
+    for (const tx of [ox-2, ox+W-12]){
+      const tTop = roofTop - G.extra + 14;
+      for (let y=tTop;y<=wallBot;y++) for (let x=tx;x<tx+14;x++){ const br=brickAt(x-tx,y,s+5); const l=(br.mortar?0.3:0.55+br.v*0.25)+(x<tx+3?0.1:0)-(x>tx+10?0.15:0); p.set(x,y,WR[dith(l,x,y,5)]); }
+      for (let k=0;k<14;k++){ const y=tTop-k; for (let x=tx+Math.floor(k/2);x<tx+14-Math.floor(k/2);x++) p.set(x,y, winter&&k>6?'#f4f8fc':RR[dith(0.75-(x-tx)/20,x,y,5)]); }
+      p.rect(tx+6,tTop-19,1,6,'#2a2a30'); p.rect(tx+7,tTop-19,5,3,'#c83a4a'); p.rect(tx+7,tTop-17,5,1,'#8a2a3a');
+      for (let x=tx;x<tx+14;x++) p.set(x,tTop+1,TR[3]);
+      const wy=tTop+8; p.rect(tx+4,wy,6,8,'#1e2640'); p.rect(tx+4,wy,6,1,TR[3]); p.set(tx+5,wy+2,'#8aa6d0');
+      b.windows=(b.windows||[]); b.windows.push([...toWorld(tx+4,wy),6,8]);
+    }
+  }
+  // walls
+  for (let y=wallTop;y<=wallBot;y++) for (let x=ox;x<ox+W;x++){
+    const lx=x-ox, ly=y-wallTop; let l;
+    if (G.mat==='stone'){ const br=brickAt(lx,ly,s); l = br.mortar ? 0.3 : 0.5+br.v*0.3; }
+    else if (G.mat==='brick'){ const br=brickAt(lx,ly,s); l = br.mortar ? 0.15 : 0.45+br.v*0.25; }
+    else l = 0.62 + (hashf(lx,ly,s)-0.5)*0.12;
+    if (ly<3) l -= 0.25-(ly*0.07); if (lx<2) l += 0.08; if (lx>W-3) l -= 0.12;
+    p.set(x,y,WR[dith(l,x,y,5)]);
+  }
+  // floor bands (trim)
+  for (let f=1; f<G.floors; f++){ const y = wallBot - 5 - f*17 + 1; for (let x=ox-1;x<ox+W+1;x++){ p.set(x,y,TR[3]); p.set(x,y+1,TR[1]); } }
+  for (let x=ox-1;x<ox+W+1;x++){ p.set(x,wallTop,TR[3]); p.set(x,wallTop+1,TR[2]); }
+  // foundation
+  for (let y=wallBot-2;y<=wallBot;y++) for (let x=ox-1;x<ox+W+1;x++){ const br=brickAt(x,y,s+9); p.set(x,y, br.mortar?STONE_R[0]:STONE_R[y===wallBot-2?3:2]); }
+  // door
+  const doorW = b.style==='palace'||b.style==='theater' ? 14 : 12, doorH = 15;
+  const dx = ox + Math.floor(b.w/2)*TILE + 8 - doorW/2, dy = wallBot - doorH;
+  for (let y=dy;y<=wallBot-1;y++) for (let x=dx;x<dx+doorW;x++){ const lx=x-dx, ly=y-dy; if (ly<3 && Math.hypot(lx-doorW/2+0.5, (3-ly)*1.6) > doorW/2) continue;
+    p.set(x,y, lx===0||lx===doorW-1 ? WOOD_R[0] : b.style==='hotel'||b.style==='bath' ? mix('#2a3450','#4a5a80',ly/doorH) : WOOD_R[1+((lx%4===1)?2:1)]); }
+  if (b.style==='hotel'||b.style==='bath') p.rect(dx+doorW/2,dy+2,1,doorH-3,TR[3]);
+  p.rect(dx+doorW-4,dy+8,2,2,TR[3]);
+  for (let x=dx-3;x<dx+doorW+3;x++){ p.set(x,wallBot,STONE_R[4]); p.set(x,wallBot+1,STONE_R[3]); }
+  // windows on each floor
+  b.windows = b.windows || [];
+  const winW = b.style==='tall' ? 7 : 8, winH = 10;
+  for (let f=0; f<G.floors; f++){
+    const wy = wallBot - 5 - (f+1)*17 + 5;
+    for (let wx=ox+5; wx<=ox+W-5-winW; wx+= b.style==='tall'?12:14){
+      if (f===0 && wx+winW+2>dx-2 && wx-2<dx+doorW+2) continue;
+      for (let y=wy-1;y<wy+winH+1;y++) for (let x=wx-1;x<wx+winW+1;x++) p.set(x,y, (y===wy-1||x===wx-1)?TR[3]:TR[1]);
+      for (let y=wy;y<wy+winH;y++) for (let x=wx;x<wx+winW;x++) p.set(x,y, mix('#1e2640','#3a4a6a',(y-wy)/winH));
+      if (b.style==='palace'||b.style==='theater'){ p.set(wx,wy,TR[1]); p.set(wx+winW-1,wy,TR[1]); for (let x=wx-1;x<wx+winW+1;x++) p.set(x,wy-2,TR[2]); }
+      p.set(wx+1,wy+1,'#8aa6d0'); p.set(wx+2,wy+2,'#8aa6d0');
+      for (let y=wy;y<wy+winH;y++) p.set(wx+Math.floor(winW/2),y,TR[2]);
+      if (b.style==='tall' && f>0){ for (let x=wx-2;x<wx+winW+2;x++){ p.set(x,wy+winH+1,'#2a2a30'); if ((x-wx)%2===0) p.set(x,wy+winH-1,'#3a3a44'); } if (hashf(wx,f,s)<0.35){ p.set(wx+1,wy+winH,'#e84a4a'); p.set(wx+4,wy+winH,'#f2c14e'); } }
+      if (b.style==='palace' && f>0){ for (let x=wx-2;x<wx+winW+2;x++){ p.set(x,wy+winH+1,TR[3]); if ((x-wx)%2===0){ p.set(x,wy+winH-1,TR[2]); p.set(x,wy+winH,TR[2]); } } }
+      b.windows.push([...toWorld(wx,wy),winW,winH]);
+    }
+  }
+  // style details
+  if (b.style==='palace'){
+    for (const px of [dx-6, dx+doorW+3]) for (let y=dy-4;y<=wallBot;y++){ p.set(px,y,'#fbf6ea'); p.set(px+1,y,'#e8e0cc'); p.set(px+2,y,'#b8ae98'); }
+    for (let k=0;k<8;k++) for (let x=dx-7+k;x<dx+doorW+7-k;x++) p.set(x,dy-5-k, k===0?TR[1]:TR[3-(k>5?1:0)]);
+    p.ellipse(dx+doorW/2, dy-9, 2, 2, '#c83a4a');
+    p.rect(ox+2, wallBot-1, 4, 2, '#3a6a3a'); p.rect(ox+W-6, wallBot-1, 4, 2, '#3a6a3a');
+  }
+  if (b.style==='hotel' || b.style==='theater' || b.style==='bath'){
+    const lab = G.label, lw = lab.length*4-1, ly = wallTop - 8;
+    const bx0 = Math.round(cx-lw/2)-3;
+    p.rect(bx0, ly-2, lw+6, 9, b.style==='theater'?'#1e1418':'#2a2030'); p.rect(bx0, ly-2, lw+6, 1, TR[3]); p.rect(bx0, ly+6, lw+6, 1, TR[1]);
+    text3(p, lab, bx0+3, ly, b.style==='theater'?'#fff0a0':TR[3]);
+    if (b.style==='theater') for (let x=bx0; x<bx0+lw+6; x+=3){ p.set(x,ly-3,'#fff0a0'); p.set(x,ly+7,'#fff0a0'); }
+  }
+  if (b.style==='hotel'){
+    for (let x=dx-6;x<dx+doorW+6;x++) for (let y=dy-6;y<dy-1;y++) p.set(x,y, ((x-dx+6)>>1)%2 ? '#3a6aa8' : '#f4f0e6');
+    for (let x=dx-6;x<dx+doorW+6;x+=2) p.set(x,dy-1,'#3a6aa8');
+    for (const lx of [dx-9,dx+doorW+6]){ p.rect(lx,dy+2,3,5,'#2a2a30'); p.rect(lx+1,dy+3,1,3,'#f8d070'); }
+  }
+  if (b.style==='theater'){
+    for (let x=dx-10;x<dx+doorW+10;x++) for (let y=dy-7;y<dy-2;y++) p.set(x,y, y===dy-7||y===dy-3 ? TR[3] : '#6a1a28');
+    for (let x=dx-9;x<dx+doorW+10;x+=3) p.set(x,dy-5,'#fff0a0');
+    for (const lx of [ox+3, ox+W-10]){ p.rect(lx,wallBot-16,7,12,'#f4ecd0'); p.rect(lx+1,wallBot-15,5,3,'#c83a4a'); p.rect(lx+1,wallBot-11,5,1,'#2a2030'); p.rect(lx+1,wallBot-9,5,1,'#2a2030'); }
+  }
+  if (b.style==='bath'){
+    for (const px of [ox+3, dx-6, dx+doorW+3, ox+W-6]) for (let y=wallTop+2;y<=wallBot;y++){ p.set(px,y,'#fbf6ea'); p.set(px+1,y,'#e8e0cc'); p.set(px+2,y,'#b8ae98'); }
+  }
+  if (b.style==='tall'){
+    p.rect(dx-2, dy-3, doorW+4, 2, '#2a2a30');
+    const nx = dx+doorW+3; p.rect(nx, dy+3, 6, 4, '#e0d0b0'); p.rect(nx+1, dy+4, 4, 2, '#3a3a44');
+  }
+  b.lights = b.style==='hotel'||b.style==='theater' ? [toWorld(dx-8,dy+4), toWorld(dx+doorW+7,dy+4)] : null;
+  if (b.style!=='tall' && b.style!=='bath') b.chimney = b.style==='palace' ? toWorld(ox+W/2+10, roofTop-2) : null;
+  return p.outline().done();
+}
+function makeRubble(){
+  const p=new Pix(70,34);
+  p.ellipse(35,28,32,5,'#000000',50);
+  for (let i=0;i<46;i++){ const x=6+hashf(i,1,77)*58, y=12+hashf(i,2,77)*18, r=2+hashf(i,3,77)*3; const wood=hashf(i,4,77)<0.3;
+    if (wood) p.rect(x-r, y, r*2.4, 2, WOOD_R[1+Math.floor(hashf(i,5,77)*3)]);
+    else blob(p,[{x,y,r}],hashf(i,6,77)<0.5?STONE_R:ramp('#9a5a44',5),{noise:.2,seed:i}); }
   return p.outline().done();
 }
 const ICONS = {
@@ -2311,15 +2732,16 @@ function thumbFor(c){ if (THUMBS[c.id]) return THUMBS[c.id]; const m=mk(FW,FH); 
 function makeSign(){ const p=new Pix(14,18); p.rect(6,6,2,12,WOOD_R[2]); p.rect(6,6,1,12,WOOD_R[4]); for (let y=0;y<8;y++) for (let x=0;x<14;x++) p.set(x,y, (y===0||y===7||x===0||x===13)?WOOD_R[1]:'#f4ecd8'); p.rect(2,3,10,2,'#c83a3a'); p.set(3,2,'#c83a3a'); p.set(10,5,'#c83a3a'); return p.outline().done(); }
 function makeStake(){ const p=new Pix(4,10); p.rect(1,0,2,10,WOOD_R[3]); p.rect(1,0,1,10,WOOD_R[5]); p.rect(0,2,4,1,'#e8d8a0'); return p.outline().done(); }
 function makeGrave(v){ const p=new Pix(10,13); p.ellipse(5,12,5,1.2,'#000000',60); for (let y=1;y<12;y++) for (let x=1;x<9;x++){ if (y<3 && (x<2+(2-y)||x>7-(2-y))) continue; const l=0.75-(x-1)/8*0.4-(y>9?0.15:0); p.set(x,y,STONE_R[1+dith(l,x,y,5)]); } p.rect(4,3,2,6,STONE_R[1]); p.rect(3,4,4,1,STONE_R[1]); if (v%2) { p.set(1,11,'#e84a4a'); p.set(2,11,'#f2c14e'); } return p.outline().done(); }
-function makeScaffold(stage){
-  const p=new Pix(72,78); const W=64, ox=4, top=14;
-  p.ellipse(36,74,34,3,'#000000',40);
-  if (stage>0){ for (let y=top+30;y<top+62;y++) for (let x=ox;x<ox+W;x++){ const k=(x-ox)%5; p.set(x,y, k===4?WOOD_R[0]:WOOD_R[2+((hashf(x>>2,0,9)>0.5)?1:0)]); } for (let x=ox;x<ox+W;x++){ p.set(x,top+62,STONE_R[2]); p.set(x,top+63,STONE_R[1]); } }
-  for (const x of [ox, ox+21, ox+42, ox+W-2]) for (let y=top; y<top+64; y++){ p.set(x,y,WOOD_R[3]); p.set(x+1,y,WOOD_R[1]); }
-  for (const y of [top, top+22, top+44]) for (let x=ox-2;x<ox+W+2;x++){ p.set(x,y,WOOD_R[4]); p.set(x,y+1,WOOD_R[2]); }
+function makeScaffold(stage, extra){
+  extra = extra||0;
+  const p=new Pix(72,78+extra); const W=64, ox=4, top=14, H=64+extra;
+  p.ellipse(36,74+extra,34,3,'#000000',40);
+  if (stage>0){ for (let y=top+30;y<top+H-2;y++) for (let x=ox;x<ox+W;x++){ const k=(x-ox)%5; p.set(x,y, k===4?WOOD_R[0]:WOOD_R[2+((hashf(x>>2,0,9)>0.5)?1:0)]); } for (let x=ox;x<ox+W;x++){ p.set(x,top+H-2,STONE_R[2]); p.set(x,top+H-1,STONE_R[1]); } }
+  for (const x of [ox, ox+21, ox+42, ox+W-2]) for (let y=top; y<top+H; y++){ p.set(x,y,WOOD_R[3]); p.set(x+1,y,WOOD_R[1]); }
+  for (let y=top; y<top+H-10; y+=22) for (let x=ox-2;x<ox+W+2;x++){ p.set(x,y,WOOD_R[4]); p.set(x,y+1,WOOD_R[2]); }
   for (let k=0;k<20;k++){ p.set(ox+2+k,top+2+k,WOOD_R[3]); p.set(ox+W-3-k,top+2+k,WOOD_R[3]); }
   if (stage>0) for (let y=top-8;y<top+14;y++){ const inset=Math.round((top+14-y)*0.9); for (let x=ox+inset;x<ox+W-inset;x+=6) p.set(x,y,WOOD_R[4]); }
-  p.rect(ox+W-14, top+56, 10, 6, '#b09060'); p.rect(ox+6, top+58, 12, 4, WOOD_R[4]);
+  p.rect(ox+W-14, top+H-8, 10, 6, '#b09060'); p.rect(ox+6, top+H-6, 12, 4, WOOD_R[4]);
   return p.outline().done();
 }
 function buildArt(season){
@@ -2332,7 +2754,7 @@ function buildArt(season){
   ART.oaks = [0,1,2,3].map(v=>makeOak(season,v)); ART.pines=[0,1,2].map(v=>makePine(season,v)); ART.bushes=[0,1].map(v=>makeBush(season,v));
   BUILDINGS.forEach(b=>{ ART.bld[b.id] = makeBuilding(b, season); });
   ART.well = makeWell(season); ART.fountain = makeFountain(); ART.stalls = [0,1,2].map(i=>makeStall(i,season));
-  ART.sign = makeSign(); ART.stake = makeStake(); ART.graves=[0,1,2].map(makeGrave); ART.scaffold=[makeScaffold(0),makeScaffold(1)];
+  ART.sign = makeSign(); ART.stake = makeStake(); ART.graves=[0,1,2].map(makeGrave); ART.scaffold=[makeScaffold(0),makeScaffold(1)]; ART.scaffoldTall=[makeScaffold(0,40),makeScaffold(1,40)]; ART.rubble=makeRubble();
   ART.lamp = makeLamp(); ART.scarecrow = makeScarecrow(); ART.hay = makeHay(); ART.barrel=makeBarrel(); ART.crate=makeCrate(); ART.boat=makeBoat(); ART.cart=makeCart();
   if (!ART.animals.cow){ for (const k of ['cow','sheep','pig','chicken']) ART.animals[k] = [0,1].map(v=>[0,1].map(f=>makeAnimal(k,v,f))); }
 }
@@ -2410,7 +2832,7 @@ function buildGround(){
     const img = pine ? ART.pines[v%3] : ART.oaks[v%4];
     push(img, x*TILE+8-img.width/2+((v%5)-2), y*TILE+16-img.height+3, y*TILE+15);
   }
-  BUILDINGS.forEach(b=>push(ART.bld[b.id], b.x*TILE-4, b.y*TILE-18, (b.y+b.h)*TILE));
+  BUILDINGS.forEach(b=>{ const im=ART.bld[b.id] || (ART.bld[b.id]=makeBuilding(b, ART.season)); push(im, b.x*TILE-4, (b.y+b.h)*TILE+2-im.height, (b.y+b.h)*TILE); });
   push(ART.well, WELL[0]*TILE-1, WELL[1]*TILE-12, (WELL[1]+2)*TILE);
   STALLS.forEach(([sx,sy],i)=>push(ART.stalls[i], sx*TILE-1, sy*TILE-6, (sy+2)*TILE));
   LAMPS.forEach(([x,y])=>push(ART.lamp, x*TILE+4, y*TILE-10, y*TILE+14));
@@ -2511,10 +2933,12 @@ function render(frac, ts){
   // land markers: plot stakes and signs, construction, for-sale signs, graves
   Object.values(S.props).forEach(pr=>{
     if (pr.kind==='plot'){ const pl=PLOTS.find(x=>x.id===pr.plot); if (!pl || !claimed(pl.terr)) return; const X=pl.x*TILE, Y=pl.y*TILE;
-      if (!inView(X-8,Y-40,90,120)) return;
-      if (pr.status==='construction'){ const st = (pr.build.until - dayOf(S.minute)) <= BUILD_DAYS/2 ? 1 : 0; ents.push({img:ART.scaffold[st], x:X-4, y:Y-14, key:Y+64, w:72, h:78}); return; }
-      [[0,0],[60,0],[0,58],[60,58]].forEach(([a,b])=>ents.push({img:ART.stake, x:X+a, y:Y+b, key:Y+b+10, w:4, h:10}));
-      if (pr.forSale) ents.push({img:ART.sign, x:X+24, y:Y+44, key:Y+62, w:14, h:18});
+      if (!inView(X-8,Y-90,110,170)) return;
+      const PW=pl.w*TILE, PH=pl.h*TILE, bt=pr.build && BUILD_TYPES[pr.build.type];
+      if (pr.status==='construction'){ const half = bt ? bt.days/2 : BUILD_DAYS/2; const st = (pr.build.until - dayOf(S.minute)) <= half ? 1 : 0; const tall = bt && GRAND[bt.style] && bt.style!=='bath'; const im=(tall?ART.scaffoldTall:ART.scaffold)[st]; ents.push({img:im, x:X+PW/2-36, y:Y+PH-im.height, key:Y+PH, w:72, h:im.height}); return; }
+      if (pr.status==='rubble'){ ents.push({img:ART.rubble, x:X+PW/2-35, y:Y+PH-34, key:Y+PH-4, w:70, h:34}); return; }
+      [[0,0],[PW-4,0],[0,PH-6],[PW-4,PH-6]].forEach(([a,b])=>ents.push({img:ART.stake, x:X+a, y:Y+b, key:Y+b+10, w:4, h:10}));
+      if (pr.forSale) ents.push({img:ART.sign, x:X+PW/2-8, y:Y+PH-20, key:Y+PH-2, w:14, h:18});
     } else if (pr.forSale && pr.bid){ const b=BUILDINGS.find(x=>x.id===pr.bid); if (b && inView(b.door[0]*TILE-20,b.door[1]*TILE-20,40,40)) ents.push({img:ART.sign, x:b.door[0]*TILE+14, y:b.door[1]*TILE-6, key:b.door[1]*TILE+12, w:14, h:18}); }
   });
   (S.deceased||[]).slice(0, GRAVE_SLOTS.length).forEach((g,i)=>{ const [gx,gy]=GRAVE_SLOTS[i]; if (inView(gx,gy,10,13)) ents.push({img:ART.graves[i%3], x:gx, y:gy, key:gy+12, w:10, h:13}); });
@@ -2598,6 +3022,7 @@ function drawCitizen(e, ts){
   else if (working && c.profession==='Farmer'){ ctx.fillStyle=WOOD_R[3]; ctx.fillRect(dx+17, dy+8+sw*3, 1, 16); ctx.fillStyle='#9a9aa8'; ctx.fillRect(dx+15, dy+22+sw*3, 4, 2); }
   else if (working && c.profession==='Rancher'){ ctx.fillStyle=WOOD_R[3]; ctx.fillRect(dx+17, dy+6, 1, 20); ctx.fillStyle='#9a9aa8'; ctx.fillRect(dx+16, dy+4, 1, 3); ctx.fillRect(dx+18, dy+4, 1, 3); ctx.fillRect(dx+17, dy+4, 1, 2); }
   else if (working && c.profession==='Fisher'){ const bob=Math.sin(ts/400+hash(c.id))*1.2; ctx.strokeStyle=WOOD_R[3]; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(dx+17,dy+22); ctx.lineTo(dx+24,dy+6); ctx.stroke(); ctx.strokeStyle='rgba(230,230,240,0.7)'; ctx.lineWidth=0.5; ctx.beginPath(); ctx.moveTo(dx+24,dy+6); ctx.lineTo(dx+26,dy+40+bob); ctx.stroke(); ctx.fillStyle='#e84a3a'; ctx.fillRect(dx+25,dy+39+bob,2,2); ctx.fillStyle='rgba(220,240,255,0.5)'; ctx.fillRect(dx+23,dy+41+bob*0.2,6,1); }
+  else if (working && c.rt.loc && c.rt.loc.startsWith('site_')){ const up=Math.floor(ts/180)%2; ctx.fillStyle=WOOD_R[3]; ctx.fillRect(dx+17, dy+12-up*3, 1, 8); ctx.fillStyle='#6a6a78'; ctx.fillRect(dx+15, dy+11-up*3, 5, 3); if (!up){ ctx.fillStyle='#fff0a0'; ctx.fillRect(dx+21,dy+20,1,1); ctx.fillRect(dx+19,dy+22,1,1); } }
   else if (!p.moving && c.rt.loc==='loc_well'){ ctx.fillStyle='#6a6a78'; ctx.fillRect(dx+16,dy+22,5,5); ctx.fillStyle='#9a9aa8'; ctx.fillRect(dx+16,dy+22,5,1); ctx.fillStyle='#3a6ea8'; ctx.fillRect(dx+17,dy+23,3,1); }
   if (c.sick){ ctx.fillStyle='rgba(140,200,120,0.55)'; ctx.fillRect(dx+6,dy+8,8,2); }
   if (c.office && dir!==1){ const top = dy + (c.profession==='Child'?FH-19:14); if (c.office==='Leader'){ ctx.fillStyle='#f2c14e'; for (let k=0;k<8;k++) ctx.fillRect(dx+5+k, top+1+k, 2, 1); ctx.fillStyle='#fff0a0'; ctx.fillRect(dx+5,top+1,1,1); } else { ctx.fillStyle='#d8dce8'; ctx.fillRect(dx+12,top+2,2,2); ctx.fillStyle='#8a90a8'; ctx.fillRect(dx+13,top+3,1,1); } }
@@ -2609,7 +3034,7 @@ function collectLights(vx, vy, vw, vh){
   const L=[]; const inV=(x,y,r)=> x+r>vx && y+r>vy && x-r<vx+vw && y-r<vy+vh;
   LAMPS.forEach(([x,y])=>{ const X=x*TILE+8, Y=y*TILE-6; if (inV(X,Y,60)) L.push([X,Y,56,0.95]); });
   BUILDINGS.forEach(b=>{ if (!b.windows || !litBuilding(b)) return; b.windows.forEach(([x,y,w,h])=>{ if (inV(x,y,40)) L.push([x+w/2,y+h,34,0.85]); }); if (b.lights) b.lights.forEach(([x,y])=>{ if (inV(x,y,50)) L.push([x,y,44,0.9,'rgba(255,150,60,0.25)']); }); });
-  const smithy = BUILDINGS.find(b=>b.id==='loc_smithy'); if (litBuilding(smithy)) L.push([(smithy.x+smithy.w/2)*TILE,(smithy.y+smithy.h)*TILE,50,0.9,'rgba(255,120,40,0.3)']);
+  const smithy = BUILDINGS.find(b=>b.id==='loc_smithy'); if (smithy && litBuilding(smithy)) L.push([(smithy.x+smithy.w/2)*TILE,(smithy.y+smithy.h)*TILE,50,0.9,'rgba(255,120,40,0.3)']);
   if (S.festival){ for (let i=0;i<7;i++) L.push([(20.5+i*2)*TILE,15*TILE,44,0.9,'rgba(255,120,160,0.25)']); }
   S.citizens.forEach(c=>{ if (c.rt.path){ const X=c.rt.x*TILE+10, Y=c.rt.y*TILE+4; if (inV(X,Y,30)) L.push([X,Y,26,0.55]); } });
   return L;
@@ -2620,7 +3045,7 @@ function spawnParticles(dt, mod, season, vx, vy, vw, vh){
     if (r()>dt*2.5 || !S.citizens.some(c=>c.rt.loc===b.id && !c.rt.path)) return;
     particles.push({x:x+r()*2-1, y, vx:5+r()*5, vy:-9-r()*5, life:2.6, max:2.6, col:r()<0.5?'#c8c8d0':'#a8a8b4', w:2, grow:1.2, a:0.55}); });
   const smith = BUILDINGS.find(b=>b.id==='loc_smithy');
-  if (litBuilding(smith) && r()<dt*8) particles.push({x:(smith.x+2.5)*TILE, y:(smith.y+smith.h)*TILE-10, vx:(r()-.5)*40, vy:-25-r()*25, life:0.5, max:0.5, col:'#ffb040'});
+  if (smith && litBuilding(smith) && r()<dt*8) particles.push({x:(smith.x+2.5)*TILE, y:(smith.y+smith.h)*TILE-10, vx:(r()-.5)*40, vy:-25-r()*25, life:0.5, max:0.5, col:'#ffb040'});
   const area = vw*vh/(400*250);
   if (S.weather==='Rain'||S.weather==='Storm'){ const n=(S.weather==='Storm'?520:300)*area; for (let i=0;i<n*dt;i++){ const x=vx+r()*(vw+60), y=vy-10+r()*vh*0.3; particles.push({kind:'rain', x, y, vx:-60, vy:300+r()*80, life:2, max:2, floor:y+20+r()*vh*0.9}); } }
   if (S.weather==='Snow'){ for (let i=0;i<70*area*dt;i++) particles.push({x:vx+r()*vw, y:vy-2, vx:(r()-.5)*12, vy:14+r()*12, life:14, max:14, col:r()<0.7?'#ffffff':'#dfe8f2', w:r()<0.3?2:1}); }
@@ -2657,7 +3082,8 @@ function renderHeader(){
   $('stats').innerHTML = [
     ['Population', `${S.citizens.length}${S.citizens.some(c=>c.profession==='Child')?` (${S.citizens.filter(c=>c.profession==='Child').length} kids)`:''}`], ['Leader', S.gov.leader && alive(S.gov.leader) ? cById(S.gov.leader).name : 'none'], ['Treasury', `${S.treasury} ¢`], ['Bridge', S.bridge.closed ? 'COLLAPSED' : Math.round(S.bridge.health)+'%'],
     ['Town mood', (mood>=0?'+':'')+mood.toFixed(2)], ['Herd', herdStr(S.herd)], ['Laws', law ? law+' active' : 'none'],
-    ['Next vote', pend ? pend.title : '—'], ['Trades this wk', S.week ? S.week.trades : 0]
+    ['Next vote', pend ? pend.title : '—'], ['Trades this wk', S.week ? S.week.trades : 0],
+    ['Classes', (cc=>`💎${cc.Wealthy} ▲${cc.Upper} ●${cc.Middle} ▽${cc.Poor}`)(classCounts())], ['Building', projects().length ? projects().length+' site'+(projects().length>1?'s':'') : 'none']
   ].map(([k,v])=>`<div class="stat"><small>${k}</small><strong>${esc(v)}</strong></div>`).join('');
   const last = S.chronicle[S.chronicle.length-1];
   $('ticker').innerHTML = last ? `<span>${esc(fmtStamp(last.t))}</span> ${esc(last.icon)} ${esc(last.text)}` : '';
@@ -2687,6 +3113,8 @@ function weekHtml(w, live, idx){
     ${(w.births||[]).length?`<p>👶 Born: ${esc(w.births.join('; '))}</p>`:''}${(w.deaths||[]).length?`<p>🕯️ Died: ${esc(w.deaths.join('; '))}</p>`:''}
     ${(w.arrivals||[]).length?`<p>🧳 Arrived: ${esc(w.arrivals.join('; '))}</p>`:''}${(w.departures||[]).length?`<p>🚶 Left town: ${esc(w.departures.join('; '))}</p>`:''}
     ${(w.sales||[]).length?`<p>🏠 Property: ${esc(w.sales.join('; '))}</p>`:''}
+    ${(w.works||[]).length?`<p>🏗️ Building &amp; demolition: ${esc(w.works.join('; '))}</p>`:''}
+    ${w.classes?`<p>💎 Society: ${w.classes.Wealthy} wealthy · ${w.classes.Upper} upper · ${w.classes.Middle} middle · ${w.classes.Poor} poor</p>`:''}
     <b>Happenings</b><ul>${w.highlights.map(h=>`<li>${esc(h.icon)} <span class="muted">${esc(fmtStamp(h.t))}</span> ${esc(h.text)}</li>`).join('')||'<li class="muted">Nothing notable yet.</li>'}</ul>
     <details><summary class="muted" style="cursor:pointer">Prices this week</summary><table><tr><th>Good</th><th class="num">Start</th><th class="num">End</th><th class="num">Δ</th></tr>${prices}</table></details>
     ${song}
@@ -2718,7 +3146,7 @@ function renderPeople(){
   const profs = [...new Set(S.citizens.map(c=>c.profession))].sort();
   const q = ui.q.toLowerCase();
   const list = S.citizens.filter(c=>(!ui.prof||c.profession===ui.prof) && (!q || c.name.toLowerCase().includes(q))).map(c=>
-    `<div class="cit ${ui.sel===c.id?'sel':''}" data-id="${c.id}"><img src="${thumbFor(c)}" alt=""><div class="who"><b>${esc(c.name)}</b> <span class="muted">${esc(profLabel(c.profession))}</span><small>${esc(doingText(c))} · ${esc(c.mood.emotion)} · ${c.wallet}¢</small></div></div>`).join('');
+    `<div class="cit ${ui.sel===c.id?'sel':''}" data-id="${c.id}"><img src="${thumbFor(c)}" alt=""><div class="who"><b>${esc(c.name)}</b> <span class="muted">${esc(profLabel(c.profession))}</span>${c.cls&&isAdult(c)?` <span class="chip" style="border-color:${CLASS_COL[c.cls]};color:${CLASS_COL[c.cls]}">${c.cls}</span>`:''}<small>${esc(doingText(c))} · ${esc(c.mood.emotion)} · ${c.wallet}¢</small></div></div>`).join('');
   const sel = ui.sel && cById(ui.sel);
   renderAddPanel();
   const panel = $('pList');
@@ -2746,7 +3174,8 @@ function inspector(c){
   const plan = c.plan ? c.plan.blocks.map((b,i)=>`<tr style="${i===c.rt.blockIdx?'color:var(--accent)':''}"><td>${fmtClock(b.s)}</td><td>${esc(b.act)}</td><td>${esc(b.note)}</td></tr>`).join('') : '';
   const inc=weekSum(c,'inc'), exp=weekSum(c,'exp');
   return `<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${esc(c.name)}, ${c.age}</h2><button class="btn ${cam.follow?'on':''}" id="followBtn">${cam.follow?'Following':'Follow on map'}</button></div>
-    <p style="margin:6px 0"><b>${esc(profLabel(c.profession))}</b> · ${esc(LOC[c.home].name)}. ${esc(c.bio)}</p>
+    <p style="margin:6px 0"><b>${esc(profLabel(c.profession))}</b> · ${esc(LOC[c.home]?LOC[c.home].name:'no fixed home')}${c.work&&LOC[c.work]&&c.work!==WORKPLACE[c.profession]?` · works at ${esc(LOC[c.work].name)}`:''}. ${esc(c.bio)}</p>
+    ${c.cls&&isAdult(c)?`<p style="margin:4px 0;font-size:13px">💎 Class: <b style="color:${CLASS_COL[c.cls]}">${c.cls==='Upper'?'Upper class':c.cls==='Middle'?'Middle class':c.cls}</b> · net worth ${c.worth!=null?c.worth:netWorth(c)}¢ (cash plus property)</p>`:''}
     <p class="muted" style="font-size:13px;margin:4px 0">Now: ${esc(doingText(c))}</p>
     ${c.office?`<p style="margin:4px 0">🏛️ <b>${c.office}</b> of Pixel Town · "${esc(PLATFORMS[(S.gov.platforms||{})[c.id]||platformFor(c)].title)}"</p>`:''}
     ${c.agenda?`<p style="margin:4px 0;font-size:13px">🎯 Agenda: <b>${esc(AGENDAS[c.agenda].label)}</b>${c.arrived?` · arrived ${esc(fmtStamp(c.arrived))}`:''}</p>`:''}
@@ -2776,7 +3205,23 @@ function renderMarket(){
     <p class="muted" style="font-size:12px">Prices are recalculated every game hour: P* = base × ((D+5)/(S+5))^elasticity × law multiplier, smoothed and clamped. Sales tax goes to the treasury.</p>
     <h2>Pasture</h2><p>${esc(herdStr(S.herd))} · ranchers raise the herd and sell livestock to the butchers.</p>
     <h2>Treasury</h2><p>${S.treasury}¢ · bridge ${S.bridge.closed?'<b class="No">collapsed</b>':Math.round(S.bridge.health)+'%'} · repairs automatically below 60% once the treasury holds 400¢</p>
-    <h2>Wallets</h2><table>${rich.map(c=>`<tr><td>${esc(c.name)}</td><td>${esc(profLabel(c.profession))}</td><td class="num">${c.wallet}¢</td></tr>`).join('')}</table>`;
+    <h2>Society</h2>${societyHtml()}
+    <h2>Businesses</h2><p class="muted" style="font-size:12px">Rivals compete for customers. Each week the busiest tavern, bathhouse or theater raises its prices and the ones losing customers cut theirs.</p>${bizTable()}
+    <h2>Wallets</h2><table>${rich.map(c=>`<tr><td>${esc(c.name)}</td><td>${esc(profLabel(c.profession))}</td><td>${c.cls&&isAdult(c)?`<span style="color:${CLASS_COL[c.cls]}">${c.cls}</span>`:''}</td><td class="num">${c.wallet}¢</td><td class="num muted">${isAdult(c)?(c.worth!=null?c.worth:netWorth(c))+'¢':''}</td></tr>`).join('')}</table>`;
+}
+function societyHtml(){
+  const cc = classCounts(), tot = Math.max(1, cc.Wealthy+cc.Upper+cc.Middle+cc.Poor);
+  const bar = CLASSES.map(k=>`<i title="${k}: ${cc[k]}" style="display:inline-block;height:12px;width:${(cc[k]/tot*100).toFixed(1)}%;background:${CLASS_COL[k]}"></i>`).join('');
+  const top = S.citizens.filter(c=>c.cls==='Wealthy').sort((a,b)=>(b.worth||0)-(a.worth||0)).slice(0,5);
+  return `<div style="display:flex;width:100%;border-radius:3px;overflow:hidden;margin:4px 0">${bar}</div>
+    <p style="font-size:13px">${CLASSES.map(k=>`<span style="color:${CLASS_COL[k]}">■</span> ${k==='Upper'?'Upper class':k==='Middle'?'Middle class':k} ${cc[k]}`).join(' · ')}</p>
+    <p class="muted" style="font-size:12px">Class follows net worth (cash plus property value) against the rest of town. Wealthy villagers rebuild their houses as palaces and bankroll hotels, apartment blocks, bathhouses and theaters. Poor villagers vote for bread; the wealthy vote for low taxes.</p>
+    ${top.length?`<p style="font-size:13px">💎 Richest: ${top.map(c=>`${esc(c.name)} (${c.worth}¢)`).join(', ')}</p>`:''}`;
+}
+function bizTable(){
+  const rows = BUILDINGS.filter(b=>b.biz && !['clinic','fishhut','barn','mine'].includes(b.biz)).map(b=>{ const pr=propOf(b.id); const staff=S.citizens.filter(c=>c.work===b.id); const st=(S.biz||{})[b.id];
+    return `<tr><td>${esc(b.name)}</td><td>${esc((BUILD_TYPES[b.biz]||{}).label||b.biz)}</td><td>${esc(pr?ownerName(pr.owner):'—')}</td><td class="num">${staff.length}</td><td class="num">${st?Math.round(st.mod*100)+'%':'100%'}</td><td class="num">${st?(st.last!=null?st.last:st.cust):'–'}</td></tr>`; }).join('');
+  return `<table><tr><th>Business</th><th>Type</th><th>Owner</th><th class="num">Staff</th><th class="num">Prices</th><th class="num">Last wk</th></tr>${rows}</table>`;
 }
 // ---------- character templates: upload new villagers as text ----------
 const TEMPLATE_TEXT = `# Pixel Town villager template
@@ -2921,16 +3366,31 @@ function renderLand(){
   const list = Object.values(S.props).filter(p=> f==='all' || (f==='sale'?p.forSale:f==='plot'?p.kind==='plot':p.kind===f)).filter(p=>p.kind!=='plot' || claimed(p.terr) || f==='plot')
     .sort((a,b)=>(b.forSale-a.forSale) || a.kind.localeCompare(b.kind) || propName(a).localeCompare(propName(b)));
   const rows = list.map(p=>{ const res = p.bid ? residentsOf(p.bid).filter(isAdult).length : 0;
-    const status = p.status==='construction' ? `🏗️ building, ${Math.max(0,p.build.until-dayOf(S.minute))}d left` : p.forSale ? `<b class="Yes">For sale ${p.ask}¢</b>` : p.kind==='plot' && !claimed(p.terr) ? 'unclaimed land' : '';
-    const canList = p.status!=='construction' && (p.kind!=='plot' || claimed(p.terr));
-    return `<tr><td>${esc(propName(p))}</td><td>${p.kind}</td><td>${esc(ownerName(p.owner))}</td><td class="num">${p.kind==='plot'?'–':res}</td><td class="num">${p.value}¢</td><td>${status}</td><td>${canList?`<button class="btn" style="padding:1px 6px;font-size:12px" data-sale="${p.id}">${p.forSale?'Unlist':'Sell'}</button>`:''}</td></tr>`; }).join('');
+    const status = p.status==='construction' ? `🏗️ ${esc((BUILD_TYPES[p.build.type]||{label:'building'}).label.toLowerCase())}, ${Math.max(0,p.build.until-dayOf(S.minute))}d left` : p.status==='rubble' ? '🧱 clearing rubble' : p.forSale ? `<b class="Yes">For sale ${p.ask}¢</b>` : p.kind==='plot' && !claimed(p.terr) ? 'unclaimed land' : '';
+    const canList = p.status!=='construction' && p.status!=='rubble' && (p.kind!=='plot' || claimed(p.terr));
+    const canDemo = p.bid && p.status!=='construction' && !PROTECTED.has(p.bid) && LOC[p.bid];
+    const kind = p.type && BUILD_TYPES[p.type] ? BUILD_TYPES[p.type].label : p.kind;
+    return `<tr><td>${esc(propName(p))}</td><td>${esc(kind)}</td><td>${esc(ownerName(p.owner))}</td><td class="num">${p.kind==='plot'?'–':res}</td><td class="num">${p.value}¢</td><td>${status}</td><td style="white-space:nowrap">${canList?`<button class="btn" style="padding:1px 6px;font-size:12px" data-sale="${p.id}">${p.forSale?'Unlist':'Sell'}</button>`:''}${canDemo?` <button class="btn" style="padding:1px 6px;font-size:12px" data-demo="${p.id}" title="Tear this building down">🧱</button>`:''}</td></tr>`; }).join('');
+  const buildable = Object.values(S.props).filter(p=>p.kind==='plot' && claimed(p.terr) && !p.status || p.kind==='plot' && claimed(p.terr) && p.status==='plot').filter(p=>p.owner==='town').sort((a,b)=>propName(a).localeCompare(propName(b)));
+  const bsel = ui.buildType || 'house';
+  const builder = `<div class="card"><b>Town builder</b><p class="muted" style="font-size:12px;margin:4px 0">Commission a building on a town-owned plot. The treasury pays, the carpenters build it, and the town owns it: homes are rented to villagers, businesses hire staff and pay the treasury.</p>
+    ${buildable.length?`<div class="row"><select id="bPlot">${buildable.map(p=>`<option value="${p.id}" ${ui.buildPlot===p.id?'selected':''}>${esc(propName(p))}</option>`).join('')}</select><select id="bType">${Object.entries(BUILD_TYPES).map(([k,t])=>`<option value="${k}" ${bsel===k?'selected':''}>${esc(t.label)} · ${t.cost}¢ · ${t.days}d</option>`).join('')}</select><button class="btn primary" id="bGo" ${S.treasury<BUILD_TYPES[bsel].cost?'disabled':''}>Break ground</button></div>
+    <p class="muted" style="font-size:12px;margin:4px 0">Treasury: ${S.treasury}¢${S.treasury<BUILD_TYPES[bsel].cost?` · <span class="No">not enough for a ${esc(BUILD_TYPES[bsel].label.toLowerCase())}</span>`:''}</p>`:'<p class="muted" style="font-size:12px">No free town plots right now. Demolish something, or annex more land.</p>'}
+    ${projects().length?`<p style="font-size:13px;margin:4px 0">🏗️ Under construction: ${projects().map(p=>`${esc(BUILD_TYPES[p.build.type].label)} for ${esc(ownerName(p.build.by))} (${Math.max(0,p.build.until-dayOf(S.minute))}d)`).join(' · ')}</p>`:''}</div>`;
   const sales = S.land.sales.slice(0,12).map(x=>`<div class="vote"><span class="muted">Day ${x.day+1}</span> ${esc(x.to)} bought <b>${esc(x.name)}</b> from ${esc(x.from)} for ${x.price}¢</div>`).join('') || '<p class="muted">No sales yet.</p>';
   $('p-land').innerHTML = `<h2>Territories</h2>${terr}
-    <h2>Property</h2><p class="muted" style="font-size:12px">Every home, business and plot has an owner. Villagers buy and sell on their own: investors buy homes to rent out, newcomers buy plots and hire the carpenters to build, and struggling owners sell. Tenants pay rent to the owner; workers pay a small lease to their shop's owner. Use "Sell" to put anything on the market yourself.</p>
+    <h2>Build &amp; demolish</h2>${builder}
+    <h2>Property</h2><p class="muted" style="font-size:12px">Every home, business and plot has an owner. Villagers buy and sell on their own: investors buy homes to rent out, newcomers buy plots and hire the carpenters to build, and struggling owners sell. Tenants pay rent to the owner; workers pay a small lease to their shop's owner. Wealthy owners tear down houses to build palaces; investors put up hotels, apartment blocks, bathhouses and theaters; tradespeople open rival shops. Use "Sell" to put anything on the market yourself, or 🧱 to demolish a building.</p>
     <div class="row" style="margin-bottom:6px"><select id="landF">${[['all','Everything'],['sale','For sale'],['home','Homes'],['business','Businesses'],['plot','Plots']].map(([k,l])=>`<option value="${k}" ${f===k?'selected':''}>${l}</option>`).join('')}</select><span class="muted" style="font-size:12px">Land values follow the town's prosperity (×${prosperity().toFixed(2)})</span></div>
     <table><tr><th>Property</th><th>Kind</th><th>Owner</th><th class="num">Live</th><th class="num">Value</th><th>Status</th><th></th></tr>${rows}</table>
     <h2>Recent sales</h2>${sales}`;
   $('landF').onchange = e=>{ ui.landFilter=e.target.value; renderLand(); };
+  if ($('bType')){ $('bType').onchange = e=>{ ui.buildType=e.target.value; renderLand(); }; $('bPlot').onchange = e=>{ ui.buildPlot=e.target.value; };
+    $('bGo').onclick = ()=>{ const p=S.props[$('bPlot').value], type=$('bType').value, bt=BUILD_TYPES[type]; if (!p || S.treasury<bt.cost) return;
+      startConstruction(p, null, type, {townPays:true}); ui.buildPlot=null; saveGame(true); renderLand(); }; }
+  $('p-land').querySelectorAll('[data-demo]').forEach(b=>b.onclick=()=>{ const p=S.props[b.dataset.demo]; const n=propName(p); const res=residentsOf(p.bid).length;
+    if (!confirm(`Demolish ${n}?${res?` ${res} resident${res>1?'s':''} will have to move into lodgings.`:''} The land becomes an empty plot owned by ${ownerName(p.owner)}.`)) return;
+    demolish(p, 'by order of the town'); saveGame(true); renderLand(); });
   $('p-land').querySelectorAll('[data-sale]').forEach(b=>b.onclick=()=>{ const p=S.props[b.dataset.sale]; if (p.forSale){ p.forSale=false; p.ask=0; } else listProp(p, p.value, 'put up by the town clerk'); renderLand(); });
   $('p-land').querySelectorAll('[data-annex]').forEach(b=>b.onclick=()=>{ S.gov.forceAnnex = b.dataset.annex; chronicle(`A petition to annex ${TERRITORIES.find(t=>t.id===b.dataset.annex).name} was filed with the council.`, 5, '📜', 'gov'); renderLand(); });
 }
@@ -3222,6 +3682,7 @@ function welcome(upgraded){
     <li>The town keeps running while the page is closed (up to 7 game days are simulated when you return).</li>
     <li>Every 4 weeks the town elects a <b>leader</b> and a <b>council of 5</b>, who draft laws and sway votes (<b>Gov</b> tab).</li>
     <li>Homes, businesses and plots are bought and sold, and the town can vote to annex new territory (<b>Land</b> tab).</li>
+    <li>Villagers are wealthy, upper, middle class or poor. The rich build palaces, hotels, apartment towers, bathhouses and theaters, rivals open competing shops, and you can build or demolish from the <b>Land</b> tab.</li>
     <li>Villagers marry, have children and pass away; newcomers arrive with their own agendas. Add your own in <b>People</b> using the villager template.</li>
     <li>Turn on the soundtrack in <b>Music</b>, and add your own Suno songs there.</li></ul>
     <div class="row" style="margin-top:10px"><button class="btn primary" id="ovGo">Enter town</button><button class="btn" id="ovMusic">Enter with music ♪</button></div>`);
@@ -3234,7 +3695,7 @@ function boot(){
   const sv = loadGame();
   let upgraded = false;
   if (sv){
-    S = sv.state; RNG.s = S.rng || 1; S.bubbles = []; (S.built||[]).forEach(applyBuilt); Object.values(S.props||{}).forEach(pr=>{ if (pr.status==='construction') clearPlot(PLOTS.find(x=>x.id===pr.plot)); }); indexCitizens();
+    S = sv.state; RNG.s = S.rng || 1; S.bubbles = []; upgradeV3(S); fixPropTypes(); applyWorldChanges(); fixPropTypes(); indexCitizens();
     clock.speed = sv.clock.speed||1; clock.paused = !!sv.clock.paused;
     clock.gameAnchor = S.minute; clock.realAnchor = Date.now();
     if (!clock.paused){
