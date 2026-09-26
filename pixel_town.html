@@ -28,7 +28,7 @@ main{display:grid;grid-template-columns:minmax(0,1fr) 400px;min-height:calc(100v
 #viewWrap{position:relative;width:100%;height:clamp(320px,66vh,820px);border:2px solid var(--line);border-radius:4px;overflow:hidden;background:#0b0c12}
 #view{width:100%;height:100%;display:block;image-rendering:pixelated;cursor:grab;touch-action:none}
 #view.dragging{cursor:grabbing}
-#mini{position:absolute;top:8px;right:8px;width:180px;height:113px;border:2px solid rgba(255,255,255,.35);border-radius:3px;image-rendering:pixelated;cursor:pointer;background:#000}
+#mini{position:absolute;top:8px;right:8px;width:209px;height:95px;border:2px solid rgba(255,255,255,.35);border-radius:3px;image-rendering:pixelated;cursor:pointer;background:#000}
 .camctl{position:absolute;right:8px;bottom:8px;display:flex;gap:4px}
 .camctl button{background:rgba(20,21,32,.85);border:1px solid rgba(255,255,255,.3);border-radius:4px;color:#fff;width:34px;height:34px;cursor:pointer;font-size:16px}
 .camctl button.on{border-color:var(--accent);color:var(--accent)}
@@ -93,7 +93,7 @@ a{color:var(--link)}
   .speed{margin-left:0}
   #stage{padding:10px 16px}
   #viewWrap{height:clamp(300px,58vh,640px)}
-  #mini{width:120px;height:75px}
+  #mini{width:132px;height:60px}
 }
 </style>
 </head>
@@ -107,7 +107,7 @@ a{color:var(--link)}
   <section id="stage">
     <div id="viewWrap">
       <canvas id="view"></canvas>
-      <canvas id="mini" width="160" height="100" title="Minimap: tap to jump"></canvas>
+      <canvas id="mini" width="220" height="100" title="Minimap: tap to jump"></canvas>
       <div class="camctl">
         <button id="zOut" title="Zoom out">−</button>
         <button id="zIn" title="Zoom in">+</button>
@@ -125,13 +125,15 @@ a{color:var(--link)}
       <button data-p="weeks">Weekly</button>
       <button data-p="people">People</button>
       <button data-p="market">Market</button>
-      <button data-p="laws">Laws</button>
+      <button data-p="land">Land</button>
+      <button data-p="laws">Gov</button>
       <button data-p="music">Music</button>
     </div>
     <div class="panel on" id="p-chron"></div>
     <div class="panel" id="p-weeks"></div>
-    <div class="panel" id="p-people"></div>
+    <div class="panel" id="p-people"><div id="pAdd"></div><div id="pList"></div></div>
     <div class="panel" id="p-market"></div>
+    <div class="panel" id="p-land"></div>
     <div class="panel" id="p-laws"></div>
     <div class="panel" id="p-music"></div>
   </aside>
@@ -159,7 +161,7 @@ const store = {
 const SAVE_KEY = 'pixeltown.save.v2', OLD_SAVE_KEY = 'pixeltown.save.v1', MUSIC_KEY = 'pixeltown.music.v1';
 
 // ---------- constants ----------
-const TILE = 16, MW = 80, MH = 50, WW = MW*TILE, WH = MH*TILE;
+const TILE = 16, MW = 110, MH = 50, WW = MW*TILE, WH = MH*TILE, OLD_W = 80;
 const MS_PER_GAME_MIN = 2500;
 const DAY = 1440;
 const SEASONS = ['Spring','Summer','Fall','Winter'];
@@ -251,16 +253,50 @@ Object.assign(LOC, {
   loc_pasture:     {id:'loc_pasture',     name:'West Pasture', rects:[[3,36,15,47]]},
   loc_docks:       {id:'loc_docks',       name:'Lake Docks',  rects:[]},
   loc_east_grove:  {id:'loc_east_grove',  name:'East Grove',  rects:[[61,17,67,23]]},
-  loc_well:        {id:'loc_well',        name:'Town Well',   rects:[[20,22,24,25]]}
+  loc_well:        {id:'loc_well',        name:'Town Well',   rects:[[20,22,24,25]]},
+  loc_school:      {id:'loc_school',      name:'Schoolhouse (Town Hall)', indoor:true, door:[26,14]}
 });
 Object.values(LOC).forEach(L=>{ if (!L.indoor) L.indoor=false; });
 let LAMPS = [];
 const MAP = [], TVAR = [];
-let BRIDGE_TILES = [], DOCK_TILES = [], WATER_TILES = [], PUDDLES = [], RAIL_TILES = [];
+let BRIDGE_TILES = [], DOCK_TILES = [], WATER_TILES = [], PUDDLES = [], RAIL_TILES = [], GRAVE_SLOTS = [], PLOTS = [];
+// territories: the town starts with the core and the east grove; the rest must be annexed by law
+const TERRITORIES = [
+  {id:'t_core',  name:'Pixel Town',            rect:[0,0,56,49],   cost:0,   start:true},
+  {id:'t_grove', name:'East Grove & Deepvein', rect:[57,0,79,33],  cost:0,   start:true},
+  {id:'t_south', name:'Southshore',            rect:[57,34,79,49], cost:350, perk:'Lakeside land and better fishing (+20% catches)'},
+  {id:'t_east',  name:'Eastmarch Meadows',     rect:[80,20,109,49],cost:600, perk:'Open meadows and new farmland (+20% harvests)'},
+  {id:'t_high',  name:'Highcrest',             rect:[80,0,109,19], cost:800, perk:'Hill country with new ore seams (+25% mining)'}
+];
+function terrAt(x,y){ return TERRITORIES.find(t=>x>=t.rect[0]&&x<=t.rect[2]&&y>=t.rect[1]&&y<=t.rect[3]); }
+// the frontier east of the old map edge: Highcrest hills to the north, Eastmarch meadows and a pond to the south
+function buildFrontier(set, get, fr){
+  for (let y=0;y<MH;y++) for (let x=OLD_W;x<MW;x++){
+    const n = hashf(x>>2,y>>2,31)*0.6 + hashf(x,y,32)*0.4;
+    if (y<=19){ const rock = (19-y)/19*0.55 + (hashf(x>>1,y>>1,33)-0.5)*0.5; if (rock>0.45) set(x,y,T.ROCK); else if (n>0.55) set(x,y,T.TREE); }
+    else { const edge = x<OLD_W+4 ? 0.55 : 0; if (n>0.78-edge*0.3 || (edge && fr()<0.5)) set(x,y,T.TREE); else if (fr()<0.07) set(x,y,T.FLOWER); }
+  }
+  for (let y=29;y<=37;y++) for (let x=94;x<=104;x++){ const dx=(x-99)/5, dy=(y-33)/3.8; if (dx*dx+dy*dy<=1) set(x,y,T.WATER); else if (dx*dx+dy*dy<=1.6 && get(x,y)!==T.TREE) set(x,y,T.SAND); }
+}
+// buildable 4x4 plots, found by scanning each territory for clear ground
+function computePlots(){
+  PLOTS=[]; const caps={t_core:3,t_grove:2,t_south:4,t_east:8,t_high:5};
+  const okFoot = t => t===T.GRASS||t===T.FLOWER||t===T.TREE||t===T.SAND;
+  TERRITORIES.forEach(tr=>{
+    let n=0; const [x0,y0,x1,y1]=tr.rect;
+    for (let y=y0+1;y<=y1-5 && n<caps[tr.id];y+=2) for (let x=x0+1;x<=x1-4 && n<caps[tr.id];x+=2){
+      let ok=true;
+      for (let j=-1;j<=4 && ok;j++) for (let i=-1;i<=4 && ok;i++){ const t=(MAP[y+j]||[])[x+i]; if (t===undefined){ ok=false; break; } if (j>=0&&j<4&&i>=0&&i<4){ if (!okFoot(t)) ok=false; } else if (t===T.BUILD||t===T.WATER||t===T.FENCE||t===T.OBJ||t===T.PLAZA||t===T.FIELD||t===T.DOCK||t===T.BRIDGE) ok=false; }
+      if (ok && PLOTS.some(p=>Math.abs(p.x-x)<6 && Math.abs(p.y-y)<6)) ok=false;
+      if (ok){ PLOTS.push({id:'plot_'+pad2(PLOTS.length+1), x, y, w:4, h:4, terr:tr.id}); n++; }
+    }
+  });
+}
 function riverX(y){ return 50 + Math.round(1.6*Math.sin(y/6)); }
 function buildMap(){
   const mr = mapRand(77);
-  for (let y=0;y<MH;y++){ MAP[y]=[]; TVAR[y]=[]; for (let x=0;x<MW;x++){ MAP[y][x]=T.GRASS; TVAR[y][x]=mr(); } }
+  const fr = mapRand(78);
+  for (let y=0;y<MH;y++){ MAP[y]=[]; TVAR[y]=[]; for (let x=0;x<MW;x++){ MAP[y][x]=T.GRASS; TVAR[y][x]= x<OLD_W ? mr() : fr(); } }
   const set = (x,y,t) => { if (x>=0&&y>=0&&x<MW&&y<MH) MAP[y][x]=t; };
   const get = (x,y) => (x>=0&&y>=0&&x<MW&&y<MH) ? MAP[y][x] : -1;
   // river + lake
@@ -271,15 +307,16 @@ function buildMap(){
   BRIDGE_TILES=[]; { const xs=[]; for (const y of [20,21]) for (let x=44;x<58;x++) if (get(x,y)===T.WATER) xs.push(x); const x0=Math.min(...xs)-1, x1=Math.max(...xs)+1;
     for (const y of [20,21]) for (let x=x0;x<=x1;x++){ set(x,y,T.BRIDGE); BRIDGE_TILES.push([x,y]); } }
   // NE mountains
-  for (let y=0;y<=9;y++) for (let x=60;x<MW;x++){ const n = (x-60)/20 + (9-y)/12 + (hashf(x,y,5)-0.5)*0.5; if (n>0.75) set(x,y,T.ROCK); }
+  for (let y=0;y<=9;y++) for (let x=60;x<OLD_W;x++){ const n = (x-60)/20 + (9-y)/12 + (hashf(x,y,5)-0.5)*0.5; if (n>0.75) set(x,y,T.ROCK); }
   // forests
-  for (let y=0;y<MH;y++) for (let x=0;x<MW;x++){
+  for (let y=0;y<MH;y++) for (let x=0;x<OLD_W;x++){
     if (get(x,y)!==T.GRASS) continue;
     const east = x > riverX(Math.min(y,40))+2;
     if (east && y<=37 && Math.hypot(x-64,y-20)>4.2 && mr()<0.58) set(x,y,T.TREE);
     if (east && y>37 && mr()<0.45) set(x,y,T.TREE);
     if (!east && (x<1 || y<1) && mr()<0.5) set(x,y,T.TREE);
   }
+  buildFrontier(set, get, fr);
   // plaza, fountain, well, stalls
   for (let y=15;y<=25;y++) for (let x=20;x<=32;x++) set(x,y,T.PLAZA);
   for (let j=0;j<2;j++) for (let i=0;i<2;i++){ set(FOUNTAIN[0]+i,FOUNTAIN[1]+j,T.OBJ); set(WELL[0]+i,WELL[1]+j,T.OBJ); }
@@ -303,9 +340,15 @@ function buildMap(){
   for (let y=17;y<=23;y++) for (let x=61;x<=67;x++) if (get(x,y)===T.TREE) set(x,y,T.GRASS);
   for (let y=2;y<=12;y++) for (let x=63;x<=75;x++){ if (get(x,y)===T.TREE) set(x,y, y<=4 && hashf(x,y,6)<0.5 ? T.ROCK : T.GRASS); } // mine yard
   RAIL_TILES=[]; for (let y=8;y<=11;y++){ RAIL_TILES.push([71,y]); if (get(71,y)!==T.PATH) set(71,y,T.PATH); }
+  // trails out to the frontier territories
+  for (let x=64;x<=92;x++){ carve(x,20); }
+  for (let y=20;y<=28;y++) carve(92,y);
+  for (let x=72;x<=90;x++) carve(x,8);
+  // the King's Road: entrance from the west edge, where newcomers arrive
+  for (let x=0;x<=3;x++){ set(x,20,T.PATH); }
   // auto-roads from every door to the square
   const bWest = Math.min(...BRIDGE_TILES.map(t=>t[0]))-1;
-  const targets = BUILDINGS.map(b => b.door).concat([[9,34],[26,33],[40,31],[45,31],[bWest,20],[bWest,21]]);
+  const targets = BUILDINGS.map(b => b.door).concat([[9,34],[26,33],[40,31],[45,31],[bWest,20],[bWest,21],[3,20]]);
   targets.forEach(d => { const p = astar(d[0],d[1],26,25,roadCost); if (p) p.forEach(([x,y]) => { const t=MAP[y][x]; if (t===T.GRASS||t===T.FLOWER||t===T.SAND) MAP[y][x]=T.PATH; }); });
   BUILDINGS.forEach(b => { const [x,y]=b.door; if (MAP[y][x]!==T.PLAZA) MAP[y][x]=T.PATH; });
   // decorative trees + flowers in town
@@ -318,6 +361,8 @@ function buildMap(){
   // lamps along roads
   LAMPS = [[20,15],[32,15],[20,25],[32,25],[bWest-1,19],[bEast+1,22],[33,17],[19,21],[13,15],[27,31],[40,31],[45,31],[9,33],[6,7],[16,7],[26,7],[36,7],[41,9],[41,21],[62,9]];
   LAMPS = LAMPS.filter(([x,y])=>WALK.has(get(x,y)));
+  computePlots();
+  GRAVE_SLOTS=[]; for (let y=7;y<=9;y++) for (let x=1;x<=6;x++) if (MAP[y][x]===T.GRASS||MAP[y][x]===T.FLOWER){ GRAVE_SLOTS.push([x*TILE+2,y*TILE+2],[x*TILE+9,y*TILE+8]); }
   WATER_TILES=[]; for (let y=0;y<MH;y++) for (let x=0;x<MW;x++) if (MAP[y][x]===T.WATER) WATER_TILES.push([x,y]);
   PUDDLES=[]; for (let y=0;y<MH;y++) for (let x=0;x<MW;x++) if ((MAP[y][x]===T.PATH||MAP[y][x]===T.PLAZA) && hashf(x,y,99)<0.1) PUDDLES.push([x,y]);
 }
@@ -418,6 +463,7 @@ const CIT_DEFS = [
 const PROF_COUNTS = {Farmer:9,Rancher:4,Butcher:3,Fisher:5,Baker:4,Woodcutter:4,Miner:4,Blacksmith:2,Carpenter:4,TavernKeeper:3,Doctor:2,Merchant:2,Unemployed:4};
 const WORKPLACE = {Carpenter:'loc_carpentry',Woodcutter:'loc_east_grove',Miner:'loc_mine',Blacksmith:'loc_smithy',Baker:'loc_bakery',TavernKeeper:'loc_tavern',Doctor:'loc_clinic',Merchant:'loc_market',Farmer:'loc_farm',Rancher:'loc_pasture',Butcher:'loc_butcher',Fisher:'loc_docks',Unemployed:null};
 const PROF_LABEL = {TavernKeeper:'Tavern keeper'};
+WORKPLACE.Child = 'loc_school';
 const profLabel = p => PROF_LABEL[p]||p;
 const OUTDOOR_WORK = ['Farmer','Woodcutter','Unemployed','Fisher','Rancher'];
 const TOOL_USERS = ['Farmer','Woodcutter','Miner','Fisher','Rancher'];
@@ -462,8 +508,9 @@ function lookFor(prof, r, skin, hair, style, beard){
     TavernKeeper:{shirt:['#8a2a5a','#2a4a6a'], pants:'#2e2a30', apron:'#e0d8c8'},
     Doctor:{shirt:['#dfe8f6'], pants:'#3a3a4a', coat:'#f4f6fa'},
     Merchant:{shirt:['#6a3aa0','#2a6a6a'], pants:'#2e2a30', hat:'tricorn', hatCol:'#3a2050', coat:null, trim:true},
-    Unemployed:{shirt:['#4a7ab0','#8a5a3a','#6a6a4a'], pants:'#3a3a4a', trim:true}
-  }[prof];
+    Unemployed:{shirt:['#4a7ab0','#8a5a3a','#6a6a4a'], pants:'#3a3a4a', trim:true},
+    Child:{shirt:['#e84a4a','#3a8ac8','#f2c14e','#6ab04a'], pants:'#4a5a8a', trim:true}
+  }[prof] || {shirt:['#6a6a78'], pants:'#3a3a4a'};
   return {skin, hair, style, beard:!!beard, shirt:P.shirt[Math.floor(r()*P.shirt.length)], pants:P.pants, hat:P.hat||null, hatCol:P.hatCol, apron:P.apron||null, bib:!!P.bib, stains:!!P.stains, coat:P.coat||null, trim:!!P.trim || r()<0.3, boots: r()<0.5?'#6a4028':'#4a3024'};
 }
 
@@ -472,28 +519,17 @@ let S = null;
 function newState(){
   RNG.s = 20260926;
   const st = {
-    v:2, minute: 6*60, founded: Date.now(), memCounter:0,
+    v:3, minute: 6*60, founded: Date.now(), memCounter:0,
     treasury:300, bridge:{health:62, closed:false},
     weather:'Clear', festival:false, herd:{cow:6, sheep:10, pig:6, chicken:14},
     goods:{}, listings:[], citizens:[],
-    gov:{proposals:[], nextId:1, cooldown:{}},
-    chronicle:[], weeks:[], week:null
+    gov:{proposals:[], nextId:1, cooldown:{}, leader:null, council:[], elections:[], campaign:null, platforms:{}},
+    chronicle:[], weeks:[], week:null,
+    terr:{t_core:true, t_grove:true}, props:{}, land:{sales:[]}, built:[], deceased:[], departed:[]
   };
   GOOD_DEFS.forEach(g => st.goods[g.id] = {price:g.base, dem:new Array(24).fill(0), sup:new Array(24).fill(0), unmet:new Array(24).fill(0), hist:[g.base]});
   const r = mapRand(4242);
-  const mkCit = d => ({
-    id:d.id, name:d.name, age:d.age, bio:d.bio, profession:d.prof, home:d.home, work:WORKPLACE[d.prof],
-    personality:{openness:d.p[0],conscientiousness:d.p[1],extraversion:d.p[2],agreeableness:d.p[3],neuroticism:d.p[4]},
-    traits:d.traits.slice(), values:d.values.slice(),
-    politics:{economicLeaning:d.pol[0],orderLeaning:d.pol[1],civicEngagement:d.pol[2]},
-    mood:{valence:.3,arousal:.4,stress:.2,emotion:'Content',emoUntil:0,emoForced:null},
-    needs:{hunger:80,energy:80,social:60,comfort:70,fun:60},
-    wallet:d.wallet, days:[newDayBucket()], inventory:{}, rel:{},
-    memory:{records:[],since:0,lastReflection:0},
-    plan:null, rt:{state:'Sleeping',loc:d.home,x:0,y:0,ox:0,oy:0,seg:null,path:null,blockIdx:-1,since:0,did:false,dir:0},
-    tool:70+Math.floor(hash(d.id)%30), sick:0, workAcc:0, herdAcc:0, svcUsed:0, lastTry:{}, partner:null, courting:null, courtingSince:0,
-    look:d.look
-  });
+  const mkCit = makeCitizen;
   const remaining = Object.assign({}, PROF_COUNTS);
   CIT_DEFS.forEach(d => { remaining[d.prof]--; d.look = lookFor(d.prof, mapRand(hash(d.id)), d.skin, d.hair, d.style, d.beard); st.citizens.push(mkCit(d)); });
   // generated villagers: families in the remaining houses and a few shop lofts
@@ -527,20 +563,40 @@ function newState(){
     if (members.length>=2 && members[0].age>25 && members[1].age>25 && Math.abs(members[0].age-members[1].age)<14){ members[0]._spouse=members[1].id; members[1]._spouse=members[0].id; }
   });
   const byId = Object.fromEntries(st.citizens.map(c=>[c.id,c]));
-  st.citizens.forEach(a => st.citizens.forEach(b => { if (a!==b) a.rel[b.id] = {affinity:a.profession===b.profession?20:(a.home===b.home?30:5), trust:.4, familiarity:a.profession===b.profession?.5:.2, tags:a.profession===b.profession?['Coworker']:['Neighbor'], last:0}; }));
-  st.citizens.forEach(a => { (a._fam||[]).forEach(id=>{ const R=a.rel[id]; R.affinity=60; R.trust=.8; R.familiarity=.9; R.tags=['Family']; }); if (a._spouse){ const R=a.rel[a._spouse]; R.affinity=85; R.tags=['Spouse','Family']; a.partner=a._spouse; } delete a._fam; delete a._spouse; });
+  st.citizens.forEach(a => st.citizens.forEach(b => { if (a!==b && (a.profession===b.profession || a.home===b.home)) a.rel[b.id] = {affinity:a.profession===b.profession?20:(a.home===b.home?30:5), trust:.4, familiarity:a.profession===b.profession?.5:.2, tags:a.profession===b.profession?['Coworker']:['Neighbor'], last:0}; }));
+  st.citizens.forEach(a => { (a._fam||[]).forEach(id=>{ const R=getRel(a,id); R.affinity=60; R.trust=.8; R.familiarity=.9; R.tags=['Family']; }); if (a._spouse){ const R=getRel(a,a._spouse); R.affinity=85; R.tags=['Spouse','Family']; a.partner=a._spouse; } delete a._fam; delete a._spouse; });
   INIT_RELS.forEach(([a,b,aff,tr,tags]) => { [[a,b],[b,a]].forEach(([p,q]) => { byId[p].rel[q] = {affinity:aff, trust:tr, familiarity:.8, tags:tags.slice(), last:0}; }); });
-  byId.cit_finn_ashby.rel.cit_pell_marsh.tags.push('Crush'); byId.cit_finn_ashby.rel.cit_pell_marsh.affinity = 48;
+  { const R = getRel(byId.cit_finn_ashby,'cit_pell_marsh'); R.tags.push('Crush'); R.affinity = 48; }
   byId.cit_tobias_reed.partner = 'cit_lila_reed'; byId.cit_lila_reed.partner = 'cit_tobias_reed';
   const gen = st.citizens.slice(12);
-  for (let i=0;i<30;i++){ const a=gen[Math.floor(r()*gen.length)], b=st.citizens[Math.floor(r()*st.citizens.length)]; if (a===b||a.rel[b.id].tags.includes('Family')) continue; const rival=r()<0.25; [[a,b],[b,a]].forEach(([p,q])=>{ const R=p.rel[q.id]; R.affinity= rival?-45:52; R.trust= rival?.2:.65; R.tags=[rival?'Rival':'Friend']; }); }
+  for (let i=0;i<30;i++){ const a=gen[Math.floor(r()*gen.length)], b=st.citizens[Math.floor(r()*st.citizens.length)]; if (a===b||peekRel(a,b.id).tags.includes('Family')) continue; const rival=r()<0.25; [[a,b],[b,a]].forEach(([p,q])=>{ const R=getRel(p,q.id); R.affinity= rival?-45:52; R.trust= rival?.2:.65; R.tags=[rival?'Rival':'Friend']; }); }
   st.citizens.forEach(c=>{ const [x,y] = LOC[c.home].door; c.rt.x=c.rt.ox=x; c.rt.y=c.rt.oy=y; });
+  st.props = initProperties(st);
   return st;
 }
+function makeCitizen(d){
+  return {
+    id:d.id, name:d.name, age:d.age, bio:d.bio||'', profession:d.prof, home:d.home, work:WORKPLACE[d.prof]||null,
+    personality:{openness:d.p[0],conscientiousness:d.p[1],extraversion:d.p[2],agreeableness:d.p[3],neuroticism:d.p[4]},
+    traits:d.traits.slice(), values:d.values.slice(),
+    politics:{economicLeaning:d.pol[0],orderLeaning:d.pol[1],civicEngagement:d.pol[2]},
+    mood:{valence:.3,arousal:.4,stress:.2,emotion:'Content',emoUntil:0,emoForced:null},
+    needs:{hunger:80,energy:80,social:60,comfort:70,fun:60},
+    wallet:d.wallet, days:[newDayBucket()], inventory:{}, rel:{},
+    memory:{records:[],since:0,lastReflection:0},
+    plan:null, rt:{state:'Sleeping',loc:d.home,x:0,y:0,ox:0,oy:0,seg:null,path:null,blockIdx:-1,since:0,did:false,dir:0},
+    tool:70+Math.floor(hash(d.id)%30), sick:0, workAcc:0, herdAcc:0, svcUsed:0, lastTry:{}, partner:null, courting:null, courtingSince:0,
+    look:d.look, agenda:d.agenda||null, parents:d.parents||[], kids:[], office:null, unhappy:0, arrived:d.arrived||0
+  };
+}
+// relationships are stored only once they differ from "neighbor" (keeps saves small with 100 villagers)
+const REL0 = Object.freeze({affinity:5, trust:.4, familiarity:.2, tags:Object.freeze(['Neighbor']), last:0});
+function peekRel(a,id){ return a.rel[id] || REL0; }
+function getRel(a,id){ return a.rel[id] || (a.rel[id] = {affinity:5, trust:.4, familiarity:.2, tags:['Neighbor'], last:0}); }
 function newDayBucket(){ return {inc:0,exp:0,tax:0,bought:{},sold:{}}; }
 let CBY = {}, HOUSEHOLDS = {};
 const cById = id => CBY[id];
-function indexCitizens(){ CBY = Object.fromEntries(S.citizens.map(c=>[c.id,c])); HOUSEHOLDS = {}; S.citizens.forEach(c=>{ (HOUSEHOLDS[c.home]=HOUSEHOLDS[c.home]||[]).push(c.id); }); }
+function indexCitizens(){ CBY = {}; (S.deceased||[]).forEach(d=>CBY[d.id]={id:d.id,name:d.name,dead:true}); (S.departed||[]).forEach(d=>CBY[d.id]={id:d.id,name:d.name,dead:true,left:true}); S.citizens.forEach(c=>CBY[c.id]=c); HOUSEHOLDS = {}; S.citizens.forEach(c=>{ (HOUSEHOLDS[c.home]=HOUSEHOLDS[c.home]||[]).push(c.id); }); }
 
 // ---------- calendar ----------
 const dayOf = m => Math.floor(m/DAY);
@@ -665,6 +721,16 @@ function isTownHallDay(d){ return d%7===6; }
 function buildPlan(c, day){
   const B=[]; let t=0; const home=c.home, work=c.work||'loc_town_square';
   const add=(end,act,loc,note,target)=>{ end=Math.min(DAY,Math.round(end)); if (end<=t) return; B.push({s:t,d:end-t,act,loc,note,target}); t=end; };
+  if (c.profession==='Child'){
+    add(7*60+hash(c.id+day)%30,'Sleep',home,'Sleeping'); add(t+30,'Eat',home,'Breakfast');
+    if (c.age>=5 && day%7!==6){ add(12*60,'Work','loc_school','Lessons at the schoolhouse'); add(t+45,'Eat',home,'Lunch at home');
+      add(16*60+30, S.weather==='Storm'?'Leisure':'Socialize', S.weather==='Storm'?home:'loc_town_square', S.weather==='Storm'?'Stuck inside, bored':'Playing on the square'); }
+    else if (c.age>=5){ add(11*60,'Leisure',home,'Sleeping in'); add(16*60, S.weather==='Storm'?'Leisure':'Socialize', S.weather==='Storm'?home:'loc_town_square','Playing on the square'); }
+    else add(17*60,'Leisure',home,'Playing at home');
+    if (S.festival) add(20*60,'Socialize','loc_town_square','Festival games');
+    add(t+60,'Eat',home,'Supper'); add(t+90,'Leisure',home,'Bedtime story'); add(DAY,'Sleep',home,'Sleeping');
+    return {day, by:'Fallback', blocks:B};
+  }
   const has = tr => c.traits.includes(tr);
   const jit = hash(c.id+day)%25;
   const hall = isTownHallDay(day);
@@ -796,7 +862,7 @@ function clinicVisit(c){
   else remember(c, 'I went to the clinic but could not get seen.', 4);
 }
 function charity(c){
-  const donor = S.citizens.filter(d => d!==c && (d.traits.includes('Generous') || d.rel[c.id].affinity>60) && d.wallet>150 && d.rel[c.id].affinity>10).sort((a,b)=>b.rel[c.id].affinity-a.rel[c.id].affinity)[0];
+  const donor = S.citizens.filter(d => d!==c && (d.traits.includes('Generous') || peekRel(d,c.id).affinity>60) && d.wallet>150 && d.age>=16 && peekRel(d,c.id).affinity>10).sort((a,b)=>peekRel(b,c.id).affinity-peekRel(a,c.id).affinity)[0];
   if (!donor) return;
   const amt = 20; donor.wallet -= amt; c.wallet += amt;
   chronicle(`${donor.name} gave ${c.name} ${amt} coins for food.`, 4, '🤝', 'social');
@@ -841,6 +907,7 @@ function work(c){
   const P = PROD[c.profession]; if (!P) return;
   const season = seasonOf(dayOf(S.minute));
   let every = P.every;
+  if (c.profession==='Farmer') every*=perk('farm'); if (c.profession==='Fisher') every*=perk('fish'); if (c.profession==='Miner') every*=perk('mine');
   if (c.profession==='Farmer'){ if (S.weather==='Snow') every*=2; if (S.weather==='Rain') every*=0.85; if (season===3) every*=1.4; }
   if (c.profession==='Fisher'){ if (S.weather==='Rain') every*=0.8; if (S.weather==='Snow') every*=1.4; if (season===3) every*=1.2; }
   if (P.tool) every = useTool(c, every);
@@ -885,13 +952,13 @@ function ranch(c, every){
   if (big - listed('good_livestock') > 10 && S.minute-(c.lastTry.ls||-999)>60){ c.lastTry.ls=S.minute; c.inventory.good_livestock=(c.inventory.good_livestock||0)+1; list(c,'good_livestock',1); }
 }
 function adjustRel(a, b, delta){
-  const r = a.rel[b.id]; const before = r.affinity;
+  const r = getRel(a,b.id); const before = r.affinity;
   r.affinity = clamp(Math.round(r.affinity+delta), -100, 100);
   r.trust = clamp(r.trust + (delta>0?0.01:-0.02), 0, 1);
   r.familiarity = clamp(r.familiarity+0.02,0,1); r.last = S.minute;
   if (before<50 && r.affinity>=50 && !r.tags.includes('Friend') && !r.tags.includes('Family')){
     r.tags.push('Friend'); r.tags = r.tags.filter(t=>t!=='Rival');
-    const rb = b.rel[a.id]; if (rb.affinity>=35 && !rb.tags.includes('Friend')){ rb.tags.push('Friend'); rb.tags=rb.tags.filter(t=>t!=='Rival'); chronicle(`${a.name} and ${b.name} have become friends.`, 4, '🤝', 'social'); S.week.rels.push(`${a.name} & ${b.name} became friends`); remember(a,`${b.name} has become a real friend.`,6,[b.id]); remember(b,`${a.name} has become a real friend.`,6,[a.id]); }
+    const rb = getRel(b,a.id); if (rb.affinity>=35 && !rb.tags.includes('Friend')){ rb.tags.push('Friend'); rb.tags=rb.tags.filter(t=>t!=='Rival'); chronicle(`${a.name} and ${b.name} have become friends.`, 4, '🤝', 'social'); S.week.rels.push(`${a.name} & ${b.name} became friends`); remember(a,`${b.name} has become a real friend.`,6,[b.id]); remember(b,`${a.name} has become a real friend.`,6,[a.id]); }
   }
   if (before>-50 && r.affinity<=-50 && !r.tags.includes('Rival')){
     r.tags.push('Rival'); r.tags = r.tags.filter(t=>t!=='Friend');
@@ -904,13 +971,13 @@ function socialize(c){
   const here = S.citizens.filter(o => o!==c && !o.rt.path && o.rt.loc===c.rt.loc && ['Socializing','Idle','Working','AttendingTownHall'].includes(o.rt.state));
   if (!here.length) return;
   const o = here[Math.floor(rnd()*here.length)];
-  const ra = c.rel[o.id];
+  const ra = peekRel(c,o.id);
   const shared = c.values.filter(v=>o.values.includes(v)).length;
   let delta = 0.5 + (c.personality.agreeableness + o.personality.agreeableness - 1)*1.2 + shared*0.6 + rnd()*2 - 1;
   if (delta>0) delta *= Math.max(0.15, 1 - ra.affinity/110);
   const rival = ra.tags.includes('Rival');
   if (rival) delta -= 4;
-  const quarrelChance = (rival?0.1:0.012) + (c.traits.includes('Stubborn')?0.03:0) + (o.traits.includes('Stubborn')?0.03:0) + (c.traits.includes('Reckless')&&c.rt.loc==='loc_tavern'?0.04:0);
+  const quarrelChance = (c.agenda==='trouble'?0.05:0) + (rival?0.1:0.012) + (c.traits.includes('Stubborn')?0.03:0) + (o.traits.includes('Stubborn')?0.03:0) + (c.traits.includes('Reckless')&&c.rt.loc==='loc_tavern'?0.04:0);
   const place = placeName(c.rt.loc);
   if (rnd() < quarrelChance){
     delta = -9 - rnd()*8;
@@ -932,11 +999,12 @@ function socialize(c){
   romance(c,o);
 }
 function romance(a,b){
-  const ra=a.rel[b.id], rb=b.rel[a.id];
+  const ra=getRel(a,b.id), rb=getRel(b,a.id);
   if (a.partner || b.partner) return;
   if (ra.tags.includes('Family') || a.age<18 || b.age<18) return;
   const romantic = a.traits.includes('Romantic') || b.traits.includes('Romantic');
-  if (romantic && ra.affinity>72 && !ra.tags.includes('Crush') && Math.abs(a.age-b.age)<=12){ ra.tags.push('Crush'); chronicle(`${a.name} has a crush on ${b.name}.`, 4, '💘', 'romance'); remember(a,`I think I'm falling for ${b.name}.`,7,[b.id]); }
+  const seeking = romantic || a.agenda==='love' || b.agenda==='love' || a.agenda==='family' || b.agenda==='family' || (a.age>=20 && a.age<=50 && hash(a.id+b.id)%5===0);
+  if (seeking && ra.affinity>72 && !ra.tags.includes('Crush') && Math.abs(a.age-b.age)<=12){ ra.tags.push('Crush'); chronicle(`${a.name} has a crush on ${b.name}.`, 4, '💘', 'romance'); remember(a,`I think I'm falling for ${b.name}.`,7,[b.id]); }
   if (ra.tags.includes('Crush') && rb.tags.includes('Crush') && ra.affinity>85 && rb.affinity>80 && !a.courting && !b.courting){
     a.courting=b.id; b.courting=a.id; a.courtingSince=b.courtingSince=S.minute;
     chronicle(`${a.name} and ${b.name} are courting! The whole tavern is talking about it.`, 7, '💞', 'romance'); S.week.rels.push(`${a.name} & ${b.name} started courting`);
@@ -995,13 +1063,14 @@ const CANDIDATES = {
     proposer: ()=> bestBy(c=> (c.values.includes('Nature')?1.2:0)+(c.values.includes('Tradition')?0.3:0)+c.politics.civicEngagement - (c.profession==='Fisher'?2:0)),
     trigger: ()=> S.goods.good_fish.price<=GD.good_fish.floor+1 && listed('good_fish')>30 ? 0.5 : 0 }
 };
-function bestBy(f){ return S.citizens.slice().sort((a,b)=>f(b)-f(a))[0]; }
+function bestBy(f){ return S.citizens.filter(isAdult).sort((a,b)=>f(b)-f(a))[0]; }
 function validateProposal(p){
   if (!p.effects.length || p.effects.length>3) return 'An act may carry one to three effects.';
   if (activeLaws().length>=5) return 'Five laws are already in force.';
   for (const e of p.effects){
     if (e.effectType==='PriceMultiplier' && (e.magnitude<0.5||e.magnitude>2)) return 'Price multiplier out of range.';
     if (e.effectType==='SalesTax' && (e.magnitude<0||e.magnitude>0.3)) return 'Sales tax out of range.';
+    if (e.effectType==='Annexation' && (e.magnitude>S.treasury*1.3 || claimed(e.targetZoneId))) return 'The treasury cannot cover that annexation.';
     if (e.effectType==='Subsidy' && (e.magnitude<1||e.magnitude>50)) return 'Subsidy out of range.';
     if (e.effectType==='Curfew'){ let len=e.endMinuteOfDay-e.startMinuteOfDay; if (len<=0) len+=DAY; if (len<120||len>480) return 'Curfew window must be 2 to 8 hours.'; }
   }
@@ -1011,7 +1080,10 @@ function draftProposal(){
   const d = dayOf(S.minute);
   if (S.gov.proposals.some(p=>p.status==='Debating'||p.status==='Voting')) return;
   let key = null;
+  let proposerOverride = null, annexT = null;
   if (d < 7 && !S.gov.proposals.length) key = 'lumber_tax';   // scripted first proposal (build step 5)
+  else if (S.gov.forceAnnex && nextTerritory()){ key='annex'; annexT = TERRITORIES.find(t=>t.id===S.gov.forceAnnex) || nextTerritory(); S.gov.forceAnnex=null; proposerOverride = officials()[0] || bestBy(c=>c.politics.civicEngagement); }
+  else if (councilPick()){ const cp = councilPick(); key = cp.key; proposerOverride = cp.proposer; annexT = cp.t||null; }
   else {
     const activeKeys = new Set(S.gov.proposals.filter(p=>['Enacted','Passed'].includes(p.status)).map(p=>p.key));
     let best=0;
@@ -1021,16 +1093,18 @@ function draftProposal(){
       const s = CANDIDATES[k].trigger() + rnd()*0.15;
       if (s>best && s>0.45){ best=s; key=k; }
     }
+    const an = annexCandidate(0); if (an && an.score + rnd()*0.15 > best && an.score>0.45){ key='annex'; annexT=an.t; }
   }
   if (!key) return;
-  const C = CANDIDATES[key]; const proposer = C.proposer();
+  if (!annexT && key==='annex'){ const a=annexCandidate(0); annexT = a && a.t; if (!annexT) return; }
+  const C = key==='annex' ? Object.assign({proposer:()=>bestBy(c=>c.politics.civicEngagement)}, annexProposalDef(annexT)) : CANDIDATES[key]; const proposer = proposerOverride || C.proposer();
   const hallDay = d + (6 - d%7);
   const p = {
     schemaVersion:1, proposalId:'law_'+String(S.gov.nextId++).padStart(4,'0'), key, title:C.title, summary:C.summary, category:C.category,
     proposerId:proposer.id, proposerRationale:C.rationale, proposedAtMinute:S.minute,
     triggeringIndicators:[{indicator:'price.good_timber', value:S.goods.good_timber.price, atMinute:S.minute},{indicator:'treasury.balance', value:S.treasury, atMinute:S.minute}],
     effects:JSON.parse(JSON.stringify(C.effects)), durationDays:C.durationDays,
-    voting:{townHallAtMinute:hallDay*DAY+18*60, quorumFraction:0.5, passThreshold:0.5, eligibleVoterIds:S.citizens.map(c=>c.id)},
+    voting:{townHallAtMinute:hallDay*DAY+18*60, quorumFraction:0.5, passThreshold:0.5, eligibleVoterIds:S.citizens.filter(isAdult).map(c=>c.id)},
     votes:[], status:'Draft', enactedAtMinute:null, expiresAtMinute:null
   };
   const err = validateProposal(p);
@@ -1057,7 +1131,8 @@ const VALUE_TABLE = {
   PriceControl:{plus:['Community','Family'], minus:['Prosperity','Freedom']},
   PublicOrder:{plus:['Order','Tradition','Family'], minus:['Freedom']},
   Zoning:{plus:['Order','Nature'], minus:['Freedom']},
-  Labor:{plus:['Community','Family'], minus:['Prosperity']}
+  Labor:{plus:['Community','Family'], minus:['Prosperity']},
+  Expansion:{plus:['Prosperity','Community'], minus:['Nature','Tradition']}
 };
 function castVote(c, p){
   const income = weekSum(c,'inc');
@@ -1065,25 +1140,34 @@ function castVote(c, p){
   const F = clamp(wallet / Math.max(income, 50), -1, 1);
   const wF = (c.traits.includes('Frugal')||c.traits.includes('Greedy')) ? 1.5 : 1;
   let rNum=0, rDen=0; const influencedBy=[];
-  p.votes.forEach(v => { const r=c.rel[v.citizenId]; if (!r || r.affinity<=40 || v.choice==='Abstain') return; const w=(r.affinity/100)*r.trust; rNum += w*(v.choice==='Yes'?1:-1); rDen += w; influencedBy.push(v.citizenId); });
+  // the leader and council lean on everyone else: trusted officials pull votes their way, rivals push them away
+  let I = 0;
+  p.votes.forEach(v => { const o = alive(v.citizenId); if (!o || !o.office || o===c || v.choice==='Abstain') return; const r = peekRel(c,o.id);
+    let w = (0.1 + 0.3*r.trust) * (o.office==='Leader'?1.4:1) * (0.6 + (o.traits.includes('Charismatic')?0.3:0) + o.personality.extraversion*0.3);
+    if (r.tags.includes('Rival') || c.agenda==='trouble') w = -0.25;
+    I += w*(v.choice==='Yes'?1:-1); if (w>0) influencedBy.push(o.id); });
+  I = clamp(I, -1, 1);
+  p.votes.forEach(v => { const r=c.rel[v.citizenId]; if (!r || r.affinity<=40 || v.choice==='Abstain' || (alive(v.citizenId)||{}).office) return; const w=(r.affinity/100)*r.trust; rNum += w*(v.choice==='Yes'?1:-1); rDen += w; influencedBy.push(v.citizenId); });
   const R = rDen ? rNum/rDen : 0;
   const tbl = VALUE_TABLE[p.category] || {plus:[],minus:[]};
   let V = 0; c.values.forEach(v=>{ if (tbl.plus.includes(v)) V+=.5; if (tbl.minus.includes(v)) V-=.5; });
-  if ((p.key==='lumber_tax'||p.key==='fish_limit'||p.key==='meat_tax') && c.values.includes('Nature')) V += .5;
+  if ((p.key==='lumber_tax'||p.key==='fish_limit'||p.key==='meat_tax') && (c.values.includes('Nature')||c.agenda==='nature')) V += .5;
+  if (p.key==='annex' && c.agenda==='nature') V -= .5; if (p.key==='annex' && (c.agenda==='business'||c.agenda==='fortune'||c.home==='loc_tavern')) V += .5;
+  if (p.key==='tavern_curfew' && c.agenda==='order') V += .5;
   // political stance sharpens the values term (Pixel Town addition to the TDD fallback)
   const P = c.politics;
   if (p.category==='PublicOrder') V += 0.6*P.orderLeaning;
   if (p.category==='Taxation' || p.category==='Subsidy' || p.category==='PriceControl') V -= 0.6*P.economicLeaning;
   V = clamp(V,-1,1);
   const tF = 0.5*F*wF, tR = 0.3*R, tV = 0.2*V;
-  let score = tF + tR + tV;
+  let score = tF + tR + tV + 0.15*I;
   if (c.id===p.proposerId) score = Math.max(score, 0.6);
   const choice = score>0.1?'Yes':score<-0.1?'No':'Abstain';
   const terms = [['Financial',Math.abs(tF)],['Relationships',Math.abs(tR)],['Values',Math.abs(tV)]].sort((a,b)=>b[1]-a[1]);
   let motivation = choice==='Abstain' ? 'Indifference' : terms[0][0];
   const prop = cById(p.proposerId); const isRival = prop && c.rel[prop.id] && c.rel[prop.id].tags.includes('Rival');
   if (isRival && choice==='No' && motivation==='Relationships') motivation='Spite';
-  const ally = influencedBy.map(cById).sort((a,b)=>c.rel[b.id].affinity-c.rel[a.id].affinity)[0];
+  const ally = influencedBy.map(cById).sort((a,b)=>peekRel(c,b.id).affinity-peekRel(c,a.id).affinity)[0];
   const statement = voteStatement(c, p, choice, motivation, wallet, ally, isRival?prop:null);
   p.votes.push({citizenId:c.id, choice, confidence:+Math.min(1,Math.abs(score)).toFixed(2), primaryMotivation:motivation, publicStatement:statement, castAtMinute:S.minute, decidedBy:'Fallback', influencedBy:influencedBy.slice(0,5), walletImpact:wallet});
   remember(c, `I voted ${choice} on the ${p.title}. ${choice==='Abstain'?'It barely touches me.':motivation==='Financial'?`It would ${wallet>=0?'help':'cost'} me about ${Math.abs(wallet)} coins a week.`:motivation==='Values'?'It is about what kind of town we are.':ally?`I stood with ${ally.name}.`:'I followed my gut.'}`, 5, [p.proposalId], 'Vote');
@@ -1105,18 +1189,20 @@ function voteStatement(c,p,choice,mot,wallet,ally,rival){
   return pick(lines[v] || ['So be it.']);
 }
 function governanceTick(){
+  if (S.gov.campaign && S.minute === S.gov.campaign.day*DAY + 18*60 + 2) holdElection();
   const p = S.gov.proposals.find(p=>p.status==='Debating'||p.status==='Voting');
   if (!p) return;
   if (p.status==='Debating' && S.minute>=p.voting.townHallAtMinute){
-    p.status='Voting'; S.gov.voteOrder = [p.proposerId].concat(S.citizens.map(c=>c.id).filter(id=>id!==p.proposerId).sort((a,b)=>hash(a+p.proposalId)-hash(b+p.proposalId)));
+    const offs = officials().map(o=>o.id).filter(id=>id!==p.proposerId);
+    p.status='Voting'; S.gov.voteOrder = [p.proposerId].concat(offs, S.citizens.filter(isAdult).map(c=>c.id).filter(id=>id!==p.proposerId && !offs.includes(id)).sort((a,b)=>hash(a+p.proposalId)-hash(b+p.proposalId)));
     S.gov.voteTimes = S.gov.voteOrder.map((id,i)=>p.voting.townHallAtMinute + 3 + Math.floor(i*1.15));
     chronicle(`The town hall meeting on the ${p.title} has begun.`, 5, '🏛️', 'law');
   }
   if (p.status==='Voting'){
     S.gov.voteOrder.forEach((id,i)=>{
       if (S.gov.voteTimes[i]!==S.minute) return;
-      const c = cById(id);
-      if (c.rt.loc==='loc_town_hall' && !c.rt.path) castVote(c,p);
+      const c = alive(id);
+      if (c && c.rt.loc==='loc_town_hall' && !c.rt.path) castVote(c,p);
     });
     if (S.minute >= p.voting.townHallAtMinute + 70) tally(p);
   }
@@ -1128,7 +1214,7 @@ function tally(p){
   const passed = quorum && yes/(yes+no||1) > p.voting.passThreshold;
   p.status = passed ? 'Passed' : 'Rejected';
   p.tally = {yes,no,abstain:ab,absent:eligible-p.votes.length,quorum};
-  if (!passed) S.gov.cooldown[p.key] = dayOf(S.minute);
+  if (!passed) S.gov.cooldown[p.key] = dayOf(S.minute) + 7;
   chronicle(passed ? `The ${p.title} PASSED ${yes}–${no}${ab?` (${ab} abstained)`:''}. It takes effect at dawn.` : `The ${p.title} was REJECTED ${yes}–${no}${ab?` (${ab} abstained)`:''}${quorum?'':' (no quorum)'}.`, 8, passed?'✅':'❌', 'law');
   const pro = p.votes[0]; const rest = p.votes.slice(1).sort((a,b)=>b.confidence-a.confidence);
   const ys = rest.filter(v=>v.choice==='Yes'), ns = rest.filter(v=>v.choice==='No'), picks=[pro];
@@ -1145,6 +1231,7 @@ function dailyGovernance(){
     if (p.status==='Enacted' && p.expiresAtMinute && S.minute>=p.expiresAtMinute){ p.status='Expired'; S.gov.cooldown[p.key]=dayOf(S.minute); chronicle(`The ${p.title} has expired.`, 6, '📜', 'law'); }
   });
   S.gov.proposals.forEach(p=>{
+    if (p.status==='Passed' && p.key==='annex'){ completeAnnexation(p); return; }
     if (p.status==='Passed'){ p.status='Enacted'; p.enactedAtMinute=S.minute; p.expiresAtMinute = p.durationDays ? S.minute + p.durationDays*DAY : null;
       chronicle(`The ${p.title} is now law${p.durationDays?` for ${p.durationDays} days`:''}.`, 7, '⚖️', 'law');
       S.citizens.forEach(c=>remember(c, `The ${p.title} became law today.`, 4, [p.proposalId]));
@@ -1152,6 +1239,443 @@ function dailyGovernance(){
   });
   if (d%7>=1 && d%7<=4) draftProposal();
   S.citizens.forEach(c=>{ const s=lawQuery.subsidy(c.profession); if (!s) return; if (S.treasury>=s){ S.treasury-=s; c.wallet+=s; today(c).inc+=s; } else if (!S.week.subsidyFail){ S.week.subsidyFail=1; chronicle(`The treasury is too empty to pay the ${profLabel(c.profession).toLowerCase()} subsidy.`, 5, '💸', 'economy'); } });
+}
+
+// =====================================================================
+// LIFE, LAND & POLITICS
+// births, coming of age, deaths and inheritance, marriages, immigrants
+// with agendas, emigration, a property market with plots and building,
+// territorial annexation, and elections for a leader and a council of 5.
+// =====================================================================
+const AGENDAS = {
+  fortune: {label:'Make a fortune',     phrase:'make a fortune',                 trait:'Ambitious', econ:+0.4},
+  office:  {label:'Win public office',  phrase:'win a seat on the town council', trait:'Charismatic', civic:+0.4},
+  business:{label:'Open a business',    phrase:'open a business of their own',   trait:'Hardworking'},
+  love:    {label:'Find love',          phrase:'find love',                      trait:'Romantic'},
+  family:  {label:'Raise a family',     phrase:'raise a family',                 value:'Family'},
+  nature:  {label:'Protect the land',   phrase:'protect the land from greedy hands', value:'Nature'},
+  trouble: {label:'Stir up trouble',    phrase:'shake things up',                trait:'Reckless', order:-0.5},
+  order:   {label:'Bring order',        phrase:'bring order to the streets',     value:'Order', order:+0.5},
+  quiet:   {label:'Start over quietly', phrase:'start over somewhere quiet',     civic:-0.3}
+};
+const PLATFORMS = {
+  low_tax: {title:'Lower taxes, free markets',        laws:['timber_cap','farm_subsidy'],           plus:['Prosperity','Freedom'], econ:+1},
+  feed:    {title:'Bread on every table',             laws:['bread_subsidy','farm_subsidy'],        plus:['Community','Family'],   econ:-1},
+  land:    {title:'Protect the land and the lake',    laws:['lumber_tax','fish_limit','meat_tax'], plus:['Nature','Tradition']},
+  order:   {title:'Order in the streets',             laws:['tavern_curfew'],                      plus:['Order','Tradition'],    order:+1},
+  grow:    {title:'Grow Pixel Town',                  laws:['annex','market_levy'],                plus:['Prosperity','Community']},
+  works:   {title:'Fix the bridge, fill the treasury',laws:['market_levy','lumber_tax'],           plus:['Community','Order']},
+  freedom: {title:'Leave folk alone',                 laws:[],                                     plus:['Freedom','Prosperity'], order:-1}
+};
+const AGENDA_PLATFORM = {nature:'land', order:'order', fortune:'low_tax', business:'grow', trouble:'freedom', family:'feed'};
+const BIZ_VALUE = {loc_tavern:700, loc_bakery:450, loc_clinic:500, loc_carpentry:450, loc_smithy:500, loc_butcher:420, loc_fisher_hut:300, loc_barn:400, loc_mine:900};
+const BIZ_OWNER = {loc_tavern:'cit_greta_cole', loc_bakery:'cit_pell_marsh', loc_clinic:'cit_iris_vance', loc_carpentry:'cit_mara_holt', loc_smithy:'cit_hugo_brandt', loc_butcher:'Butcher', loc_fisher_hut:'Fisher', loc_barn:'Rancher', loc_mine:'town'};
+const PLOT_VALUE = {t_core:160, t_grove:120, t_south:140, t_east:130, t_high:110};
+const SHOP_TRADES = {Baker:'Bakery', Carpenter:'Workshop', Blacksmith:'Forge', Butcher:'Butchery'};
+const POP_CAP = 110, BUILD_COST = 170, BUILD_DAYS = 4;
+const isAdult = c => c.age>=16 && c.profession!=='Child';
+const alive = id => { const c=cById(id); return c && !c.dead ? c : null; };
+const surnameOf = c => c.name.split(' ').slice(1).join(' ') || c.name;
+
+// ---------- properties ----------
+function homeBuildings(){ return BUILDINGS.filter(b=>b.house); }
+function propOf(bid){ return S.props[bid] || Object.values(S.props).find(p=>p.bid===bid); }
+function propName(pr){ if (pr.kind==='plot') return `Plot ${pr.id.slice(5)} (${TERRITORIES.find(t=>t.id===pr.terr).name})`; const b=BUILDINGS.find(b=>b.id===pr.bid); return b?b.name:pr.id; }
+function residentsOf(bid){ return (HOUSEHOLDS[bid]||[]).map(cById).filter(c=>c && !c.dead); }
+function initProperties(st){
+  const props = {};
+  BUILDINGS.forEach(b=>{
+    if (b.id.startsWith('bld_')) return;
+    if (b.house){ const res = st.citizens.filter(c=>c.home===b.id).sort((a,b2)=>b2.age-a.age); props[b.id] = {id:b.id, kind:'home', bid:b.id, owner: res[0] ? res[0].id : 'town', value:320, forSale:false, ask:0}; }
+    else { let o = BIZ_OWNER[b.id]||'town'; if (o!=='town' && !o.startsWith('cit_')){ const w = st.citizens.find(c=>c.profession===o); o = w ? w.id : 'town'; } props[b.id] = {id:b.id, kind:'business', bid:b.id, owner:o, value:BIZ_VALUE[b.id]||400, forSale:false, ask:0}; }
+  });
+  PLOTS.forEach(pl=>{ props[pl.id] = {id:pl.id, kind:'plot', plot:pl.id, terr:pl.terr, owner:'town', value:PLOT_VALUE[pl.terr], forSale:true, ask:PLOT_VALUE[pl.terr]}; });
+  return props;
+}
+function ownerName(id){ return id==='town' ? 'the town' : (cById(id) ? cById(id).name : id); }
+function propsOf(c){ return Object.values(S.props).filter(p=>p.owner===c.id); }
+function claimed(tid){ return !!S.terr[tid]; }
+function payTo(ownerId, amt, from){ if (amt<=0) return; if (ownerId==='town'){ S.treasury+=amt; return; } const o=alive(ownerId); if (!o){ S.treasury+=amt; return; } o.wallet+=amt; today(o).inc+=amt; }
+function prosperity(){ const ad=S.citizens.filter(isAdult); const avg = ad.reduce((a,c)=>a+c.wallet,0)/Math.max(1,ad.length); return clamp(0.7 + avg/450 + S.citizens.length/220, 0.6, 1.9); }
+function revalue(){
+  const k = prosperity();
+  Object.values(S.props).forEach(p=>{ const base = p.kind==='plot' ? PLOT_VALUE[p.terr] : p.kind==='home' ? 320 : (BIZ_VALUE[p.bid]||400); p.value = Math.round(base*k/10)*10; });
+}
+function listProp(p, ask, why){ if (p.forSale) return; p.forSale=true; p.ask=Math.max(20,Math.round(ask)); if (why) chronicle(`${propName(p)} is up for sale at ${p.ask}¢ (${why}).`, 4, '🪧', 'land'); }
+function transferProp(p, buyer, price){
+  const seller = p.owner;
+  const sp = buyer.partner && alive(buyer.partner); if (sp && buyer.wallet < price + (p.kind==='plot'?BUILD_COST:0)){ const need = Math.min(sp.wallet, price + (p.kind==='plot'?BUILD_COST:0) - buyer.wallet); sp.wallet -= need; buyer.wallet += need; }
+  buyer.wallet -= price; today(buyer).exp += price; payTo(seller, price);
+  p.owner = buyer.id; p.forSale=false; p.ask=0;
+  S.land.sales.unshift({day:dayOf(S.minute), prop:p.id, name:propName(p), from:ownerName(seller), to:buyer.name, price}); S.land.sales = S.land.sales.slice(0,40);
+  S.week.sales.push(`${buyer.name} bought ${propName(p)} for ${price}¢`);
+  chronicle(`${buyer.name} bought ${propName(p)} from ${ownerName(seller)} for ${price}¢.`, 6, '🏠', 'land');
+  remember(buyer, `I bought ${propName(p)}. It's mine now.`, 7);
+}
+function moveHousehold(c, bid){
+  const movers = [c]; const sp = c.partner && alive(c.partner); if (sp && sp.home===c.home) movers.push(sp);
+  S.citizens.forEach(k=>{ if (k.profession==='Child' && k.home===c.home && k.parents.includes(c.id)) movers.push(k); });
+  movers.forEach(m=>{ m.home = bid; });
+  indexCitizens();
+  return movers;
+}
+function wantsHome(c){ return c.home==='loc_tavern' || residentsOf(c.home).length>=5 || c.agenda==='family' && residentsOf(c.home).length>=3; }
+function landDaily(){
+  const d = dayOf(S.minute);
+  // rent: tenants pay the owner of the home they live in; lodgers pay the tavern's owner
+  homeBuildings().concat(BUILDINGS.filter(b=>b.id==='loc_tavern')).forEach(b=>{
+    const pr = propOf(b.id); if (!pr) return;
+    residentsOf(b.id).forEach(r=>{ if (!isAdult(r) || r.id===pr.owner || (r.partner && r.partner===pr.owner)) return; if (b.id==='loc_tavern' && r.profession==='TavernKeeper') return;
+      const rent = b.id==='loc_tavern' ? 4 : 3; if (r.wallet>=rent){ r.wallet-=rent; today(r).exp+=rent; payTo(pr.owner, rent); } });
+  });
+  // leases: workers in a business owned by someone else pay a small lease
+  Object.values(S.props).filter(p=>p.kind==='business').forEach(p=>{ S.citizens.forEach(w=>{ if (w.work===p.bid && w.id!==p.owner && w.wallet>=3 && isAdult(w)){ w.wallet-=3; today(w).exp+=3; payTo(p.owner,3); } }); });
+  // sellers
+  Object.values(S.props).forEach(p=>{
+    if (p.forSale || p.status==='construction') return;
+    if (p.kind==='plot'){ if (p.owner==='town' && claimed(p.terr)) listProp(p, p.value); return; }
+    const o = p.owner==='town' ? null : alive(p.owner);
+    const vacant = p.kind==='home' && residentsOf(p.bid).length===0;
+    if (!o){ if (vacant || p.owner==='town' && p.kind==='home') listProp(p, p.value); return; }
+    const livesThere = o.home===p.bid;
+    if (o.wallet<25 && !livesThere) listProp(p, p.value*0.85, `${o.name} needs the coin`);
+    else if (o.agenda==='fortune' && propsOf(o).length>=2 && !livesThere && rnd()<0.04) listProp(p, p.value*1.25, `${o.name} is cashing in`);
+    else if (vacant && !livesThere && rnd()<0.1) listProp(p, p.value);
+  });
+  // buyers: at most two deals a day
+  let deals = 0;
+  const forSale = Object.values(S.props).filter(p=>p.forSale && (p.kind!=='plot' || claimed(p.terr))).sort((a,b)=>a.ask-b.ask);
+  for (const p of forSale){
+    if (deals>=2) break;
+    const buyers = S.citizens.filter(c=>c.age>=18 && isAdult(c) && c.id!==p.owner && c.wallet + (c.partner && alive(c.partner) ? alive(c.partner).wallet*0.5 : 0) >= p.ask + 60 + (p.kind==='plot'?BUILD_COST:0)).filter(c=>{
+      if (p.kind==='home'){ const vac = residentsOf(p.bid).length===0; return (vac && wantsHome(c)) || c.agenda==='fortune' || (c.traits.includes('Ambitious') && c.wallet>p.ask*2.5); }
+      if (p.kind==='business'){ const b = BUILDINGS.find(b=>b.id===p.bid); return c.agenda==='business' || c.agenda==='fortune' || c.work===p.bid || (c.traits.includes('Greedy')||c.traits.includes('Cunning')) && c.wallet>p.ask*2; }
+      return c.agenda==='business' && SHOP_TRADES[c.profession] || wantsHome(c) || c.agenda==='family' || c.agenda==='fortune' && c.wallet>p.ask*3;
+    }).sort((a,b)=>b.wallet-a.wallet);
+    const buyer = buyers[0]; if (!buyer || rnd()>0.4) continue;
+    transferProp(p, buyer, p.ask); deals++;
+    if (p.kind==='home' && residentsOf(p.bid).length===0 && wantsHome(buyer)){ const m = moveHousehold(buyer, p.bid); chronicle(`${m.map(x=>x.name.split(' ')[0]).join(', ')} moved into ${propName(p)}.`, 5, '📦', 'land'); }
+    if (p.kind==='plot') startConstruction(p, buyer);
+  }
+  // construction progress
+  Object.values(S.props).forEach(p=>{ if (p.status==='construction' && d>=p.build.until) finishConstruction(p); });
+  rentVacancies();
+  // public housing: when newcomers crowd the tavern, the town builds a rental cottage on a free plot
+  const lodgers = residentsOf('loc_tavern').filter(c=>c.profession!=='TavernKeeper');
+  const busy = Object.values(S.props).some(p=>p.status==='construction' && p.build.by==='town');
+  const plot = Object.values(S.props).filter(p=>p.kind==='plot' && claimed(p.terr) && p.owner==='town' && p.status!=='construction').sort((a,b)=>a.value-b.value)[0];
+  if (lodgers.length>=3 && !busy && plot && S.treasury >= BUILD_COST + 250) startConstruction(plot, null);
+  if (d%7===0) revalue();
+}
+function startConstruction(p, owner){
+  const shop = owner && owner.agenda==='business' && SHOP_TRADES[owner.profession];
+  const carps = S.citizens.filter(c=>c.profession==='Carpenter' && isAdult(c));
+  const cost = BUILD_COST;
+  if (owner){ owner.wallet -= cost; today(owner).exp += cost; } else S.treasury -= cost;
+  carps.forEach(c=>{ const share=Math.floor(cost/Math.max(1,carps.length)); c.wallet+=share; today(c).inc+=share; });
+  let logs=0; if (owner) while (logs<6 && buy(owner,'good_timber',1)) { logs++; owner.inventory.good_timber--; if (!owner.inventory.good_timber) delete owner.inventory.good_timber; }
+  clearPlot(PLOTS.find(x=>x.id===p.plot));
+  p.status='construction'; p.build = {by:owner?owner.id:'town', kind: shop?'shop':'home', trade: shop?owner.profession:null, until: dayOf(S.minute) + BUILD_DAYS + (owner && logs<3?2:0)};
+  if (!owner){ p.owner='town'; p.forSale=false; }
+  chronicle(`${owner?owner.name:'The town'} broke ground on ${shop?`a new ${SHOP_TRADES[owner.profession].toLowerCase()}`:owner?'a new house':'a rental cottage for newcomers'} (${propName(p)}). The carpenters were paid ${cost}¢.`, 6, '🏗️', 'land');
+  bumpWorld();
+}
+function finishConstruction(p){
+  const owner = alive(p.build.by) || alive(p.owner);
+  const pl = PLOTS.find(x=>x.id===p.plot);
+  const rec = {plot:pl.id, bid:'loc_b_'+pl.id.slice(5), kind:p.build.kind, trade:p.build.trade, name: owner ? (p.build.kind==='shop' ? `${surnameOf(owner)} ${SHOP_TRADES[p.build.trade]}` : `${surnameOf(owner)} House`) : `Town Cottage ${pl.id.slice(5)}`, roof: HOUSE_ROOFS[hash(pl.id)%HOUSE_ROOFS.length]};
+  S.built.push(rec); applyBuilt(rec);
+  p.kind = rec.kind==='shop' ? 'business' : 'home'; p.bid = rec.bid; p.status='built'; p.value = rec.kind==='shop' ? 420 : 320;
+  chronicle(`${rec.name} is finished${owner?` and ${owner.name} has the keys`:''}.`, 7, '🏡', 'land');
+  if (!owner) rentVacancies();
+  if (owner){
+    if (rec.kind==='home' || wantsHome(owner)) moveHousehold(owner, rec.bid);
+    if (rec.kind==='shop') owner.work = rec.bid;
+    remember(owner, `My new ${rec.kind==='shop'?'shop':'home'} is finished.`, 8);
+  }
+  bumpWorld();
+}
+// turn a finished plot into a real building on the map (also replayed on load)
+function applyBuilt(rec){
+  if (BUILDINGS.some(b=>b.id===rec.bid)) return;
+  const pl = PLOTS.find(x=>x.id===rec.plot); if (!pl) return;
+  clearPlot(pl);
+  const b = {id:rec.bid, name:rec.name, x:pl.x, y:pl.y, w:4, h:4, style:rec.kind==='shop'?'stone':'house', roof:rec.roof, house:rec.kind==='home', sign: rec.kind==='shop' ? {Baker:'bread',Carpenter:'saw',Blacksmith:'anvil',Butcher:'meat'}[rec.trade] : null};
+  b.door = [b.x+Math.floor(b.w/2), b.y+b.h];
+  BUILDINGS.push(b); LOC[b.id] = {id:b.id, name:b.name, indoor:true, door:b.door, b};
+  for (let y=b.y;y<b.y+b.h;y++) for (let x=b.x;x<b.x+b.w;x++) MAP[y][x]=T.BUILD;
+  MAP[b.door[1]][b.door[0]] = T.PATH;
+  const road = astar(b.door[0], b.door[1], 26, 25, (x,y)=>{ const t=MAP[y][x]; return t===T.PATH||t===T.PLAZA?0.5:t===T.BRIDGE?1:(t===T.GRASS||t===T.FLOWER||t===T.SAND)?1:t===T.TREE?2.5:t===T.ROCK?6:Infinity; });
+  if (road) road.forEach(([x,y])=>{ const t=MAP[y][x]; if (t===T.GRASS||t===T.FLOWER||t===T.SAND||t===T.TREE||t===T.ROCK) MAP[y][x]=T.PATH; });
+}
+// tavern lodgers rent any empty home they can afford
+function rentVacancies(){
+  const vac = homeBuildings().filter(b=>residentsOf(b.id).length===0);
+  const lodgers = residentsOf('loc_tavern').filter(c=>c.profession!=='TavernKeeper' && isAdult(c) && c.wallet>=15);
+  for (const b of vac){ const c = lodgers.shift(); if (!c) break; const m = moveHousehold(c, b.id); chronicle(`${m.map(x=>x.name.split(' ')[0]).join(', ')} moved out of the tavern and into ${b.name}, renting from ${ownerName(propOf(b.id).owner)}.`, 5, '📦', 'land'); lodgers.splice(0, lodgers.length, ...lodgers.filter(x=>x.home==='loc_tavern')); }
+}
+// clear trees and rocks from a plot and a one-tile border so the new building stands in a clearing
+function clearPlot(pl){ for (let y=pl.y-1;y<=pl.y+pl.h;y++) for (let x=pl.x-1;x<=pl.x+pl.w;x++){ const t=(MAP[y]||[])[x]; if (t===T.TREE||t===T.ROCK) MAP[y][x]=T.GRASS; } }
+function bumpWorld(){ groundKey=''; pathCache.clear(); for (const k in SPOTS) delete SPOTS[k]; S.worldVer=(S.worldVer||0)+1; }
+
+// ---------- annexation ----------
+function nextTerritory(){ return TERRITORIES.filter(t=>!claimed(t.id)).sort((a,b)=>a.cost-b.cost)[0]; }
+function freePlots(){ return Object.values(S.props).filter(p=>p.kind==='plot' && claimed(p.terr) && p.status!=='construction' && (p.owner==='town' || p.forSale)).length; }
+function annexCandidate(bonus){
+  const t = nextTerritory(); if (!t) return null;
+  if (S.gov.lastAnnex!=null && dayOf(S.minute)-S.gov.lastAnnex < 28) return null;
+  if (freePlots()>1 || S.treasury < t.cost + 150) return null;
+  const need = 0.35 + (residentsOf('loc_tavern').filter(c=>c.profession!=='TavernKeeper').length>=2 ? 0.25 : 0) + (S.citizens.length>70 ? 0.15 : 0);
+  return {score: need + (bonus||0), t};
+}
+function annexProposalDef(t){
+  return {title:`Annex ${t.name}`, category:'Expansion', durationDays:0,
+    summary:`Claim ${t.name} for Pixel Town for ${t.cost}¢ from the treasury. ${t.perk}.`,
+    effects:[{effectType:'Annexation', targetZoneId:t.id, magnitude:t.cost}],
+    rationale:`We are running out of land. ${t.name} is ours for the taking.`};
+}
+function completeAnnexation(p){
+  const e = p.effects[0], t = TERRITORIES.find(x=>x.id===e.targetZoneId);
+  if (claimed(t.id)){ p.status='Completed'; return; }
+  if (S.treasury < e.magnitude){ p.status='Failed'; chronicle(`The treasury could not pay for ${t.name}. The annexation fell through.`, 7, '🗺️', 'law'); return; }
+  S.treasury -= e.magnitude; S.terr[t.id]=true; p.status='Completed'; S.gov.lastAnnex = dayOf(S.minute);
+  Object.values(S.props).forEach(pr=>{ if (pr.kind==='plot' && pr.terr===t.id) listProp(pr, pr.value); });
+  chronicle(`Pixel Town has annexed ${t.name}! ${t.perk}. ${Object.values(S.props).filter(pr=>pr.terr===t.id).length} new plots are for sale.`, 9, '🗺️', 'land');
+  S.week.rels.push(`Annexed ${t.name}`);
+  S.citizens.forEach(c=>remember(c, `The town annexed ${t.name}.`, 4));
+  bumpWorld();
+}
+function perk(kind){ return (kind==='fish' && claimed('t_south')) ? 0.8 : (kind==='farm' && claimed('t_east')) ? 0.8 : (kind==='mine' && claimed('t_high')) ? 0.8 : 1; }
+
+// ---------- people: births, growing up, deaths, arrivals, departures ----------
+function uniqueId(base){ let id=base, k=2; while (CBY[id]) id = base+'_'+(k++); return id; }
+function randomTraits(r, n, lean){ const t = lean ? [lean] : []; while (t.length<n){ const x=TRAITS[Math.floor(r()*TRAITS.length)]; if (!t.includes(x) && !t.includes(CLASH[x])) t.push(x); } return t; }
+function lookForChild(r, skin, hair, style){ const shirts=['#e84a4a','#3a8ac8','#f2c14e','#6ab04a','#b06ad8','#e88a3a']; return {skin, hair, style: style==='bald'?'short':style, beard:false, shirt:shirts[Math.floor(r()*shirts.length)], pants:'#4a5a8a', hat:null, apron:null, bib:false, stains:false, coat:null, trim:r()<0.5, boots:'#6a4028'}; }
+function births(){
+  const d = dayOf(S.minute);
+  S.citizens.slice().forEach(a=>{
+    const b = a.partner && alive(a.partner); if (!b || a.id>b.id || a.home!==b.home) return;
+    if (a.age<20 || b.age<20 || a.age>45 || b.age>45) return;
+    const kids = S.citizens.filter(k=>k.parents.includes(a.id) && k.profession==='Child').length;
+    if (kids>=3 || residentsOf(a.home).length>=6 || S.citizens.length>=POP_CAP) return;
+    const chance = 0.02 * ((a.agenda==='family'||b.agenda==='family') ? 2.5 : 1);
+    if (rnd()>=chance) return;
+    const r = mapRand(hash(a.id+b.id+d));
+    const first = FIRST_NAMES[Math.floor(r()*FIRST_NAMES.length)];
+    const name = `${first} ${surnameOf(a)}`;
+    const id = uniqueId('cit_'+name.toLowerCase().replace(/[^a-z]+/g,'_'));
+    const skin = r()<0.5?a.look.skin:b.look.skin, hair = r()<0.5?a.look.hair:b.look.hair;
+    const vals = [...new Set([a.values[0], b.values[0]])];
+    const baby = makeCitizen({id, name, age:0, prof:'Child', home:a.home, traits:randomTraits(r,2), values:vals.length>1?vals:[vals[0], VALUES[Math.floor(r()*VALUES.length)]].filter((v,i,x)=>x.indexOf(v)===i),
+      p:[r(),r(),r(),r(),r()].map(v=>+(0.2+v*0.6).toFixed(2)), pol:[+((a.politics.economicLeaning+b.politics.economicLeaning)/2).toFixed(2), +((a.politics.orderLeaning+b.politics.orderLeaning)/2).toFixed(2), 0.3],
+      wallet:0, parents:[a.id,b.id], bio:`Born in Pixel Town on ${fmtDate(d)} to ${a.name} and ${b.name}.`, look:lookForChild(r, skin, hair, STYLES[Math.floor(r()*STYLES.length)])});
+    baby.rt.x=baby.rt.ox=LOC[a.home].door[0]; baby.rt.y=baby.rt.oy=LOC[a.home].door[1];
+    [a,b].forEach(p=>{ const R=getRel(p,id); R.affinity=90; R.trust=.9; R.tags=['Family']; const R2=getRel(baby,p.id); R2.affinity=90; R2.trust=.9; R2.tags=['Family']; p.kids.push(id); remember(p, `Our child ${first} was born today.`, 10, [id]); setEmotion(p,'Joyful',DAY); });
+    S.citizens.filter(k=>k.parents.some(x=>baby.parents.includes(x)) && k!==baby).forEach(sib=>{ getRel(sib,id).tags=['Family']; getRel(sib,id).affinity=60; getRel(baby,sib.id).tags=['Family']; getRel(baby,sib.id).affinity=60; });
+    S.citizens.push(baby); indexCitizens(); baby.plan = buildPlan(baby, d);
+    chronicle(`A baby! ${a.name} and ${b.name} welcomed ${name} into the world.`, 8, '👶', 'family');
+    S.week.births.push(`${name} (to ${a.name} & ${b.name})`);
+  });
+}
+function neededProfession(){
+  const want = {Farmer:.18,Rancher:.08,Butcher:.06,Fisher:.1,Baker:.08,Woodcutter:.08,Miner:.08,Blacksmith:.04,Carpenter:.08,TavernKeeper:.06,Doctor:.04,Merchant:.04};
+  const ad = S.citizens.filter(isAdult); const n = Math.max(1,ad.length);
+  return Object.keys(want).sort((a,b)=> (ad.filter(c=>c.profession===a).length/n - want[a]) - (ad.filter(c=>c.profession===b).length/n - want[b]))[0];
+}
+function comeOfAge(c){
+  const par = c.parents.map(alive).filter(Boolean);
+  const prof = par.length && rnd()<0.5 ? par[0].profession : neededProfession();
+  c.profession = prof; c.work = WORKPLACE[prof]||null;
+  c.look = lookFor(prof, mapRand(hash(c.id+'grown')), c.look.skin, c.look.hair, c.look.style, false);
+  delete ART.people[c.id]; delete THUMBS[c.id];
+  c.politics.civicEngagement = +(0.2+rnd()*0.6).toFixed(2);
+  chronicle(`${c.name} came of age and became a ${profLabel(prof).toLowerCase()}.`, 6, '🎓', 'family');
+  remember(c, `I'm grown now. I work as a ${profLabel(prof).toLowerCase()}.`, 8);
+}
+function deathChance(c){
+  let p = c.age>=58 ? (c.age-56)*0.00035 : 0;
+  if (c.sick>=3 && c.age>45) p += 0.01;
+  if (['Miner','Woodcutter','Fisher'].includes(c.profession)) p += 0.00008;
+  return c.profession==='Child' ? 0 : p;
+}
+function removeCitizen(c, kind, cause){
+  const heirs = [c.partner && alive(c.partner)].concat(S.citizens.filter(k=>k.parents.includes(c.id)).sort((a,b)=>b.age-a.age)).filter(Boolean);
+  const heir = heirs.find(h=>isAdult(h)) || heirs[0] || null;
+  if (kind==='death'){
+    if (heir){ heir.wallet += Math.max(0,c.wallet); } else S.treasury += Math.max(0,c.wallet);
+    Object.values(S.props).filter(p=>p.owner===c.id).forEach(p=>{ p.owner = heir && heir.age>=16 ? heir.id : (heir ? heir.id : 'town'); if (!heir) listProp(p, p.value); });
+  } else {
+    Object.values(S.props).filter(p=>p.owner===c.id).forEach(p=>{ listProp(p, p.value*0.9); });
+  }
+  S.listings.forEach(l=>{ if (l.seller===c.id){ if (heir && kind==='death') l.seller=heir.id; else l.qty=0; } });
+  if (c.partner){ const sp=alive(c.partner); if (sp){ sp.partner=null; const R=getRel(sp,c.id); if (kind==='death'){ remember(sp, `${c.name}, my partner, is gone. I don't know how to go on.`, 10, [c.id]); setEmotion(sp,'Sad',DAY*5); } } }
+  if (c.courting){ const o=alive(c.courting); if (o) o.courting=null; }
+  if (c.office){ if (c.office==='Leader'){ S.gov.leader=null; chronicle(`Pixel Town has no leader until the next election.`, 6, '🏛️', 'gov'); } else S.gov.council = S.gov.council.filter(x=>x!==c.id); }
+  S.citizens = S.citizens.filter(x=>x!==c);
+  S.citizens.forEach(o=>{ delete o.rel[c.id]; });
+  if (kind==='death'){ S.deceased.push({id:c.id, name:c.name, age:c.age, died:S.minute, cause}); }
+  else S.departed.push({id:c.id, name:c.name, age:c.age, left:S.minute, reason:cause});
+  delete ART.people[c.id];
+  if (ui.sel===c.id) ui.sel=null;
+  indexCitizens();
+}
+function die(c, cause){
+  chronicle(`${c.name} has passed away at ${c.age} (${cause}). The town gathers at the graveyard.`, 9, '🕯️', 'family');
+  S.week.deaths.push(`${c.name}, ${c.age} (${cause})`);
+  S.citizens.forEach(o=>{ const r=peekRel(o,c.id); if (o!==c && (r.affinity>40 || r.tags.includes('Family'))){ remember(o, `${c.name} died today. I will miss them.`, r.tags.includes('Family')?9:6, [c.id]); o.mood.valence = clamp(o.mood.valence-0.15,-1,1); } });
+  removeCitizen(c,'death',cause);
+}
+function lifeDaily(){
+  const d = dayOf(S.minute);
+  // allowances: parents give each child a little food money; orphans are fed by the treasury
+  S.citizens.filter(k=>k.profession==='Child').forEach(k=>{ const payer = k.parents.map(alive).filter(p=>p && p.wallet>=6).sort((a,b)=>b.wallet-a.wallet)[0]; if (payer){ payer.wallet-=6; k.wallet+=6; } else if (S.treasury>=4){ S.treasury-=4; k.wallet+=4; } });
+  births();
+  S.citizens.slice().forEach(c=>{ if (rnd() < deathChance(c)) die(c, c.sick>=3 ? 'a long illness' : c.age>=70 ? 'old age' : ['Miner','Woodcutter','Fisher'].includes(c.profession) && c.age<50 ? 'an accident at work' : 'a failing heart'); });
+  // emigration: villagers who stay miserable for days pack up and leave
+  S.citizens.slice().forEach(c=>{
+    if (!isAdult(c)) return;
+    c.unhappy = (c.mood.valence < -0.45 || (c.mood.valence < -0.2 && c.wallet<10)) ? (c.unhappy||0)+1 : Math.max(0,(c.unhappy||0)-2);
+    if (c.office || c.unhappy<10 || rnd()>0.12 || S.citizens.length<40) return;
+    const kids = S.citizens.filter(k=>k.profession==='Child' && k.parents.includes(c.id) && !k.parents.some(pid=>pid!==c.id && alive(pid)));
+    const quote = pick(['There\'s nothing left for me here.','I\'ll try my luck in the river cities.','Maybe the next town will be kinder.','I can\'t make ends meet in Pixel Town.']);
+    chronicle(`${c.name} packed up and left Pixel Town${kids.length?` with ${kids.map(k=>k.name.split(' ')[0]).join(' and ')}`:''}: "${quote}"`, 7, '🚶', 'family');
+    S.week.departures.push(c.name);
+    kids.forEach(k=>removeCitizen(k,'left','moved away with family'));
+    removeCitizen(c,'left',quote);
+  });
+  // immigration: newcomers arrive on the King's Road with their own agendas
+  const mood = S.citizens.reduce((a,c)=>a+c.mood.valence,0)/Math.max(1,S.citizens.length);
+  const vacancies = homeBuildings().filter(b=>residentsOf(b.id).length===0).length;
+  const lodgers = residentsOf('loc_tavern').filter(c=>c.profession!=='TavernKeeper').length;
+  const chance = 0.06 + Math.max(0,mood)*0.12 + vacancies*0.04 + (d<7?0.1:0);
+  if (S.citizens.length < POP_CAP && (vacancies>0 || lodgers<8) && rnd()<chance) arriveNewcomers();
+}
+function newcomerDef(r, sur, opts){
+  const first = FIRST_NAMES[Math.floor(r()*FIRST_NAMES.length)];
+  const agendaKey = opts.agenda || Object.keys(AGENDAS)[Math.floor(r()*Object.keys(AGENDAS).length)];
+  const A = AGENDAS[agendaKey];
+  const prof = opts.prof || (r()<0.6 ? neededProfession() : Object.keys(PROF_COUNTS)[Math.floor(r()*Object.keys(PROF_COUNTS).length)]);
+  const traits = randomTraits(r, 2+(r()<0.4?1:0), A.trait);
+  const values = [A.value || VALUES[Math.floor(r()*VALUES.length)]]; while (values.length<2){ const v=VALUES[Math.floor(r()*VALUES.length)]; if (!values.includes(v)) values.push(v); }
+  const age = opts.age || 20+Math.floor(r()*35);
+  const skin = SKINS[Math.floor(r()*SKINS.length)], hair = HAIRS[Math.floor(r()*HAIRS.length)];
+  const name = `${first} ${sur}`;
+  const origin = pick(['the river cities','the northern hills','a fishing village down the coast','the capital','a farm three valleys over','across the sea','a mining town that ran dry']);
+  return {id: uniqueId('cit_'+name.toLowerCase().replace(/[^a-z]+/g,'_')), name, age, prof, traits, values, agenda:agendaKey,
+    p:[r(),r(),r(),r(),r()].map(v=>+(0.15+v*0.7).toFixed(2)),
+    pol:[clamp(+(r()*2-1+(A.econ||0)).toFixed(2),-1,1), clamp(+(r()*2-1+(A.order||0)).toFixed(2),-1,1), clamp(+(0.2+r()*0.6+(A.civic||0)).toFixed(2),0,1)],
+    wallet: 60+Math.floor(r()*340), bio:`Came to Pixel Town from ${origin} to ${A.phrase}. ${TRAIT_BIO[traits[0]]}`,
+    look: lookFor(prof, r, skin, hair, STYLES[Math.floor(r()*STYLES.length)], r()<0.2)};
+}
+function settleNewcomer(c){
+  const vac = homeBuildings().filter(b=>residentsOf(b.id).length===0);
+  c.home = vac.length ? vac[Math.floor(rnd()*vac.length)].id : 'loc_tavern';
+  S.citizens.push(c); indexCitizens();
+  c.rt.x=c.rt.ox=0; c.rt.y=c.rt.oy=20; c.rt.loc=null; c.arrived=S.minute;
+  c.plan = buildPlan(c, dayOf(S.minute)); c.rt.blockIdx=-1;
+  S.week.arrivals.push(`${c.name} (${profLabel(c.profession)}, ${AGENDAS[c.agenda]?AGENDAS[c.agenda].label.toLowerCase():'no agenda'})`);
+}
+function arriveNewcomers(){
+  const r = mapRand(hash('arr'+S.minute+S.citizens.length));
+  const sur = SURNAMES.concat(['Ashgrove','Bellweather','Corrin','Dray','Esker','Fallow','Grist','Harrow','Ingle','Jessop','Kell','Larch','Marlow','Norrey','Orrin','Pell','Quarry','Rook','Sable','Tamsin','Vane','Wicker'])[Math.floor(r()*43)];
+  const roll = r();
+  const group = [];
+  const lead = makeCitizen(newcomerDef(r, sur, {})); group.push(lead);
+  if (roll>0.65){ const sp = makeCitizen(newcomerDef(r, sur, {agenda: r()<0.5?lead.agenda:null, age: clamp(lead.age+Math.floor(r()*10)-5,19,70)})); sp.partner=lead.id; lead.partner=sp.id; group.push(sp);
+    [[lead,sp],[sp,lead]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=85; R.trust=.9; R.tags=['Spouse','Family']; });
+    if (roll>0.85 && lead.age<45){ const kr=mapRand(hash(lead.id+'kid')); const kd=newcomerDef(kr, sur, {age:4+Math.floor(kr()*10), prof:'Child'}); kd.prof='Child'; kd.agenda=null; kd.wallet=0; kd.look=lookForChild(kr, lead.look.skin, sp.look.hair, 'short'); kd.parents=[lead.id,sp.id]; kd.bio=`Moved to Pixel Town with ${lead.name} and ${sp.name}.`; const kid=makeCitizen(kd); group.push(kid);
+      [lead,sp].forEach(p=>{ p.kids.push(kid.id); const R=getRel(p,kid.id); R.affinity=90; R.tags=['Family']; const R2=getRel(kid,p.id); R2.affinity=90; R2.tags=['Family']; }); } }
+  const vac = homeBuildings().filter(b=>residentsOf(b.id).length===0);
+  const home = vac.length ? vac[Math.floor(r()*vac.length)].id : 'loc_tavern';
+  group.forEach(c=>{ c.home = home; S.citizens.push(c); c.rt.x=c.rt.ox=0; c.rt.y=c.rt.oy=20; c.arrived=S.minute; });
+  indexCitizens(); group.forEach(c=>{ c.plan = buildPlan(c, dayOf(S.minute)); c.rt.blockIdx=-1; });
+  const where = home==='loc_tavern' ? 'taking a room at the Tipsy Lantern' : `moving into ${LOC[home].name}`;
+  chronicle(`${group.map(c=>c.name).join(', ')} arrived on the King's Road, ${where}. ${lead.name.split(' ')[0]} hopes to ${AGENDAS[lead.agenda].phrase}.`, 6, '🧳', 'arrival');
+  group.forEach(c=>S.week.arrivals.push(`${c.name} (${profLabel(c.profession)}${c.agenda?`, ${AGENDAS[c.agenda].label.toLowerCase()}`:''})`));
+}
+
+// ---------- elections: a leader every 4 weeks, and a council of 5 ----------
+function platformFor(c){
+  let best='works', bs=-9;
+  for (const k in PLATFORMS){ const P=PLATFORMS[k]; let sc = c.values.filter(v=>P.plus.includes(v)).length + (P.econ||0)*c.politics.economicLeaning + (P.order||0)*c.politics.orderLeaning + (AGENDA_PLATFORM[c.agenda]===k?1.5:0) + (hash(c.id+k)%100)/400; if (sc>bs){ bs=sc; best=k; } }
+  return best;
+}
+function candidacyScore(c){
+  return c.politics.civicEngagement + (c.traits.includes('Ambitious')?0.5:0) + (c.traits.includes('Charismatic')?0.4:0) + (c.agenda==='office'?1:0) + (c.agenda==='trouble'?0.3:0) + (c.office?0.4:0)
+    + Math.min(0.6, c.wallet/1500) - (c.traits.includes('Shy')?0.5:0) - (c.agenda==='quiet'?0.8:0) + (hash(c.id+dayOf(S.minute))%100)/330;
+}
+function openCampaign(){
+  const d = dayOf(S.minute);
+  const pool = S.citizens.filter(c=>isAdult(c) && c.age>=21).sort((a,b)=>candidacyScore(b)-candidacyScore(a));
+  const leader = pool.slice(0,3), council = pool.slice(0,10);
+  S.gov.campaign = {day: d + (6 - d%7), leader: leader.map(c=>({id:c.id, platform:platformFor(c)})), council: council.map(c=>({id:c.id, platform:platformFor(c)}))};
+  chronicle(`Election season! Running for leader: ${leader.map(c=>`${c.name} ("${PLATFORMS[platformFor(c)].title}")`).join(', ')}. ${council.length} villagers are standing for the council. Polls close on ${WEEKDAYS[6]} at 18:00.`, 7, '🗳️', 'gov');
+  leader.concat(council).forEach(c=>remember(c, 'I am standing for election.', 6));
+}
+function voterScore(v, k, platform){
+  const P = PLATFORMS[platform]; const r = peekRel(v,k.id);
+  const aff = v===k ? 1.5 : r.affinity/100;
+  let align = v.values.filter(x=>P.plus.includes(x)).length*0.5 + (P.econ||0)*v.politics.economicLeaning*0.5 + (P.order||0)*v.politics.orderLeaning*0.5;
+  if (v.agenda && AGENDA_PLATFORM[v.agenda]===platform) align += 0.5;
+  const charisma = (k.traits.includes('Charismatic')?0.3:0) + k.personality.extraversion*0.3;
+  const mood = S.citizens.reduce((a,c)=>a+c.mood.valence,0)/S.citizens.length;
+  const incumbent = k.office ? (v.agenda==='trouble' ? -0.4 : mood*0.4) : 0;
+  const rival = r.tags.includes('Rival') ? -0.6 : 0;
+  return 0.35*aff + 0.35*clamp(align,-1,1) + 0.2*charisma + 0.1*incumbent + rival + (hash(v.id+k.id+S.minute)%100)/600;
+}
+function holdElection(){
+  const C = S.gov.campaign; S.gov.campaign = null;
+  const voters = S.citizens.filter(isAdult);
+  const lc = C.leader.filter(x=>alive(x.id)), cc = C.council.filter(x=>alive(x.id));
+  if (!lc.length) return;
+  const lv = {}; lc.forEach(x=>lv[x.id]=0);
+  voters.forEach(v=>{ const best = lc.map(x=>[x, voterScore(v, cById(x.id), x.platform)]).sort((a,b)=>b[1]-a[1])[0]; lv[best[0].id]++; });
+  const leaderId = Object.entries(lv).sort((a,b)=>b[1]-a[1])[0][0];
+  const cv = {}; cc.filter(x=>x.id!==leaderId).forEach(x=>cv[x.id]=0);
+  voters.forEach(v=>{ cc.filter(x=>x.id!==leaderId).map(x=>[x, voterScore(v, cById(x.id), x.platform)]).sort((a,b)=>b[1]-a[1]).slice(0,3).forEach(([x])=>cv[x.id]++); });
+  const council = Object.entries(cv).sort((a,b)=>b[1]-a[1]).slice(0,5).map(e=>e[0]);
+  const prevLeader = S.gov.leader;
+  S.citizens.forEach(c=>c.office=null);
+  S.gov.leader = leaderId; S.gov.council = council; S.gov.electedDay = dayOf(S.minute);
+  S.gov.platforms = Object.fromEntries(C.council.concat(C.leader).map(x=>[x.id,x.platform]));
+  cById(leaderId).office='Leader'; council.forEach(id=>cById(id).office='Councillor');
+  const L = cById(leaderId), plat = PLATFORMS[S.gov.platforms[leaderId]].title;
+  const rec = {day:dayOf(S.minute), turnout:voters.length, leader:{id:leaderId, name:L.name, votes:lv[leaderId], platform:plat},
+    leaderTally: Object.entries(lv).sort((a,b)=>b[1]-a[1]).map(([id,n])=>({name:cById(id).name, votes:n, platform:PLATFORMS[S.gov.platforms[id]].title})),
+    council: council.map(id=>({name:cById(id).name, votes:cv[id], platform:PLATFORMS[S.gov.platforms[id]].title}))};
+  S.gov.elections.unshift(rec); S.gov.elections = S.gov.elections.slice(0,12);
+  chronicle(`${L.name} ${prevLeader===leaderId?'was re-elected':'was elected'} Leader of Pixel Town with ${lv[leaderId]} of ${voters.length} votes, promising "${plat}". The new council: ${council.map(id=>cById(id).name).join(', ')}.`, 9, '🗳️', 'gov');
+  S.week.election = rec;
+  S.bubbles.push({id:leaderId, text:'★ LEADER', until:performance.now()+6000, gm:S.minute});
+  voters.forEach(v=>remember(v, `${L.name} is our new leader.`, v.id===leaderId?10:3, [leaderId]));
+  setEmotion(L,'Proud',DAY*2);
+}
+function politicsDaily(){
+  const d = dayOf(S.minute);
+  if (d%28===2 && !S.gov.campaign) openCampaign();
+  // stipends for the office holders
+  if (S.gov.leader && alive(S.gov.leader) && S.treasury>=10){ S.treasury-=10; payTo(S.gov.leader,10); }
+  S.gov.council.forEach(id=>{ if (alive(id) && S.treasury>=4){ S.treasury-=4; payTo(id,4); } });
+}
+function officials(){ return [S.gov.leader].concat(S.gov.council).filter(id=>id && alive(id)).map(cById); }
+// council and leader draft laws from their platforms; returns {key, proposer} or null
+function councilPick(){
+  const offs = officials(); if (!offs.length) return null;
+  const wk = weekNo(dayOf(S.minute));
+  const order = offs.slice(0,1).concat(offs.slice(1).sort((a,b)=>hash(a.id+wk)-hash(b.id+wk)));
+  const activeKeys = new Set(S.gov.proposals.filter(p=>['Enacted','Passed'].includes(p.status)).map(p=>p.key));
+  let best=null;
+  for (const o of order){
+    const plat = PLATFORMS[(S.gov.platforms||{})[o.id] || platformFor(o)];
+    for (const k of plat.laws){
+      if (k==='annex'){ const a = annexCandidate(0.3); if (a && a.score>0.45 && !(best && best.s>=a.score)) best={key:'annex', t:a.t, proposer:o, s:a.score}; continue; }
+      if (activeKeys.has(k) || (S.gov.cooldown[k] && dayOf(S.minute)-S.gov.cooldown[k] < 7)) continue;
+      const s = CANDIDATES[k].trigger() + 0.3 + rnd()*0.1;
+      if (s>0.5 && !(best && best.s>=s)) best={key:k, proposer:o, s};
+    }
+    if (best) break;
+  }
+  return best;
 }
 
 // ---------- day / hour / minute pipeline ----------
@@ -1170,7 +1694,7 @@ function dayStarted(){
   if (S.weather==='Storm') chronicle('A storm rolls in over Pixel Town. Outdoor work is off for the day.', 4, '⛈️', 'weather');
   S.festival = d>0 && d%28===0;
   if (S.festival) chronicle(`The ${SEASONS[season]} Festival begins on the town square tonight!`, 7, '🎉', 'festival');
-  if (d>0 && d%112===0) S.citizens.forEach(c=>c.age++);
+  if (d>0 && d%112===0) S.citizens.slice().forEach(c=>{ c.age++; if (c.profession==='Child' && c.age>=16) comeOfAge(c); });
   if (!S.bridge.closed){
     S.bridge.health = Math.max(0, S.bridge.health - (S.weather==='Storm'?8:1.6));
     if (S.bridge.health<=0){ S.bridge.closed=true; pathCache.clear(); chronicle('The old river bridge has collapsed! The east grove and the mine are cut off.', 9, '🌉', 'infrastructure'); S.citizens.forEach(c=>remember(c,'The bridge collapsed. Nobody can reach the grove or the mine.',8)); }
@@ -1195,8 +1719,11 @@ function dayStarted(){
     if (c.sick) c.sick++;
     if (c.sick>4){ c.sick=0; remember(c,'I finally shook off that illness on my own.',4); }
     if (!c.sick && rnd() < (season===3?0.03:0.015)){ c.sick=1; chronicle(`${c.name} woke up sick.`, 3, '🤒', 'health'); remember(c,'I woke up feeling awful.',5); }
-    if (c.courting && c.rel[c.courting].affinity>=92 && S.minute-c.courtingSince > 14*DAY && c.id<c.courting && cById(c.courting).courting===c.id) wedding(c, cById(c.courting));
+    if (c.courting && cById(c.courting) && !cById(c.courting).dead && peekRel(c,c.courting).affinity>=85 && S.minute-c.courtingSince > 10*DAY && c.id<c.courting && cById(c.courting).courting===c.id) wedding(c, cById(c.courting));
   });
+  lifeDaily();
+  landDaily();
+  politicsDaily();
   dailyGovernance();
   S.citizens.forEach(c=>{ c.plan = buildPlan(c, d); c.rt.blockIdx = -1; });
 }
@@ -1211,11 +1738,15 @@ function repairBridge(){
 }
 function wedding(a,b){
   a.partner=b.id; b.partner=a.id; a.courting=b.courting=null;
-  [a,b].forEach(x=>{ const o=x===a?b:a; const r=x.rel[o.id]; r.tags=r.tags.filter(t=>t!=='Crush'); r.tags.push('Spouse','Family'); });
+  [a,b].forEach(x=>{ const o=x===a?b:a; const r=getRel(x,o.id); r.tags=r.tags.filter(t=>t!=='Crush'); r.tags.push('Spouse','Family'); });
   chronicle(`Wedding bells! ${a.name} and ${b.name} were married on the town square.`, 10, '💍', 'romance');
   S.week.rels.push(`${a.name} & ${b.name} got married`);
   S.citizens.forEach(c=>remember(c, `${a.name} and ${b.name} got married today.`, c===a||c===b?10:4, [a.id,b.id]));
   S.festival = true;
+  // the spouse who owns their home (or has the roomier one) keeps it; the other moves in
+  const owns = x => propOf(x.home) && propOf(x.home).owner===x.id;
+  const [stay, go] = owns(b)&&!owns(a) ? [b,a] : owns(a) ? [a,b] : residentsOf(a.home).length<=residentsOf(b.home).length ? [a,b] : [b,a];
+  if (go.home!==stay.home){ go.home = stay.home; S.citizens.forEach(k=>{ if (k.profession==='Child' && k.parents.includes(go.id) && !k.parents.some(pid=>pid!==go.id && alive(pid))) k.home=stay.home; }); indexCitizens(); chronicle(`${go.name} moved into ${LOC[stay.home].name} with ${stay.name}.`, 4, '📦', 'family'); }
 }
 function hourTick(){
   reprice();
@@ -1236,10 +1767,11 @@ function updateMood(c){
 }
 function reflect(c){
   const opts = [];
-  const rels = Object.entries(c.rel).sort((a,b)=>b[1].affinity-a[1].affinity);
-  const best = cById(rels[0][0]), worst = cById(rels[rels.length-1][0]);
-  opts.push(`I've come to rely on ${best.name}. Whatever happens, they have my back.`);
-  if (c.rel[worst.id].affinity < -20) opts.push(`I don't trust ${worst.name}, and I doubt I ever will.`);
+  const rels = Object.entries(c.rel).filter(([id])=>cById(id) && !cById(id).dead).sort((a,b)=>b[1].affinity-a[1].affinity);
+  const best = rels.length ? cById(rels[0][0]) : null, worst = rels.length ? cById(rels[rels.length-1][0]) : null;
+  if (best) opts.push(`I've come to rely on ${best.name}. Whatever happens, they have my back.`);
+  else opts.push('I barely know anyone here yet.');
+  if (worst && peekRel(c,worst.id).affinity < -20) opts.push(`I don't trust ${worst.name}, and I doubt I ever will.`);
   const inc = weekSum(c,'inc'), exp = weekSum(c,'exp');
   if (inc > exp*1.3 && inc>40) opts.push('Business has been good lately. I could afford to be more generous.');
   if (exp > inc*1.3 && exp>30) opts.push('I spend more than I earn. Something has to change.');
@@ -1262,7 +1794,7 @@ function simTick(){
 function openWeek(){
   const d = dayOf(S.minute);
   S.week = {n:weekNo(d), startDay:d - d%7, trades:0, volume:0, taxes:0, quarrels:0, events:[], hungry:[], rels:[], income:{}, spent:{}, weather:{},
-    prices:Object.fromEntries(GOOD_DEFS.map(g=>[g.id,S.goods[g.id].price])), treasuryStart:S.treasury, townHall:null, song:null, herdStart:Object.assign({},S.herd)};
+    prices:Object.fromEntries(GOOD_DEFS.map(g=>[g.id,S.goods[g.id].price])), treasuryStart:S.treasury, townHall:null, song:null, herdStart:Object.assign({},S.herd), births:[], deaths:[], arrivals:[], departures:[], sales:[], election:null};
 }
 function weekEntry(w, live){
   const byImp = w.events.slice().sort((a,b)=>b.imp-a.imp || b.t-a.t);
@@ -1275,7 +1807,9 @@ function weekEntry(w, live){
     weather:w.weather, prices: GOOD_DEFS.map(g=>({g:g.id, name:g.name, start:w.prices[g.id], end:S.goods[g.id].price})),
     townHall:w.townHall, laws:activeLaws().map(p=>p.title),
     topEarner: topE ? {name:cById(topE[0]).name, amt:topE[1]} : null, topSpender: topS ? {name:cById(topS[0]).name, amt:topS[1]} : null,
-    hungry:w.hungry.slice(), rels:w.rels.slice(), highlights: byImp.slice(0,10).sort((a,b)=>a.t-b.t), song:w.song||null};
+    hungry:w.hungry.slice(), rels:w.rels.slice(), highlights: byImp.slice(0,10).sort((a,b)=>a.t-b.t), song:w.song||null,
+    births:(w.births||[]).slice(), deaths:(w.deaths||[]).slice(), arrivals:(w.arrivals||[]).slice(), departures:(w.departures||[]).slice(), sales:(w.sales||[]).slice(), election:w.election||null,
+    leader: S.gov.leader && cById(S.gov.leader) ? cById(S.gov.leader).name : null};
 }
 function closeWeek(){
   if (!S.week) return;
@@ -1301,6 +1835,13 @@ function weekToMarkdown(w, live){
   if (w.topEarner) L.push(`- Top earner: ${w.topEarner.name} (${w.topEarner.amt} coins)${w.topSpender?`, biggest spender: ${w.topSpender.name} (${w.topSpender.amt})`:''}`);
   if (w.hungry.length) L.push(`- Went hungry: ${w.hungry.join(', ')}`);
   if (w.rels.length) L.push(`- Relationships: ${w.rels.join('; ')}`);
+  if (w.leader) L.push(`- Leader: ${w.leader}`);
+  if (w.election) L.push(`- Election: ${w.election.leader.name} elected leader (${w.election.leader.votes}/${w.election.turnout} votes, "${w.election.leader.platform}"); council: ${w.election.council.map(x=>x.name).join(', ')}`);
+  if ((w.births||[]).length) L.push(`- Births: ${w.births.join('; ')}`);
+  if ((w.deaths||[]).length) L.push(`- Deaths: ${w.deaths.join('; ')}`);
+  if ((w.arrivals||[]).length) L.push(`- Arrivals: ${w.arrivals.join('; ')}`);
+  if ((w.departures||[]).length) L.push(`- Departures: ${w.departures.join('; ')}`);
+  if ((w.sales||[]).length) L.push(`- Property: ${w.sales.join('; ')}`);
   L.push('- Prices: ' + w.prices.map(p=>`${p.name} ${p.start}→${p.end}`).join(', '));
   L.push('', '**Happenings**');
   w.highlights.forEach(h=>L.push(`- ${fmtStamp(h.t)} ${h.icon} ${h.text}`));
@@ -1332,7 +1873,17 @@ function saveGame(force){
   store.set(SAVE_KEY, {state:S, clock:{speed:clock.speed, paused:clock.paused, gameAt:clock.now()}, savedAt:now});
   S.bubbles = bubbles;
 }
-function loadGame(){ const sv = store.get(SAVE_KEY); return (sv && sv.state && sv.state.v===2) ? sv : null; }
+function loadGame(){ const sv = store.get(SAVE_KEY); if (!sv || !sv.state) return null; if (sv.state.v===2) migrateV2(sv.state); return sv.state.v===3 ? sv : null; }
+// v2 saves (before land, families and elections) keep their town and history
+function migrateV2(st){
+  st.v = 3;
+  st.terr = {t_core:true, t_grove:true}; st.land = {sales:[]}; st.built = []; st.deceased = []; st.departed = [];
+  Object.assign(st.gov, {leader:null, council:[], elections:[], campaign:null, platforms:{}});
+  st.citizens.forEach(c=>{ c.agenda=null; c.parents=[]; c.kids=[]; c.office=null; c.unhappy=0; c.arrived=0;
+    for (const id in c.rel){ const r=c.rel[id]; if (r.affinity===5 && r.tags.length===1 && r.tags[0]==='Neighbor') delete c.rel[id]; } });
+  st.props = initProperties(st);
+  if (st.week) Object.assign(st.week, {births:[], deaths:[], arrivals:[], departures:[], sales:[], election:null});
+}
 
 /* =====================================================================
    ART — procedural hi-bit sprites
@@ -1747,9 +2298,30 @@ function makePersonAtlas(L){
   for (let dir=0;dir<3;dir++) for (let f=0;f<3;f++){ const p=new Pix(FW,FH); drawPerson(p,L,dir,f); p.outline(); g.drawImage(p.done(), f*FW, dir*FH); }
   return atlas;
 }
-function atlasFor(c){ return ART.people[c.id] || (ART.people[c.id] = makePersonAtlas(c.look)); }
+// children reuse the adult sprite with body rows dropped, so they come out shorter but just as detailed
+const CHILD_DROP = new Set([15,17,19,21,23,25,27,29]);
+function makeChildAtlas(L){
+  const adult = makePersonAtlas(L), atlas = mk(FW*3, FH*3), g = atlas.getContext('2d');
+  for (let dir=0;dir<3;dir++) for (let f=0;f<3;f++){ let dy = FH-1; for (let y=FH-1;y>=0;y--){ if (CHILD_DROP.has(y)) continue; g.drawImage(adult, f*FW, dir*FH+y, FW, 1, f*FW, dir*FH+dy, FW, 1); dy--; } }
+  return atlas;
+}
+function atlasFor(c){ return ART.people[c.id] || (ART.people[c.id] = c.profession==='Child' ? makeChildAtlas(c.look) : makePersonAtlas(c.look)); }
 const THUMBS = {};
 function thumbFor(c){ if (THUMBS[c.id]) return THUMBS[c.id]; const m=mk(FW,FH); m.getContext('2d').drawImage(atlasFor(c),0,0,FW,FH,0,0,FW,FH); return THUMBS[c.id]=m.toDataURL(); }
+function makeSign(){ const p=new Pix(14,18); p.rect(6,6,2,12,WOOD_R[2]); p.rect(6,6,1,12,WOOD_R[4]); for (let y=0;y<8;y++) for (let x=0;x<14;x++) p.set(x,y, (y===0||y===7||x===0||x===13)?WOOD_R[1]:'#f4ecd8'); p.rect(2,3,10,2,'#c83a3a'); p.set(3,2,'#c83a3a'); p.set(10,5,'#c83a3a'); return p.outline().done(); }
+function makeStake(){ const p=new Pix(4,10); p.rect(1,0,2,10,WOOD_R[3]); p.rect(1,0,1,10,WOOD_R[5]); p.rect(0,2,4,1,'#e8d8a0'); return p.outline().done(); }
+function makeGrave(v){ const p=new Pix(10,13); p.ellipse(5,12,5,1.2,'#000000',60); for (let y=1;y<12;y++) for (let x=1;x<9;x++){ if (y<3 && (x<2+(2-y)||x>7-(2-y))) continue; const l=0.75-(x-1)/8*0.4-(y>9?0.15:0); p.set(x,y,STONE_R[1+dith(l,x,y,5)]); } p.rect(4,3,2,6,STONE_R[1]); p.rect(3,4,4,1,STONE_R[1]); if (v%2) { p.set(1,11,'#e84a4a'); p.set(2,11,'#f2c14e'); } return p.outline().done(); }
+function makeScaffold(stage){
+  const p=new Pix(72,78); const W=64, ox=4, top=14;
+  p.ellipse(36,74,34,3,'#000000',40);
+  if (stage>0){ for (let y=top+30;y<top+62;y++) for (let x=ox;x<ox+W;x++){ const k=(x-ox)%5; p.set(x,y, k===4?WOOD_R[0]:WOOD_R[2+((hashf(x>>2,0,9)>0.5)?1:0)]); } for (let x=ox;x<ox+W;x++){ p.set(x,top+62,STONE_R[2]); p.set(x,top+63,STONE_R[1]); } }
+  for (const x of [ox, ox+21, ox+42, ox+W-2]) for (let y=top; y<top+64; y++){ p.set(x,y,WOOD_R[3]); p.set(x+1,y,WOOD_R[1]); }
+  for (const y of [top, top+22, top+44]) for (let x=ox-2;x<ox+W+2;x++){ p.set(x,y,WOOD_R[4]); p.set(x,y+1,WOOD_R[2]); }
+  for (let k=0;k<20;k++){ p.set(ox+2+k,top+2+k,WOOD_R[3]); p.set(ox+W-3-k,top+2+k,WOOD_R[3]); }
+  if (stage>0) for (let y=top-8;y<top+14;y++){ const inset=Math.round((top+14-y)*0.9); for (let x=ox+inset;x<ox+W-inset;x+=6) p.set(x,y,WOOD_R[4]); }
+  p.rect(ox+W-14, top+56, 10, 6, '#b09060'); p.rect(ox+6, top+58, 12, 4, WOOD_R[4]);
+  return p.outline().done();
+}
 function buildArt(season){
   if (ART.season===season) return; ART.season = season;
   ART.grass=[]; ART.pasture=[]; ART.flower=[]; ART.dirt=[]; ART.cobble=[]; ART.sand=[]; ART.rock=[];
@@ -1760,6 +2332,7 @@ function buildArt(season){
   ART.oaks = [0,1,2,3].map(v=>makeOak(season,v)); ART.pines=[0,1,2].map(v=>makePine(season,v)); ART.bushes=[0,1].map(v=>makeBush(season,v));
   BUILDINGS.forEach(b=>{ ART.bld[b.id] = makeBuilding(b, season); });
   ART.well = makeWell(season); ART.fountain = makeFountain(); ART.stalls = [0,1,2].map(i=>makeStall(i,season));
+  ART.sign = makeSign(); ART.stake = makeStake(); ART.graves=[0,1,2].map(makeGrave); ART.scaffold=[makeScaffold(0),makeScaffold(1)];
   ART.lamp = makeLamp(); ART.scarecrow = makeScarecrow(); ART.hay = makeHay(); ART.barrel=makeBarrel(); ART.crate=makeCrate(); ART.boat=makeBoat(); ART.cart=makeCart();
   if (!ART.animals.cow){ for (const k of ['cow','sheep','pig','chicken']) ART.animals[k] = [0,1].map(v=>[0,1].map(f=>makeAnimal(k,v,f))); }
 }
@@ -1935,6 +2508,16 @@ function render(frac, ts){
   const cits = [];
   for (const c of S.citizens){ if (!visibleCitizen(c)) continue; const p=citizenPos(c,frac); const X=p.x*TILE, Y=p.y*TILE; if (!inView(X-4,Y-20,28,40)) continue; const e={cit:c, p, X, Y, key:Y+15}; ents.push(e); cits.push(e); }
   [[43,43],[37,46]].forEach(([bx,by],i)=>{ const X=bx*TILE, Y=by*TILE+Math.sin(ts/700+i)*1.2; if (inView(X,Y,26,12)) ents.push({img:ART.boat, x:X, y:Math.round(Y), key:Y+10, w:26, h:12}); });
+  // land markers: plot stakes and signs, construction, for-sale signs, graves
+  Object.values(S.props).forEach(pr=>{
+    if (pr.kind==='plot'){ const pl=PLOTS.find(x=>x.id===pr.plot); if (!pl || !claimed(pl.terr)) return; const X=pl.x*TILE, Y=pl.y*TILE;
+      if (!inView(X-8,Y-40,90,120)) return;
+      if (pr.status==='construction'){ const st = (pr.build.until - dayOf(S.minute)) <= BUILD_DAYS/2 ? 1 : 0; ents.push({img:ART.scaffold[st], x:X-4, y:Y-14, key:Y+64, w:72, h:78}); return; }
+      [[0,0],[60,0],[0,58],[60,58]].forEach(([a,b])=>ents.push({img:ART.stake, x:X+a, y:Y+b, key:Y+b+10, w:4, h:10}));
+      if (pr.forSale) ents.push({img:ART.sign, x:X+24, y:Y+44, key:Y+62, w:14, h:18});
+    } else if (pr.forSale && pr.bid){ const b=BUILDINGS.find(x=>x.id===pr.bid); if (b && inView(b.door[0]*TILE-20,b.door[1]*TILE-20,40,40)) ents.push({img:ART.sign, x:b.door[0]*TILE+14, y:b.door[1]*TILE-6, key:b.door[1]*TILE+12, w:14, h:18}); }
+  });
+  (S.deceased||[]).slice(0, GRAVE_SLOTS.length).forEach((g,i)=>{ const [gx,gy]=GRAVE_SLOTS[i]; if (inView(gx,gy,10,13)) ents.push({img:ART.graves[i%3], x:gx, y:gy, key:gy+12, w:10, h:13}); });
   ents.sort((a,b)=>a.key-b.key);
   for (const e of ents){
     if (e.cit) drawCitizen(e, ts);
@@ -1949,6 +2532,9 @@ function render(frac, ts){
     if (p.kind==='rain'){ ctx.strokeStyle=`rgba(170,200,235,${0.55*a})`; ctx.lineWidth=0.7; ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-p.vx*0.018,p.y-p.vy*0.018); ctx.stroke(); continue; }
     if (p.kind==='splash'){ const k=1-p.life/p.max; ctx.fillStyle=`rgba(220,238,255,${0.8*(1-k)})`; ctx.fillRect(p.x-1-k*2,p.y,1,1); ctx.fillRect(p.x+1+k*2,p.y,1,1); ctx.fillRect(p.x,p.y-1-k*2,1,1); continue; }
     ctx.globalAlpha=a; ctx.fillStyle=p.col; ctx.fillRect(Math.round(p.x),Math.round(p.y),p.w||1,p.h||p.w||1); ctx.globalAlpha=1; }
+  // unclaimed territories: shaded, with a dashed border
+  TERRITORIES.forEach(t=>{ if (claimed(t.id)) return; const [x0,y0,x1,y1]=t.rect; const X=x0*TILE, Y=y0*TILE, Wd=(x1-x0+1)*TILE, Ht=(y1-y0+1)*TILE; if (!inView(X,Y,Wd,Ht)) return;
+    ctx.fillStyle='rgba(18,12,40,0.38)'; ctx.fillRect(X,Y,Wd,Ht); ctx.strokeStyle='rgba(242,193,78,0.8)'; ctx.lineWidth=1.5; ctx.setLineDash([6,5]); ctx.strokeRect(X+1,Y+1,Wd-2,Ht-2); ctx.setLineDash([]); });
   // lighting
   const overcast = S.weather==='Storm'?0.26:S.weather==='Rain'?0.16:S.weather==='Cloudy'?0.07:S.weather==='Fog'?0.08:0;
   const dark = darknessAt(mod) + overcast;
@@ -1979,6 +2565,10 @@ function render(frac, ts){
   const now = performance.now();
   S.bubbles = S.bubbles.filter(b=>b.until>now && (!b.gm || S.minute-b.gm < 25));
   const bubbles = S.bubbles.slice(-18);
+  ctx.font = `bold ${Math.round(clamp(z*4, 11*DPR, 18*DPR))}px system-ui,sans-serif`; ctx.textBaseline='middle';
+  TERRITORIES.forEach(t=>{ if (claimed(t.id)) return; const [x0,y0,x1,y1]=t.rect; const cx=((x0+x1+1)/2*TILE)*z+ox, cy=((y0+y1+1)/2*TILE)*z+oy; if (cx<-200||cy<-50||cx>cv.width+200||cy>cv.height+50) return;
+    const l1 = `Unclaimed: ${t.name}`, l2 = `annex for ${t.cost}¢`; const w1=ctx.measureText(l1).width;
+    ctx.fillStyle='rgba(15,16,26,.8)'; ctx.fillRect(cx-w1/2-10*DPR, cy-18*DPR, w1+20*DPR, 38*DPR); ctx.fillStyle='#f2c14e'; ctx.fillText(l1, cx-w1/2, cy-6*DPR); ctx.fillStyle='#c8c8d8'; ctx.fillText(l2, cx-ctx.measureText(l2).width/2, cy+10*DPR); });
   const fs = Math.round(clamp(z*3.4, 10*DPR, 15*DPR));
   ctx.font = `bold ${fs}px system-ui,sans-serif`; ctx.textBaseline='middle';
   cits.forEach(({cit:c,X,Y})=>{
@@ -2010,6 +2600,7 @@ function drawCitizen(e, ts){
   else if (working && c.profession==='Fisher'){ const bob=Math.sin(ts/400+hash(c.id))*1.2; ctx.strokeStyle=WOOD_R[3]; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(dx+17,dy+22); ctx.lineTo(dx+24,dy+6); ctx.stroke(); ctx.strokeStyle='rgba(230,230,240,0.7)'; ctx.lineWidth=0.5; ctx.beginPath(); ctx.moveTo(dx+24,dy+6); ctx.lineTo(dx+26,dy+40+bob); ctx.stroke(); ctx.fillStyle='#e84a3a'; ctx.fillRect(dx+25,dy+39+bob,2,2); ctx.fillStyle='rgba(220,240,255,0.5)'; ctx.fillRect(dx+23,dy+41+bob*0.2,6,1); }
   else if (!p.moving && c.rt.loc==='loc_well'){ ctx.fillStyle='#6a6a78'; ctx.fillRect(dx+16,dy+22,5,5); ctx.fillStyle='#9a9aa8'; ctx.fillRect(dx+16,dy+22,5,1); ctx.fillStyle='#3a6ea8'; ctx.fillRect(dx+17,dy+23,3,1); }
   if (c.sick){ ctx.fillStyle='rgba(140,200,120,0.55)'; ctx.fillRect(dx+6,dy+8,8,2); }
+  if (c.office && dir!==1){ const top = dy + (c.profession==='Child'?FH-19:14); if (c.office==='Leader'){ ctx.fillStyle='#f2c14e'; for (let k=0;k<8;k++) ctx.fillRect(dx+5+k, top+1+k, 2, 1); ctx.fillStyle='#fff0a0'; ctx.fillRect(dx+5,top+1,1,1); } else { ctx.fillStyle='#d8dce8'; ctx.fillRect(dx+12,top+2,2,2); ctx.fillStyle='#8a90a8'; ctx.fillRect(dx+13,top+3,1,1); } }
   if (!p.moving && c.rt.state==='Socializing' && Math.floor(ts/700+hash(c.id))%4===0){ ctx.fillStyle='#ffffff'; ctx.fillRect(dx+15,dy-2,2,2); ctx.fillRect(dx+18,dy-4,2,2); }
 }
 function litBuilding(b){ if (b.style==='hall') return false; return S.citizens.some(c=>c.rt.loc===b.id && !c.rt.path && c.rt.state!=='Sleeping'); }
@@ -2041,14 +2632,14 @@ function spawnParticles(dt, mod, season, vx, vy, vw, vh){
   if (particles.length>2500) particles.splice(0, particles.length-2500);
 }
 // --- minimap ---
-const miniBase = mk(160,100);
-function drawMiniBase(){ const g=miniBase.getContext('2d'); g.imageSmoothingEnabled=true; g.drawImage(ground,0,0,160,100);
+const miniBase = mk(220,100);
+function drawMiniBase(){ const g=miniBase.getContext('2d'); g.imageSmoothingEnabled=true; g.drawImage(ground,0,0,220,100);
   STATIC_ENTS.forEach(e=>{ if (e.img.width>40){ g.fillStyle='rgba(160,90,60,0.9)'; g.fillRect(e.x/8, e.y/8+2, e.w/8, e.h/8-2); } else if (e.img.height>=40){ g.fillStyle='rgba(30,70,40,0.8)'; g.fillRect((e.x+e.w/2)/8-1,e.key/8-2,2,2); } }); }
 function drawMini(){
   mctx.imageSmoothingEnabled=false; mctx.drawImage(miniBase,0,0);
   S.citizens.forEach(c=>{ if (!visibleCitizen(c)) return; mctx.fillStyle = c.id===ui.sel ? '#f2c14e' : '#ffffff'; mctx.fillRect(c.rt.x*2, c.rt.y*2-1, 2, 2); });
   const {vx,vy,vw,vh} = viewRect(); mctx.strokeStyle='#f2c14e'; mctx.lineWidth=1; mctx.strokeRect(vx/8+.5, vy/8+.5, vw/8, vh/8);
-  const dark = darknessAt(modOf(S.minute)); if (dark>0.05){ mctx.fillStyle=`rgba(14,16,48,${dark*0.6})`; mctx.fillRect(0,0,160,100); }
+  const dark = darknessAt(modOf(S.minute)); if (dark>0.05){ mctx.fillStyle=`rgba(14,16,48,${dark*0.6})`; mctx.fillRect(0,0,220,100); }
 }
 
 // ---------- UI ----------
@@ -2064,7 +2655,7 @@ function renderHeader(){
   const mood = S.citizens.reduce((a,c)=>a+c.mood.valence,0)/S.citizens.length;
   const law = activeLaws().length, pend = S.gov.proposals.find(p=>p.status==='Debating'||p.status==='Voting');
   $('stats').innerHTML = [
-    ['Population', S.citizens.length], ['Treasury', `${S.treasury} ¢`], ['Bridge', S.bridge.closed ? 'COLLAPSED' : Math.round(S.bridge.health)+'%'],
+    ['Population', `${S.citizens.length}${S.citizens.some(c=>c.profession==='Child')?` (${S.citizens.filter(c=>c.profession==='Child').length} kids)`:''}`], ['Leader', S.gov.leader && alive(S.gov.leader) ? cById(S.gov.leader).name : 'none'], ['Treasury', `${S.treasury} ¢`], ['Bridge', S.bridge.closed ? 'COLLAPSED' : Math.round(S.bridge.health)+'%'],
     ['Town mood', (mood>=0?'+':'')+mood.toFixed(2)], ['Herd', herdStr(S.herd)], ['Laws', law ? law+' active' : 'none'],
     ['Next vote', pend ? pend.title : '—'], ['Trades this wk', S.week ? S.week.trades : 0]
   ].map(([k,v])=>`<div class="stat"><small>${k}</small><strong>${esc(v)}</strong></div>`).join('');
@@ -2092,6 +2683,10 @@ function weekHtml(w, live, idx){
     ${w.topEarner?`<p>💰 Top earner: <b>${esc(w.topEarner.name)}</b> (${w.topEarner.amt}¢)${w.topSpender?` · 🛒 Biggest spender: ${esc(w.topSpender.name)} (${w.topSpender.amt}¢)`:''}</p>`:''}
     ${w.hungry.length?`<p>🍞 Went hungry: ${esc(w.hungry.join(', '))}</p>`:''}
     ${rels}
+    ${w.election?`<p>🗳️ Election: <b>${esc(w.election.leader.name)}</b> won leader (${w.election.leader.votes}/${w.election.turnout}) · council: ${esc(w.election.council.map(x=>x.name).join(', '))}</p>`:''}
+    ${(w.births||[]).length?`<p>👶 Born: ${esc(w.births.join('; '))}</p>`:''}${(w.deaths||[]).length?`<p>🕯️ Died: ${esc(w.deaths.join('; '))}</p>`:''}
+    ${(w.arrivals||[]).length?`<p>🧳 Arrived: ${esc(w.arrivals.join('; '))}</p>`:''}${(w.departures||[]).length?`<p>🚶 Left town: ${esc(w.departures.join('; '))}</p>`:''}
+    ${(w.sales||[]).length?`<p>🏠 Property: ${esc(w.sales.join('; '))}</p>`:''}
     <b>Happenings</b><ul>${w.highlights.map(h=>`<li>${esc(h.icon)} <span class="muted">${esc(fmtStamp(h.t))}</span> ${esc(h.text)}</li>`).join('')||'<li class="muted">Nothing notable yet.</li>'}</ul>
     <details><summary class="muted" style="cursor:pointer">Prices this week</summary><table><tr><th>Good</th><th class="num">Start</th><th class="num">End</th><th class="num">Δ</th></tr>${prices}</table></details>
     ${song}
@@ -2125,19 +2720,27 @@ function renderPeople(){
   const list = S.citizens.filter(c=>(!ui.prof||c.profession===ui.prof) && (!q || c.name.toLowerCase().includes(q))).map(c=>
     `<div class="cit ${ui.sel===c.id?'sel':''}" data-id="${c.id}"><img src="${thumbFor(c)}" alt=""><div class="who"><b>${esc(c.name)}</b> <span class="muted">${esc(profLabel(c.profession))}</span><small>${esc(doingText(c))} · ${esc(c.mood.emotion)} · ${c.wallet}¢</small></div></div>`).join('');
   const sel = ui.sel && cById(ui.sel);
-  const panel = $('p-people');
+  renderAddPanel();
+  const panel = $('pList');
   const hadFocus = document.activeElement && document.activeElement.id==='pq';
   panel.innerHTML = `${sel?inspector(sel):''}<h2>Villagers (${S.citizens.length})</h2>
     <div class="row" style="margin-bottom:6px"><input type="search" id="pq" placeholder="Search names" value="${esc(ui.q)}"><select id="pp"><option value="">All jobs</option>${profs.map(p=>`<option value="${p}" ${ui.prof===p?'selected':''}>${esc(profLabel(p))}</option>`).join('')}</select></div>${list}`;
-  panel.querySelectorAll('.cit').forEach(el=>el.onclick=()=>{ ui.sel = ui.sel===el.dataset.id?null:el.dataset.id; if (ui.sel){ const c=cById(ui.sel); cam.x=c.rt.x*TILE+10; cam.y=c.rt.y*TILE; if (cam.z<2*DPR) cam.z=clampZ(2.5*DPR); clampCam(); } renderPeople(); panel.scrollTop=0; });
+  panel.querySelectorAll('.cit').forEach(el=>el.onclick=()=>{ ui.sel = ui.sel===el.dataset.id?null:el.dataset.id; if (ui.sel){ const c=cById(ui.sel); cam.x=c.rt.x*TILE+10; cam.y=c.rt.y*TILE; if (cam.z<2*DPR) cam.z=clampZ(2.5*DPR); clampCam(); } renderPeople(); $('p-people').scrollTop=0; });
   $('pq').oninput = e=>{ ui.q=e.target.value; renderPeople(); };
   $('pp').onchange = e=>{ ui.prof=e.target.value; renderPeople(); };
   if (hadFocus){ const i=$('pq'); i.focus(); i.setSelectionRange(i.value.length,i.value.length); }
   const fb = $('followBtn'); if (fb) fb.onclick = ()=>{ cam.follow=!cam.follow; $('zFollow').classList.toggle('on',cam.follow); if (cam.follow && cam.z<2.5*DPR) cam.z=clampZ(3*DPR); renderPeople(); };
 }
+function familyLine(c){
+  const bits = [];
+  if (c.partner && alive(c.partner)) bits.push(`partner <b>${esc(cById(c.partner).name)}</b>`);
+  const par = c.parents.map(id=>cById(id)).filter(Boolean); if (par.length) bits.push(`child of ${par.map(p=>esc(p.name)+(p.dead?' †':'')).join(' & ')}`);
+  const kids = S.citizens.filter(k=>k.parents.includes(c.id)); if (kids.length) bits.push(`parent of ${kids.map(k=>`${esc(k.name.split(' ')[0])} (${k.age})`).join(', ')}`);
+  return bits.length ? `<p style="margin:4px 0;font-size:13px">👪 ${bits.join(' · ')}</p>` : '';
+}
 function needBar(k,v){ const col = v<25?'var(--bad)':v<50?'var(--accent)':'var(--good)'; return `<span>${k}</span><div class="bar"><i style="width:${v}%;background:${col}"></i></div><span class="num">${Math.round(v)}</span>`; }
 function inspector(c){
-  const rels = Object.entries(c.rel).map(([id,r])=>({o:cById(id),r})).sort((a,b)=>Math.abs(b.r.affinity)-Math.abs(a.r.affinity)).slice(0,6);
+  const rels = Object.entries(c.rel).filter(([id])=>alive(id)).map(([id,r])=>({o:cById(id),r})).sort((a,b)=>Math.abs(b.r.affinity)-Math.abs(a.r.affinity)).slice(0,6);
   const mem = c.memory.records.slice(-8).reverse();
   const inv = Object.entries(c.inventory).map(([g,q])=>`${GD[g].name} ×${q}`).join(', ') || 'nothing';
   const plan = c.plan ? c.plan.blocks.map((b,i)=>`<tr style="${i===c.rt.blockIdx?'color:var(--accent)':''}"><td>${fmtClock(b.s)}</td><td>${esc(b.act)}</td><td>${esc(b.note)}</td></tr>`).join('') : '';
@@ -2145,13 +2748,18 @@ function inspector(c){
   return `<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${esc(c.name)}, ${c.age}</h2><button class="btn ${cam.follow?'on':''}" id="followBtn">${cam.follow?'Following':'Follow on map'}</button></div>
     <p style="margin:6px 0"><b>${esc(profLabel(c.profession))}</b> · ${esc(LOC[c.home].name)}. ${esc(c.bio)}</p>
     <p class="muted" style="font-size:13px;margin:4px 0">Now: ${esc(doingText(c))}</p>
+    ${c.office?`<p style="margin:4px 0">🏛️ <b>${c.office}</b> of Pixel Town · "${esc(PLATFORMS[(S.gov.platforms||{})[c.id]||platformFor(c)].title)}"</p>`:''}
+    ${c.agenda?`<p style="margin:4px 0;font-size:13px">🎯 Agenda: <b>${esc(AGENDAS[c.agenda].label)}</b>${c.arrived?` · arrived ${esc(fmtStamp(c.arrived))}`:''}</p>`:''}
+    ${familyLine(c)}
+    ${propsOf(c).length?`<p style="margin:4px 0;font-size:13px">🏠 Owns: ${propsOf(c).map(p=>esc(propName(p))).join(', ')}</p>`:''}
     <p>${c.traits.map(t=>`<span class="chip">${t}</span>`).join('')}${c.values.map(v=>`<span class="chip" style="border-color:var(--accent-2)">${v}</span>`).join('')}</p>
     <p class="muted" style="font-size:13px">Feeling <b style="color:var(--text)">${c.mood.emotion}</b> · valence ${c.mood.valence.toFixed(2)} · stress ${c.mood.stress.toFixed(2)}${c.sick?' · 🤒 sick':''}${c.partner?` · partner: ${esc(cById(c.partner).name)}`:c.courting?` · courting ${esc(cById(c.courting).name)}`:''}</p>
     <div class="needs">${['hunger','energy','social','comfort','fun'].map(k=>needBar(k,c.needs[k])).join('')}</div>
     <p style="font-size:13px">💰 ${c.wallet}¢ · last 7 days: +${inc} / −${exp}${TOOL_USERS.includes(c.profession)?` · tools ${Math.round(c.tool)}%`:''}<br>🎒 ${esc(inv)}</p>
     <b>Relationships</b><table>${rels.map(({o,r})=>`<tr><td>${esc(o.name)}</td><td class="num ${r.affinity>=0?'down':'up'}">${r.affinity}</td><td>${r.tags.filter(t=>t!=='Neighbor').map(t=>`<span class="chip">${t}</span>`).join('')}</td></tr>`).join('')}</table>
     <b style="display:block;margin-top:8px">Memory stream</b>${mem.map(m=>`<div class="vote"><span class="muted">${esc(fmtStamp(m.t))} · ${m.kind} · ★${m.imp}</span><br>${esc(m.text)}</div>`).join('')||'<p class="muted">No memories yet.</p>'}
-    <details style="margin-top:8px"><summary style="cursor:pointer" class="muted">Today's plan (${c.plan?c.plan.by:''})</summary><table>${plan}</table></details></div>`;
+    <details style="margin-top:8px"><summary style="cursor:pointer" class="muted">Today's plan (${c.plan?c.plan.by:''})</summary><table>${plan}</table></details>
+    <details style="margin-top:6px"><summary style="cursor:pointer" class="muted">Character sheet (template format)</summary><pre style="white-space:pre-wrap;font:12px/1.4 ui-monospace,monospace;background:#0f1018;padding:8px;border-radius:4px">${esc(citizenToTemplate(c))}</pre></details></div>`;
 }
 function sparkline(arr){
   const a = arr.slice(-72); if (a.length<2) return '';
@@ -2170,17 +2778,186 @@ function renderMarket(){
     <h2>Treasury</h2><p>${S.treasury}¢ · bridge ${S.bridge.closed?'<b class="No">collapsed</b>':Math.round(S.bridge.health)+'%'} · repairs automatically below 60% once the treasury holds 400¢</p>
     <h2>Wallets</h2><table>${rich.map(c=>`<tr><td>${esc(c.name)}</td><td>${esc(profLabel(c.profession))}</td><td class="num">${c.wallet}¢</td></tr>`).join('')}</table>`;
 }
+// ---------- character templates: upload new villagers as text ----------
+const TEMPLATE_TEXT = `# Pixel Town villager template
+# One villager per block. Separate villagers with a line of three dashes (---).
+# Only "name" is required; everything else has a sensible default. Lines starting with # are ignored.
+
+name: Rosalind Hale
+age: 34
+profession: Baker
+# Farmer, Rancher, Butcher, Fisher, Baker, Woodcutter, Miner, Blacksmith, Carpenter, TavernKeeper, Doctor, Merchant, Unemployed
+traits: Generous, Ambitious
+# 2-4 of: Frugal, Generous, Greedy, Ambitious, Lazy, Hardworking, Gossip, Shy, Charismatic, Stubborn, Honest, Cunning, Romantic, Cautious, Reckless
+values: Community, Craftsmanship
+# 1-3 of: Prosperity, Community, Tradition, Freedom, Order, Nature, Craftsmanship, Family
+agenda: Open a business
+# Make a fortune, Win public office, Open a business, Find love, Raise a family, Protect the land, Stir up trouble, Bring order, Start over quietly
+wallet: 250
+personality: openness 0.6, conscientiousness 0.7, extraversion 0.5, agreeableness 0.8, neuroticism 0.3
+politics: economic 0.2, order -0.1, civic 0.7
+# economic: -1 communal .. +1 free market; order: -1 liberty .. +1 order; civic: 0..1 (how often they vote and run for office)
+skin: tan
+# fair, light, tan, olive, brown, deep, or a hex colour like #d8a070
+hair: auburn
+# black, dark brown, brown, auburn, red, blonde, grey, white, or a hex colour
+hairstyle: long
+# short, long, bun, pony, curly, spiky, bald
+beard: no
+friends: Pell Marsh, Ada Finch
+rivals: Hugo Brandt
+partner:
+bio: Ran a bakery in the river cities until the flood took it. Wants her own ovens again, and a seat at the town hall one day.
+---
+name: Tomas Crowe
+age: 52
+profession: Fisher
+traits: Stubborn, Honest
+values: Tradition, Nature
+agenda: Protect the land
+wallet: 120
+bio: An old lake fisher who has seen too many waters emptied. Will vote against anything that threatens the fish.`;
+const SKIN_NAMES = {fair:'#f3d2b3', light:'#e8b890', tan:'#d8a070', olive:'#c08858', brown:'#9a6440', deep:'#74482c', dark:'#74482c'};
+const HAIR_NAMES = {black:'#1e1618','dark brown':'#3a2a1a',brown:'#5a3a22',auburn:'#8a5a2a',red:'#c8702a',ginger:'#c8702a',blonde:'#e0c070',blond:'#e0c070',grey:'#9a9aa0',gray:'#9a9aa0',white:'#d8d8d8',silver:'#d8d8d8'};
+const AGENDA_BY_LABEL = Object.fromEntries(Object.entries(AGENDAS).flatMap(([k,a])=>[[a.label.toLowerCase(),k],[k,k]]));
+const PROFS = Object.keys(PROF_COUNTS);
+function parseList(v){ return String(v||'').split(/[,;]/).map(x=>x.trim()).filter(Boolean); }
+function titleCase(x){ return x.charAt(0).toUpperCase()+x.slice(1).toLowerCase(); }
+function parseTemplates(text){
+  text = String(text||'').trim(); if (!text) return [];
+  let raw = [];
+  if (text[0]==='{' || text[0]==='['){ try { const j = JSON.parse(text); raw = (Array.isArray(j)?j:[j]).map(o=>Object.fromEntries(Object.entries(o).map(([k,v])=>[k.toLowerCase(), Array.isArray(v)?v.join(', '):typeof v==='object'&&v?Object.entries(v).map(([a,b])=>`${a} ${b}`).join(', '):String(v)]))); } catch(e){ return [{errors:['That looks like JSON but it could not be read: '+e.message], warnings:[]}]; } }
+  else raw = text.split(/^\s*-{3,}\s*$/m).map(block=>{ const o={}; block.split('\n').forEach(line=>{ if (/^\s*#/.test(line)) return; const m=line.match(/^\s*([A-Za-z ]+?)\s*:\s*(.*)$/); if (m) o[m[1].toLowerCase().trim()] = m[2].trim(); }); return o; }).filter(o=>Object.keys(o).length);
+  const alias = {job:'profession', occupation:'profession', money:'wallet', coins:'wallet', gold:'wallet', story:'bio', backstory:'bio', description:'bio', goal:'agenda', 'hair style':'hairstyle', spouse:'partner', enemies:'rivals'};
+  return raw.map(o0=>{
+    const o={}; for (const k in o0) o[alias[k]||k]=o0[k];
+    const errors=[], warnings=[];
+    const name = (o.name||'').trim(); if (!name) errors.push('A name is required.'); else if (name.split(/\s+/).length<2) warnings.push('Only a first name was given; the town will call them by it.');
+    if (name && S.citizens.some(c=>c.name.toLowerCase()===name.toLowerCase())) errors.push(`Someone called ${name} already lives in Pixel Town.`);
+    let age = o.age ? parseInt(o.age,10) : 30; if (isNaN(age) || age<16 || age>95){ warnings.push('Age must be 16 to 95; using 30.'); age=30; }
+    let prof = o.profession ? PROFS.find(p=>p.toLowerCase()===o.profession.toLowerCase().replace(/\s+/g,'')) : null;
+    if (o.profession && !prof) warnings.push(`Unknown profession "${o.profession}"; the town will find them work.`);
+    if (!prof) prof = neededProfession();
+    let traits = parseList(o.traits).map(titleCase).filter(t=>{ if (TRAITS.includes(t)) return true; warnings.push(`Unknown trait "${t}" skipped.`); return false; });
+    traits = traits.filter((t,i)=>traits.indexOf(t)===i && !traits.slice(0,i).includes(CLASH[t])).slice(0,4);
+    while (traits.length<2){ const t=TRAITS[Math.floor(rnd()*TRAITS.length)]; if (!traits.includes(t) && !traits.includes(CLASH[t])) traits.push(t); }
+    let values = parseList(o.values).map(titleCase).filter(v=>{ if (VALUES.includes(v)) return true; warnings.push(`Unknown value "${v}" skipped.`); return false; }).slice(0,3);
+    if (!values.length) values = [VALUES[Math.floor(rnd()*VALUES.length)]];
+    const agenda = o.agenda ? AGENDA_BY_LABEL[o.agenda.toLowerCase()] || null : null; if (o.agenda && !agenda) warnings.push(`Unknown agenda "${o.agenda}"; they will have no agenda.`);
+    const num = (s, key, def, lo, hi) => { const m = String(s||'').match(new RegExp(key+'\\s*[:=]?\\s*(-?[0-9.]+)','i')); const v = m ? parseFloat(m[1]) : def; return clamp(isNaN(v)?def:v, lo, hi); };
+    const pr = o.personality||'';
+    const p = [num(pr,'openness',0.5,0,1), num(pr,'conscientiousness',0.5,0,1), num(pr,'extraversion',0.5,0,1), num(pr,'agreeableness',0.5,0,1), num(pr,'neuroticism',0.4,0,1)];
+    const pol = [num(o.politics,'econ\\w*',0,-1,1), num(o.politics,'order',0,-1,1), num(o.politics,'civic',0.5,0,1)];
+    let wallet = o.wallet ? parseInt(String(o.wallet).replace(/[^0-9]/g,''),10) : 150; if (isNaN(wallet)) wallet=150; wallet = clamp(wallet,0,5000);
+    const hex = v => /^#[0-9a-f]{6}$/i.test(v||'') ? v.toLowerCase() : null;
+    const skin = hex(o.skin) || SKIN_NAMES[(o.skin||'').toLowerCase()] || SKINS[hash(name)%SKINS.length];
+    const hair = hex(o.hair) || HAIR_NAMES[(o.hair||'').toLowerCase()] || HAIRS[hash(name+'h')%HAIRS.length];
+    const style = STYLES.includes((o.hairstyle||'').toLowerCase()) ? o.hairstyle.toLowerCase() : STYLES[hash(name+'s')%STYLES.length];
+    const beard = /^(y|yes|true|1)$/i.test(o.beard||'');
+    const findC = n => S.citizens.find(c=>c.name.toLowerCase()===n.toLowerCase());
+    const friends = parseList(o.friends).map(n=>{ const c=findC(n); if (!c) warnings.push(`No villager called "${n}" (friends).`); return c; }).filter(Boolean);
+    const rivals = parseList(o.rivals).map(n=>{ const c=findC(n); if (!c) warnings.push(`No villager called "${n}" (rivals).`); return c; }).filter(Boolean);
+    let partner = o.partner ? findC(o.partner) : null; if (o.partner && !partner) warnings.push(`No villager called "${o.partner}" (partner).`); if (partner && partner.partner){ warnings.push(`${partner.name} is already married.`); partner=null; }
+    const def = {name, age, prof, traits, values, agenda, p, pol, wallet, bio: o.bio || `Arrived in Pixel Town with a story still untold.`, look: lookFor(prof, mapRand(hash(name)), skin, hair, style, beard), friends, rivals, partner};
+    return {def, errors, warnings};
+  });
+}
+function addTemplateCitizen(def){
+  const d = Object.assign({}, def, {id: uniqueId('cit_'+def.name.toLowerCase().replace(/[^a-z]+/g,'_'))});
+  const c = makeCitizen(d);
+  if (def.partner && !def.partner.partner){ c.partner=def.partner.id; def.partner.partner=c.id; [[c,def.partner],[def.partner,c]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=85; R.trust=.9; R.tags=['Spouse','Family']; }); }
+  def.friends.forEach(f=>{ [[c,f],[f,c]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=55; R.trust=.65; R.tags=['Friend']; }); });
+  def.rivals.forEach(f=>{ [[c,f],[f,c]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=-50; R.trust=.2; R.tags=['Rival']; }); });
+  settleNewcomer(c);
+  if (c.partner){ c.home = cById(c.partner).home; indexCitizens(); c.plan = buildPlan(c, dayOf(S.minute)); c.rt.blockIdx=-1; }
+  chronicle(`${c.name}, a ${profLabel(c.profession).toLowerCase()}, arrived on the King's Road${c.agenda?` hoping to ${AGENDAS[c.agenda].phrase}`:''}${c.partner?` to join ${cById(c.partner).name}`:''}.`, 6, '🧳', 'arrival');
+  remember(c, 'I arrived in Pixel Town today. A new start.', 8);
+  return c;
+}
+function citizenToTemplate(c){
+  const agenda = c.agenda ? AGENDAS[c.agenda].label : '';
+  const P = c.personality, Q = c.politics;
+  const tagged = t => Object.entries(c.rel).filter(([id,r])=>r.tags.includes(t) && alive(id)).map(([id])=>cById(id).name).join(', ');
+  return [`name: ${c.name}`, `age: ${c.age}`, `profession: ${c.profession}`, `traits: ${c.traits.join(', ')}`, `values: ${c.values.join(', ')}`, `agenda: ${agenda}`, `wallet: ${c.wallet}`,
+    `personality: openness ${P.openness}, conscientiousness ${P.conscientiousness}, extraversion ${P.extraversion}, agreeableness ${P.agreeableness}, neuroticism ${P.neuroticism}`,
+    `politics: economic ${Q.economicLeaning}, order ${Q.orderLeaning}, civic ${Q.civicEngagement}`,
+    `skin: ${c.look.skin}`, `hair: ${c.look.hair}`, `hairstyle: ${c.look.style}`, `beard: ${c.look.beard?'yes':'no'}`,
+    `friends: ${tagged('Friend')}`, `rivals: ${tagged('Rival')}`, `partner: ${c.partner && alive(c.partner) ? cById(c.partner).name : ''}`, `bio: ${c.bio}`].join('\n');
+}
+function renderAddPanel(){
+  const el = $('pAdd'); if (el.dataset.ready) return; el.dataset.ready = '1';
+  el.innerHTML = `<details class="card" id="addBox"><summary style="cursor:pointer"><b>➕ Add villagers from a template</b> <span class="muted" style="font-size:12px">paste text, or load a .txt / .md / .json file</span></summary>
+    <div class="row" style="margin:8px 0"><button class="btn" id="tplDl">Download template</button><button class="btn" id="tplEx">Insert example</button><label class="btn" style="cursor:pointer">Load file…<input type="file" id="tplFile" accept=".txt,.md,.json,text/plain,application/json" style="display:none"></label></div>
+    <textarea id="tplText" rows="10" style="width:100%;background:#0f1018;color:var(--text);border:1px solid var(--line);border-radius:4px;padding:8px;font:12px/1.4 ui-monospace,monospace" placeholder="name: …&#10;age: …&#10;profession: …"></textarea>
+    <div class="row" style="margin-top:6px"><button class="btn" id="tplCheck">Check</button><button class="btn primary" id="tplAdd">Move them in</button></div>
+    <div id="tplOut" style="margin-top:8px;font-size:13px"></div></details>`;
+  $('tplDl').onclick = ()=>download('pixel-town-villager-template.txt', TEMPLATE_TEXT, 'text/plain');
+  $('tplEx').onclick = ()=>{ $('tplText').value = TEMPLATE_TEXT; };
+  $('tplFile').onchange = e=>{ const f=e.target.files[0]; if (!f) return; const r=new FileReader(); r.onload=()=>{ $('tplText').value = r.result; showTemplateCheck(); }; r.readAsText(f); };
+  $('tplCheck').onclick = showTemplateCheck;
+  $('tplAdd').onclick = ()=>{
+    const res = parseTemplates($('tplText').value); const ok = res.filter(r=>!r.errors.length);
+    if (!ok.length){ showTemplateCheck(); return; }
+    if (S.citizens.length + ok.length > 140){ $('tplOut').innerHTML = '<p class="No">Pixel Town is full (140 villagers max).</p>'; return; }
+    const added = ok.map(r=>addTemplateCitizen(r.def)); saveGame(true);
+    $('tplOut').innerHTML = `<p class="Yes">Welcome to Pixel Town: ${added.map(c=>esc(c.name)).join(', ')}. They are walking in on the King's Road from the west.</p>${res.filter(r=>r.errors.length).map(r=>`<p class="No">Skipped: ${esc(r.errors.join(' '))}</p>`).join('')}`;
+    ui.sel = added[0].id; cam.x = 6*TILE; cam.y = 20*TILE; clampCam(); renderPeople();
+  };
+}
+function showTemplateCheck(){
+  const res = parseTemplates($('tplText').value);
+  $('tplOut').innerHTML = res.length ? res.map(r=> r.def ? `<div class="vote"><b>${esc(r.def.name||'(no name)')}</b> · ${r.def.age} · ${esc(profLabel(r.def.prof))}${r.def.agenda?` · ${esc(AGENDAS[r.def.agenda].label)}`:''} · ${r.def.traits.join(', ')} · ${r.def.wallet}¢
+      ${r.errors.map(e=>`<br><span class="No">✖ ${esc(e)}</span>`).join('')}${r.warnings.map(w=>`<br><span class="muted">⚠ ${esc(w)}</span>`).join('')}${!r.errors.length?'<br><span class="Yes">✔ ready</span>':''}</div>` : `<p class="No">${esc(r.errors.join(' '))}</p>`).join('') : '<p class="muted">Paste a template first.</p>';
+}
+
+// ---------- land & government panels ----------
+function renderLand(){
+  const plotsIn = t => Object.values(S.props).filter(p=>(p.terr===t.id));
+  const terr = TERRITORIES.map(t=>{ const ps=plotsIn(t); const own=claimed(t.id); const next = !own && nextTerritory() && nextTerritory().id===t.id;
+    return `<div class="law ${own?'':'pending'}"><b>${esc(t.name)}</b> <span class="chip">${own?'Claimed':'Unclaimed'}</span>${t.cost?` <span class="muted">${t.cost}¢</span>`:''}<br>
+      <span style="font-size:13px">${esc(t.perk||'Founding land of Pixel Town.')}</span><br><span class="muted" style="font-size:12px">${ps.length} plots · ${ps.filter(p=>p.kind!=='plot').length} built${own?` · ${ps.filter(p=>p.kind==='plot'&&p.forSale).length} for sale`:''}</span>
+      ${next?`<div class="row" style="margin-top:6px"><button class="btn" data-annex="${t.id}">${S.gov.forceAnnex===t.id?'Queued for the next town hall':'Propose annexation'}</button></div>`:''}</div>`; }).join('');
+  const f = ui.landFilter||'all';
+  const list = Object.values(S.props).filter(p=> f==='all' || (f==='sale'?p.forSale:f==='plot'?p.kind==='plot':p.kind===f)).filter(p=>p.kind!=='plot' || claimed(p.terr) || f==='plot')
+    .sort((a,b)=>(b.forSale-a.forSale) || a.kind.localeCompare(b.kind) || propName(a).localeCompare(propName(b)));
+  const rows = list.map(p=>{ const res = p.bid ? residentsOf(p.bid).filter(isAdult).length : 0;
+    const status = p.status==='construction' ? `🏗️ building, ${Math.max(0,p.build.until-dayOf(S.minute))}d left` : p.forSale ? `<b class="Yes">For sale ${p.ask}¢</b>` : p.kind==='plot' && !claimed(p.terr) ? 'unclaimed land' : '';
+    const canList = p.status!=='construction' && (p.kind!=='plot' || claimed(p.terr));
+    return `<tr><td>${esc(propName(p))}</td><td>${p.kind}</td><td>${esc(ownerName(p.owner))}</td><td class="num">${p.kind==='plot'?'–':res}</td><td class="num">${p.value}¢</td><td>${status}</td><td>${canList?`<button class="btn" style="padding:1px 6px;font-size:12px" data-sale="${p.id}">${p.forSale?'Unlist':'Sell'}</button>`:''}</td></tr>`; }).join('');
+  const sales = S.land.sales.slice(0,12).map(x=>`<div class="vote"><span class="muted">Day ${x.day+1}</span> ${esc(x.to)} bought <b>${esc(x.name)}</b> from ${esc(x.from)} for ${x.price}¢</div>`).join('') || '<p class="muted">No sales yet.</p>';
+  $('p-land').innerHTML = `<h2>Territories</h2>${terr}
+    <h2>Property</h2><p class="muted" style="font-size:12px">Every home, business and plot has an owner. Villagers buy and sell on their own: investors buy homes to rent out, newcomers buy plots and hire the carpenters to build, and struggling owners sell. Tenants pay rent to the owner; workers pay a small lease to their shop's owner. Use "Sell" to put anything on the market yourself.</p>
+    <div class="row" style="margin-bottom:6px"><select id="landF">${[['all','Everything'],['sale','For sale'],['home','Homes'],['business','Businesses'],['plot','Plots']].map(([k,l])=>`<option value="${k}" ${f===k?'selected':''}>${l}</option>`).join('')}</select><span class="muted" style="font-size:12px">Land values follow the town's prosperity (×${prosperity().toFixed(2)})</span></div>
+    <table><tr><th>Property</th><th>Kind</th><th>Owner</th><th class="num">Live</th><th class="num">Value</th><th>Status</th><th></th></tr>${rows}</table>
+    <h2>Recent sales</h2>${sales}`;
+  $('landF').onchange = e=>{ ui.landFilter=e.target.value; renderLand(); };
+  $('p-land').querySelectorAll('[data-sale]').forEach(b=>b.onclick=()=>{ const p=S.props[b.dataset.sale]; if (p.forSale){ p.forSale=false; p.ask=0; } else listProp(p, p.value, 'put up by the town clerk'); renderLand(); });
+  $('p-land').querySelectorAll('[data-annex]').forEach(b=>b.onclick=()=>{ S.gov.forceAnnex = b.dataset.annex; chronicle(`A petition to annex ${TERRITORIES.find(t=>t.id===b.dataset.annex).name} was filed with the council.`, 5, '📜', 'gov'); renderLand(); });
+}
+function govHeader(){
+  const L = S.gov.leader && alive(S.gov.leader);
+  const d = dayOf(S.minute); const nextEl = d%28<=6 && !(d%28===6 && modOf(S.minute)>18*60) ? d-d%28+6 : d-d%28+34;
+  const person = (c, role) => c ? `<div class="cit" data-id="${c.id}" data-jump="1"><img src="${thumbFor(c)}" alt=""><div class="who"><b>${esc(c.name)}</b> <span class="muted">${role}</span><small>"${esc(PLATFORMS[(S.gov.platforms||{})[c.id]||platformFor(c)].title)}" · ${esc(profLabel(c.profession))}${c.agenda?` · ${esc(AGENDAS[c.agenda].label)}`:''}</small></div></div>` : '';
+  const camp = S.gov.campaign ? `<h2>Campaign</h2><p class="muted" style="font-size:13px">Polls close ${WEEKDAYS[6]}, day ${S.gov.campaign.day+1}, at 18:00.</p>${S.gov.campaign.leader.map(x=>alive(x.id)?`<div class="vote">🗳 <b>${esc(cById(x.id).name)}</b> for leader: "${esc(PLATFORMS[x.platform].title)}"</div>`:'').join('')}<p class="muted" style="font-size:12px">Council candidates: ${S.gov.campaign.council.filter(x=>alive(x.id)).map(x=>esc(cById(x.id).name)).join(', ')}</p>` : '';
+  const hist = (S.gov.elections||[]).slice(0,5).map(e=>`<details class="vote"><summary style="cursor:pointer">Day ${e.day+1}: <b>${esc(e.leader.name)}</b> elected leader (${e.leader.votes}/${e.turnout})</summary>${e.leaderTally.map(x=>`<div>${esc(x.name)}: ${x.votes} votes · "${esc(x.platform)}"</div>`).join('')}<div class="muted">Council: ${e.council.map(x=>`${esc(x.name)} (${x.votes})`).join(', ')}</div></details>`).join('');
+  return `<h2>Leadership</h2>${L ? person(L,'Leader') : '<p class="muted">No leader yet. The first election is held at the end of week 1.</p>'}
+    ${S.gov.council.map(alive).filter(Boolean).map(c=>person(c,'Councillor')).join('')}
+    <p class="muted" style="font-size:12px">Leader and council are elected every 4 weeks (next vote: day ${nextEl+1}). They draft laws from their platforms, vote first at every town hall, and sway the villagers who trust them. The leader is paid 10¢ a day, councillors 4¢.</p>
+    ${camp}${hist?`<h2>Past elections</h2>${hist}`:''}`;
+}
+
 function renderLaws(){
   const P = S.gov.proposals.slice().reverse();
   const card = p => {
     const cls = ['Debating','Voting','Passed'].includes(p.status)?'pending':['Rejected','Expired','Repealed'].includes(p.status)?'rej':'';
-    const eff = p.effects.map(e=> e.effectType==='SalesTax'?`${Math.round(e.magnitude*100)}% sales tax on ${e.targetGoodId?GD[e.targetGoodId].name:e.targetCategory}`: e.effectType==='Subsidy'?`${e.magnitude}¢/day subsidy for each ${profLabel(e.targetProfession)}`: e.effectType==='Curfew'?`Curfew at ${LOC[e.targetZoneId].name} ${fmtClock(e.startMinuteOfDay)}–${fmtClock(e.endMinuteOfDay)}`: `${GD[e.targetGoodId].name} price ×${e.magnitude}`).join('; ');
+    const eff = p.effects.map(e=> e.effectType==='SalesTax'?`${Math.round(e.magnitude*100)}% sales tax on ${e.targetGoodId?GD[e.targetGoodId].name:e.targetCategory}`: e.effectType==='Subsidy'?`${e.magnitude}¢/day subsidy for each ${profLabel(e.targetProfession)}`: e.effectType==='Curfew'?`Curfew at ${LOC[e.targetZoneId].name} ${fmtClock(e.startMinuteOfDay)}–${fmtClock(e.endMinuteOfDay)}`: e.effectType==='Annexation'?`Annex ${TERRITORIES.find(t=>t.id===e.targetZoneId).name} for ${e.magnitude}¢`: `${GD[e.targetGoodId].name} price ×${e.magnitude}`).join('; ');
     const votes = p.votes.length ? `<details ${p.status==='Voting'?'open':''}><summary class="muted" style="cursor:pointer">Votes (${p.votes.length})</summary>${p.votes.map(v=>`<div class="vote"><b class="${v.choice}">${v.choice}</b> ${esc(cById(v.citizenId).name)} <span class="muted">· ${v.primaryMotivation} · conf ${v.confidence}</span><br>"${esc(v.publicStatement)}"</div>`).join('')}</details>` : '';
     return `<div class="law ${cls}"><b>${esc(p.title)}</b> <span class="chip">${p.status}</span> <span class="muted">${p.proposalId}</span><br>
       <span style="font-size:13px">${esc(p.summary)}</span><br><span class="muted" style="font-size:12px">${esc(eff)} · proposed by ${esc(cById(p.proposerId).name)} ${esc(fmtStamp(p.proposedAtMinute))}${p.expiresAtMinute?` · expires ${esc(fmtStamp(p.expiresAtMinute))}`:''}${p.tally?` · ${p.tally.yes}–${p.tally.no}, ${p.tally.abstain} abstain, ${p.tally.absent} absent`:''}${p.rejectReason?` · ${esc(p.rejectReason)}`:''}</span>${votes}</div>`;
   };
-  $('p-laws').innerHTML = `<h2>Governance</h2><p class="muted" style="font-size:13px">A town hall meets every Hallday at 18:00 on the steps. Proposals are drafted early in the week when the town's numbers call for one. Villagers vote in their own self-interest using the design doc's fallback formula: 0.5·wallet + 0.3·allies + 0.2·values.</p>
+  $('p-laws').innerHTML = govHeader() + `<h2>Laws</h2><p class="muted" style="font-size:13px">A town hall meets every Hallday at 18:00 on the steps. Proposals are drafted early in the week when the town's numbers call for one. Villagers vote in their own self-interest using the design doc's fallback formula: 0.5·wallet + 0.3·allies + 0.2·values.</p>
     ${P.length?P.map(card).join(''):'<p class="muted">No proposals yet. The first one, the Lumber Tax, arrives on Tideday of week 1.</p>'}`;
+  $('p-laws').querySelectorAll('[data-jump]').forEach(el=>el.onclick=()=>{ ui.sel=el.dataset.id; $('tabs').querySelector('[data-p=people]').click(); });
 }
 function renderPanels(force){
   const now = performance.now();
@@ -2190,7 +2967,8 @@ function renderPanels(force){
   const t = ui.tab;
   if (t==='chron' && (ui.dirty||force)) { renderChron(); ui.dirty=false; }
   if (t==='weeks' && (force || !ui.weekTs || now-ui.weekTs>5000)) { ui.weekTs=now; if (!$('p-weeks').contains(document.activeElement)) renderWeeks(); }
-  if (t==='people' && (force || (!$('p-people').matches(':hover') && document.activeElement.id!=='pq'))) renderPeople();
+  if (t==='people' && (force || (!$('pList').matches(':hover') && document.activeElement.id!=='pq'))) renderPeople();
+  if (t==='land' && (force || !$('p-land').matches(':hover'))) renderLand();
   if (t==='market') renderMarket();
   if (t==='laws' && !$('p-laws').matches(':hover')) renderLaws();
   if (t==='music' && force) music.renderPanel();
@@ -2442,7 +3220,9 @@ function welcome(upgraded){
     <ul style="padding-left:18px;font-size:14px"><li>Drag to pan, scroll or pinch to zoom, and tap a villager to follow their life.</li>
     <li>Everything that happens goes into the <b>Log</b>, and each game week gets a report in <b>Weekly</b>.</li>
     <li>The town keeps running while the page is closed (up to 7 game days are simulated when you return).</li>
-    <li>The first proposal, the Lumber Tax, comes up on Tideday and the town hall votes on it on Hallday evening.</li>
+    <li>Every 4 weeks the town elects a <b>leader</b> and a <b>council of 5</b>, who draft laws and sway votes (<b>Gov</b> tab).</li>
+    <li>Homes, businesses and plots are bought and sold, and the town can vote to annex new territory (<b>Land</b> tab).</li>
+    <li>Villagers marry, have children and pass away; newcomers arrive with their own agendas. Add your own in <b>People</b> using the villager template.</li>
     <li>Turn on the soundtrack in <b>Music</b>, and add your own Suno songs there.</li></ul>
     <div class="row" style="margin-top:10px"><button class="btn primary" id="ovGo">Enter town</button><button class="btn" id="ovMusic">Enter with music ♪</button></div>`);
   $('ovGo').onclick = ()=>overlay('');
@@ -2454,7 +3234,7 @@ function boot(){
   const sv = loadGame();
   let upgraded = false;
   if (sv){
-    S = sv.state; RNG.s = S.rng || 1; S.bubbles = []; indexCitizens();
+    S = sv.state; RNG.s = S.rng || 1; S.bubbles = []; (S.built||[]).forEach(applyBuilt); Object.values(S.props||{}).forEach(pr=>{ if (pr.status==='construction') clearPlot(PLOTS.find(x=>x.id===pr.plot)); }); indexCitizens();
     clock.speed = sv.clock.speed||1; clock.paused = !!sv.clock.paused;
     clock.gameAnchor = S.minute; clock.realAnchor = Date.now();
     if (!clock.paused){
