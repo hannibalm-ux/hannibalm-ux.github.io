@@ -66,7 +66,7 @@ function civCogProfile(r){
   if (mean > 0.6){ const ks = COG.slice().sort(()=>r()-0.5).slice(0,4); ks.forEach(k=>g[k] = clamp(g[k]-0.3-r()*0.2, 0.05, 0.97)); }
   COG.forEach(k=>g[k] = +g[k].toFixed(2)); return g;
 }
-const EYES = ['#3a2a1a','#5a3a1a','#4a6a8a','#5a7a4a','#7a6a3a','#2a2a2a'];
+const EYES = ['#3a2a1a','#5a3a1a','#4a2a1a','#4a6a8a','#6a8aa8','#5a7a4a','#3a5a3a','#7a6a3a','#8a7a5a','#a0782a','#6a6a7a','#2a2a2a'];
 function civGenes(r, p1, p2){
   // procedural genetics: each child mixes both parents with a little mutation
   const pick2 = (a,b) => r()<0.5 ? a : b, blend = (a,b,sd) => clamp((a+b)/2 + (r()-0.5)*sd, 0, 1);
@@ -74,24 +74,34 @@ function civGenes(r, p1, p2){
     hair: pick2(p1.hair,p2.hair), eye: pick2(p1.eye,p2.eye), height: blend(p1.height,p2.height,0.3), build: blend(p1.build,p2.build,0.3),
     jaw: blend(p1.jaw,p2.jaw,0.4), nose: blend(p1.nose,p2.nose,0.4), brow: blend(p1.brow,p2.brow,0.4), style: pick2(p1.style,p2.style)};
   const skin = SKINS[Math.floor(r()*SKINS.length)];
-  return {skin, hair: HAIRS[Math.floor(r()*7)], eye: EYES[Math.floor(r()*EYES.length)], height: +r().toFixed(2), build: +r().toFixed(2),
+  return {skin, hair: HAIRS[Math.floor(r()*HAIR_NATURAL)], eye: EYES[Math.floor(r()*EYES.length)], height: +r().toFixed(2), build: +r().toFixed(2),
     jaw: +r().toFixed(2), nose: +r().toFixed(2), brow: +r().toFixed(2), style: STYLES[Math.floor(r()*STYLES.length)]};
 }
 // crude clothing for a pre-industrial camp; it improves with weaving and wealth
+// the clothing palette: raw hides, undyed linen, then a wide range of plant, mineral and insect dyes
+const CLOTH = {
+  hides:['#8a6a48','#7a5a3a','#9a7a52','#6a4a30','#a88a60','#5a4028'],
+  linen:['#c8b890','#b8a878','#a89868','#d8c8a0','#e0d4b4','#c0b49a','#b0a488','#d0bc94'],
+  dyed:['#4e8a3a','#6a8a3a','#3a6a8a','#2a4a7a','#8a3a3a','#a8482a','#8a6a2a','#c8962a','#5a4a7a','#7a3a6a','#3a7a6a','#2a6a5a','#b8784a','#6a7a8a','#9a4a5a','#4a5a2a','#d8b84a','#3a3a5a'],
+  hidePants:['#5a4030','#4a3424','#6a4a34'], linenPants:['#6a5a44','#5a4a3a','#7a6a50','#4a4034'],
+  pants:['#3a3a4a','#3a2a24','#4a3a2a','#2a3a4a','#4a4a3a','#5a3a2a','#2e2e36','#4a2e2a'],
+  hideBoots:['#5a3a24','#4a3020','#6a4428'], boots:['#4a3024','#7a5030','#5a3a24','#3a2a20','#8a6040','#2a2220'],
+  under:['#d8ceb0','#e8e0cc','#c8bc9c','#e0d4b8','#d0c8b8'], coats:['#3a3440','#4a2a2a','#2a3a4a','#3a4a3a','#5a4a3a','#2a2a30']};
 function civLook(c){
   const G = c.civ.genes, age = c.age, female = genderOf(c)==='F', r = mapRand(hash(c.id+'lk'));
   const tier = civClothTier(c);
-  const hides = ['#8a6a48','#7a5a3a','#9a7a52','#6a4a30'], linen = ['#c8b890','#b8a878','#a89868','#d8c8a0'], dyed = ['#6a8a3a','#3a6a8a','#8a3a3a','#8a6a2a','#5a4a7a','#3a7a6a'];
-  const shirt = tier===0 ? hides[Math.floor(r()*4)] : tier===1 ? linen[Math.floor(r()*4)] : dyed[Math.floor(r()*dyed.length)];
+  const shirt = (tier===0 ? CLOTH.hides : tier===1 ? CLOTH.linen : CLOTH.dyed)[Math.floor(r()*(tier===0 ? CLOTH.hides.length : tier===1 ? CLOTH.linen.length : CLOTH.dyed.length))];
+  const pantsSet = tier===0 ? CLOTH.hidePants : tier===1 ? CLOTH.linenPants : CLOTH.pants, bootSet = tier===0 ? CLOTH.hideBoots : CLOTH.boots;
+  const pants = pantsSet[Math.floor(r()*pantsSet.length)], boots = bootSet[Math.floor(r()*bootSet.length)], under = CLOTH.under[Math.floor(r()*CLOTH.under.length)];
   const grey = age>=56 ? clamp((age-56)/14,0,1) : 0;
   const hair = grey>0.5 ? '#c8c8cc' : grey>0 ? mix(G.hair,'#c8c8cc',grey) : G.hair;
   const style = G.style==='bald' && (female || age<30) ? 'short' : G.style;
   const beard = !female && age>=18 && hash(c.id+'bd')%100 < 38;
   const occ = c.civ.occ && OCC[c.civ.occ];
   const hat = occ && ['woodcutter','miner','fisher','farmer'].includes(occ.id) && tier>=1 ? {woodcutter:'beanie',miner:'helmet',fisher:'bucket',farmer:'straw'}[occ.id] : null;
-  const L = {skin:G.skin, hair, style, beard, shirt, pants: tier===0 ? '#5a4030' : tier===1 ? '#6a5a44' : '#3a3a4a', hat, hatCol:null,
-    apron: occ && ['cook','toolmaker','healer'].includes(occ.id) && tier>=1 ? '#d8ceb0' : null, bib:false, stains:false, coat: tier>=3 && c.wallet>400 ? '#3a3440' : null,
-    trim: tier>=2 && r()<0.4, boots: tier===0 ? '#5a3a24' : '#4a3024', eye:G.eye};
+  const L = {skin:G.skin, hair, style, beard, shirt, pants, hat, hatCol:null,
+    apron: occ && ['cook','toolmaker','healer'].includes(occ.id) && tier>=1 ? '#d8ceb0' : null, bib:false, stains:false, coat: tier>=3 && c.wallet>400 ? CLOTH.coats[Math.floor(r()*CLOTH.coats.length)] : null,
+    trim: tier>=2 && r()<0.4, boots, under: tier===0 ? shade(shirt,1.25) : under, eye:G.eye};
   if (!isAdult(c)) Object.assign(L, {beard:false, hat:null, apron:null, coat:null});
   return L;
 }
@@ -348,6 +358,7 @@ function civDaily(d){
   S.citizens.forEach(c=>{ c.days.push(newDayBucket()); if (c.days.length>7) c.days.shift(); c.svcUsed = 0; });
   civSafe('ecology', civEcoDaily);
   civSafe('spoilage', civSpoilage);
+  civSafe('distribution', civDistributeFood);
   civSafe('structures', civStructsDaily);
   civSafe('health', civHealthDaily);
   civSafe('life', civLifeDaily);
@@ -363,7 +374,7 @@ function civDaily(d){
   civGroundDirty();
   civStage();
 }
-function civWeekly(d){ civSafe('minds-w', civMindsWeekly); civSafe('econ-w', civEconWeekly); civSafe('society-w', civSocietyWeekly); civSafe('science-w', civScienceWeekly); civSafe('neighbours-w', civNeighborsWeekly); }
+function civWeekly(d){ civSafe('resources-w', civResSnapshot); civSafe('minds-w', civMindsWeekly); civSafe('econ-w', civEconWeekly); civSafe('society-w', civSocietyWeekly); civSafe('science-w', civScienceWeekly); civSafe('neighbours-w', civNeighborsWeekly); }
 function civMonthly(d){ civSafe('projects-m', civProjectsMonthly); civSafe('migration-m', civMigrationMonthly); civSafe('econ-m', civEconMonthly); civSafe('society-m', civSocietyMonthly); }
 
 // ---------- the settlement's stage (a label, earned by what exists, never a trigger) ----------
@@ -493,19 +504,77 @@ function civAskForFood(c){
   if (hash(c.id+S.minute)%5===0) remember(c, `${giver.name} shared food with us when we had none.`, 6, [giver.id]);
   return true;
 }
+// ---------- sharing food out: kin and friends first, then the common store, before anything rots ----------
+// Each morning households short of food are topped up by relatives and friends with plenty to spare; if that is not
+// enough the common store hands out rations (families with children first); and households with more perishable food
+// than they can eat before it spoils give the excess to the common store or a hungry neighbour.
+function civDistributeFood(){
+  const C = S.civ, st = {shared:0, rations:0, donated:0, helped:0};
+  const need = h => hhMembers(h).reduce((a,c)=>a + (isAdult(c)?90:62), 0);
+  const hhs = Object.values(C.hh).filter(h=>h.members && h.members.length);
+  const days = new Map(hhs.map(h=>[h, hhFoodDays(h)]));
+  const kids = h => hhMembers(h).filter(c=>!isAdult(c)).length;
+  const move = (from, to, pts) => { let got = 0; const order = CIV_FOODS.filter(g=>from[g]>=0.5).sort((a,b)=>(CG[a].perish||999)-(CG[b].perish||999));
+    for (const g of order){ if (got >= pts) break; const q = Math.min(from[g], Math.ceil((pts-got)/CG[g].food)); storeTake(from, g, q); storeAdd(to, g, q); got += q*CG[g].food; } return got; };
+  const tie = (a, b) => hhMembers(a).some(x=>hhMembers(b).some(y=>{ const R = peekRel(x, y.id); return R.tags.includes('Family') || R.affinity > 30; }));
+  const giving = h => hhMembers(h).filter(isAdult).some(x=>x.personality.agreeableness>0.3 || x.traits.includes('Generous') || (x.values||[]).includes('Community'));
+  const needy = hhs.filter(h=>days.get(h) < 1.5).sort((a,b)=>days.get(a)-days.get(b) || kids(b)-kids(a));
+  const donors = hhs.filter(h=>days.get(h) >= 5 && giving(h));
+  needy.forEach(h=>{
+    const want = need(h)*2 - storeFood(h.store); if (want <= 0) return; let got = 0;
+    donors.filter(d=>d!==h && tie(d, h)).sort((a,b)=>days.get(b)-days.get(a)).forEach(d=>{
+      if (got >= want) return; const spare = storeFood(d.store) - need(d)*4; if (spare <= 0) return;
+      const g = move(d.store, h.store, Math.min(spare, want-got)); if (g <= 0) return; got += g; st.shared += g;
+      const giver = hhMembers(d).find(isAdult), taker = hhMembers(h).find(isAdult);
+      if (giver && taker){ civFavor(taker, giver, g/30); adjustRel(taker, giver, 3); if (hash(taker.id+civDay())%6===0) remember(taker, `${giver.name}'s household shared food with us.`, 5, [giver.id]); }
+      days.set(d, hhFoodDays(d)); });
+    // then the common store: rations, children first, as long as the daily ration allowance lasts
+    if (storeFood(h.store) < need(h)*1.2 && storeFood(C.commons) > 0 && C.rationToday < C.rationCap){
+      const room = (C.rationCap - C.rationToday)*30, g = move(C.commons, h.store, Math.min(room, need(h)*1.5 - storeFood(h.store) + (kids(h) ? 60 : 0)));
+      if (g > 0){ C.rationToday += Math.ceil(g/30); st.rations += g; got += g; ev('rations', Math.ceil(g/30)); } }
+    if (got > 0){ st.helped++; days.set(h, hhFoodDays(h)); } });
+  // perishable surplus goes where it will be eaten instead of rotting
+  hhs.filter(h=>days.get(h) > 8 && giving(h)).forEach(h=>{
+    const n = need(h); CIV_FOODS.filter(g=>CG[g].perish && CG[g].perish <= 4 && h.store[g] > 0).forEach(g=>{
+      const eatable = n*CG[g].perish/CG[g].food, extra = h.store[g] - eatable; if (extra < 2) return;
+      const to = needy.find(x=>storeFood(x.store) < need(x)*3) ; const q = +(extra*0.6).toFixed(2); storeTake(h.store, g, q); storeAdd(to ? to.store : C.commons, g, q); st.donated += q*CG[g].food; }); });
+  if (st.shared) ev('food_shared', Math.round(st.shared/30)); if (st.donated) ev('food_donated', Math.round(st.donated/30));
+  C.dist = {day:civDay(), shared:Math.round(st.shared/30), rations:Math.round(st.rations/30), donated:Math.round(st.donated/30), helped:st.helped, needy:needy.length};
+  C.distTot = C.distTot || {shared:0, rations:0, donated:0}; C.distTot.shared += C.dist.shared; C.distTot.rations += C.dist.rations; C.distTot.donated += C.dist.donated;
+}
 // favours owed: the first economy is a web of gifts people remember
 function civFavor(receiver, giver, v){ const m = receiver.civ.owe = receiver.civ.owe || {}; m[giver.id] = +((m[giver.id]||0) + v).toFixed(1); }
+// how long each food keeps for these people: every storage technique they know stretches it, and knowing food well helps too
+function civStoreMult(techs, fc){
+  const m = {}; for (const g of CIV_FOODS) m[g] = 1 + Math.min(0.3, (fc||0)/250);
+  techs.forEach(t=>{ const T0 = TECHS[t], st = T0 && T0.store; if (!st) return; for (const g of CIV_FOODS){ const f = st[g] || st.all; if (f) m[g] *= f; } });
+  return m;
+}
+function civHHStoreMult(h){
+  const mem = hhMembers(h).filter(isAdult), techs = new Set(); let fc = 0;
+  mem.forEach(m=>{ (m.civ.techs||[]).forEach(t=>{ if (TECHS[t] && TECHS[t].store) techs.add(t); }); fc = Math.max(fc, kn(m,'foodcraft')); });
+  return civStoreMult([...techs], fc);
+}
+function civCommonsStoreMult(){
+  const techs = Object.keys(TECHS).filter(t=>TECHS[t].store && civTechKnown(t));
+  const fc = S.citizens.filter(isAdult).reduce((a,c)=>Math.max(a, kn(c,'foodcraft')), 0);
+  return civStoreMult(techs, fc);
+}
 function civSpoilage(){
   const d = civDay(), preserveOf = s => { const D = STRUCTURES[s.def]; return D.preserve ?? 1; };
-  const rot = (st, keep) => { let lost = 0; for (const g of Object.keys(st)){ const P = CG[g] && CG[g].perish; if (!P) continue; const q = st[g]*(1/P)*keep; lost += storeTake(st, g, q); } return lost; };
-  let lost = 0;
-  Object.values(S.civ.hh).forEach(h=>{ const s = h.home && S.civ.structs[h.home]; const keep = s ? 0.8 : 1; lost += rot(h.store, keep);
+  const rot = (st, keep, mult) => { let lost = 0; for (const g of Object.keys(st)){ const P = CG[g] && CG[g].perish; if (!P) continue; const q = st[g]*(1/(P*(mult ? mult[g]||1 : 1)))*keep; lost += storeTake(st, g, q); } return lost; };
+  let lost = 0, saved = 0;
+  Object.values(S.civ.hh).forEach(h=>{ const s = h.home && S.civ.structs[h.home]; const keep = s ? 0.8 : 1; const mult = civHHStoreMult(h);
+    const before = CIV_FOODS.reduce((a,g)=>a+(h.store[g]||0),0), l = rot(h.store, keep, mult); lost += l;
+    saved += CIV_FOODS.reduce((a,g)=>{ const P = CG[g].perish; return a + (P && h.store[g] ? h.store[g]*keep*(1/P - 1/(P*mult[g])) : 0); }, 0) * (before>0 ? 1 : 0);
     const cap = hhCap(h), units = storeUnits(h.store); if (units > cap*1.5){ for (const g of CIV_FOODS){ if (h.store[g]) lost += storeTake(h.store, g, h.store[g]*0.08); } } });
-  const gran = civHas(['granary','warehouse','cold_store']); const keepC = gran.length ? Math.min(...gran.map(preserveOf)) : 0.6;
-  lost += rot(S.civ.commons, keepC);
-  Object.values(S.civ.orgs).forEach(o=>{ if (o.stock) lost += rot(o.stock, 0.7); });
+  const gran = civHas(['granary','warehouse','cold_store']); let keepC = gran.length ? Math.min(...gran.map(preserveOf)) : 0.6;
+  if (gran.length && civTechKnown('raised_granary')) keepC *= TECHS.raised_granary.commons;
+  lost += rot(S.civ.commons, keepC, civCommonsStoreMult());
+  Object.values(S.civ.orgs).forEach(o=>{ if (o.stock) lost += rot(o.stock, 0.7, civCommonsStoreMult()); });
   if (lost>=40) chronicle(`About ${Math.round(lost)} units of food spoiled in store${lost>120?' — the settlement needs better ways to keep food':''}.`, lost>120?5:3, '🥀', 'food');
-  S.civ.spoiled = (S.civ.spoiled||0)*0.8 + lost; ev('pd_spoiled', lost*28/90); if (lost>150) civProblem('storage', 1);
+  S.civ.spoiled = (S.civ.spoiled||0)*0.8 + lost; S.civ.spoiledDay = +lost.toFixed(1); S.civ.storeSaved = +((S.civ.storeSaved||0) + saved).toFixed(1);
+  ev('pd_spoiled', lost*28/90); if (lost>150) civProblem('storage', 1);
   S.civ.rationToday = 0;
 }
 
@@ -610,10 +679,11 @@ function civMarry(a, b){
   const hs = hhOf(stay), hg = hhOf(go);
   if (hs && hg && hs!==hg){ if (hg.members.length===1 || hg.members.every(id=>{ const m = cById(id); return !m || m===go || (!isAdult(m) && m.parents.includes(go.id)); })) hhMembers(hg).forEach(m=>civJoinHH(m, hs)); else civJoinHH(go, hs); }
   indexCitizens();
-  chronicle(`${a.name} and ${b.name} were married before the whole settlement.`, 8, '💍', 'romance'); S.week.rels.push(`${a.name} & ${b.name} married`);
+  const was = {}; [a,b].forEach(x=>{ const old = marriedName(x, x===a?b:a); if (old){ was[x.id] = old; x.civ.lookKey = null; } });
+  chronicle(`${was[a.id]||a.name} and ${was[b.id]||b.name} were married before the whole settlement.${[a,b].filter(x=>was[x.id]).map(x=>` She is now ${x.name}.`).join('')}`, 8, '💍', 'romance'); S.week.rels.push(`${a.name} & ${b.name} married`);
 }
 function civDivorce(a, b){
-  a.partner = b.partner = null; [a,b].forEach(x=>{ const r = getRel(x,(x===a?b:a).id); r.tags = r.tags.filter(t=>t!=='Spouse'); });
+  a.partner = b.partner = null; [a,b].forEach(x=>{ const r = getRel(x,(x===a?b:a).id); r.tags = r.tags.filter(t=>t!=='Spouse'); }); [a,b].forEach(restoreBirthName);
   const nh = civNewHH(surnameOf(b), null); civJoinHH(b, nh); indexCitizens(); if (S.relStats) S.relStats.divorces++;
   chronicle(`${a.name} and ${b.name} have separated.`, 6, '💔', 'romance'); civProblem('dispute', 1);
 }

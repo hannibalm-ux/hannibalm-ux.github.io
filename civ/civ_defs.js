@@ -413,6 +413,13 @@ const ORG_TYPES = {
 const TECHS = {
   fire_hardening:{label:'Fire-hardened spears', cat:'hunting', need:{wilderness:10}, prac:'hunt', disc:'physics'},
   smoking:       {label:'Smoking & drying food',cat:'food',     need:{foodcraft:12}, prac:'cook', disc:'chemistry'},
+  // keeping food: each technique makes some foods last longer (store: multiplies the days before they spoil)
+  storage_pits:  {label:'Storage pits & sealed baskets', cat:'food', need:{foodcraft:10, crafts:8}, prac:['gather','forage'], disc:'chemistry', store:{roots:1.6, grain:1.4, veg:1.3, berries:1.2}},
+  salting:       {label:'Salting & curing',     cat:'food', need:{foodcraft:16}, any:[['smoking']], prac:['cook','fish','hunt'], disc:'chemistry', store:{fish:1.8, game:1.7, meat:1.7}},
+  sealed_jars:   {label:'Sealed storage jars',  cat:'food', need:{crafts:20, foodcraft:16}, any:[['pottery']], prac:'cook', disc:'chemistry', store:{grain:1.5, preserved:1.3, roots:1.3, berries:1.6, milk:1.4, eggs:1.3}},
+  root_cellar:   {label:'Root cellars',         cat:'food', need:{construction:20, foodcraft:12}, any:[['well_digging'],['carpentry']], prac:'build', disc:'engineering', store:{veg:1.8, roots:1.6, eggs:1.5, milk:1.6, bread:1.2}},
+  raised_granary:{label:'Raised, ventilated granaries', cat:'food', need:{construction:26, agriculture:20}, any:[['carpentry','cultivation']], prac:'farm', disc:'engineering', store:{grain:1.6}, commons:0.8},
+  pest_control:  {label:'Keeping pests out of stores', cat:'food', need:{biology:16, husbandry:10}, any:[['domestication'],['pottery']], prac:'herd', disc:'biology', store:{all:1.25}},
   nets:          {label:'Fishing nets',         cat:'food',     need:{crafts:10, wilderness:10}, prac:'fish', disc:'physics'},
   cultivation:   {label:'Cultivation',          cat:'agriculture', need:{agriculture:14}, prac:'forage', disc:'biology'},
   domestication: {label:'Animal domestication', cat:'agriculture', need:{husbandry:12, wilderness:18}, prac:'hunt', disc:'biology'},
@@ -467,8 +474,8 @@ const TECHS = {
   drilling:      {label:'Well drilling',        cat:'energy', need:{geology:40, engineering:40}, any:[['steam_power'],['ironworking','th_oil_origin']], disc:'geology'},
   refining:      {label:'Oil refining',         cat:'energy', need:{chemistry:50}, any:[['drilling','th_hydrocarbons']], disc:'chemistry'},
   industrial_chemistry:{label:'Industrial chemistry', cat:'manufacturing', need:{chemistry:60}, any:[['refining']], disc:'chemistry'},
-  canning:       {label:'Canning',              cat:'food', need:{foodcraft:40, chemistry:30}, any:[['th_germs','ironworking']], disc:'chemistry'},
-  refrigeration: {label:'Refrigeration',        cat:'food', need:{physics:56, chemistry:50}, any:[['steam_power','th_heat_work']], disc:'physics'},
+  canning:       {label:'Canning',              cat:'food', need:{foodcraft:40, chemistry:30}, any:[['th_germs','ironworking']], disc:'chemistry', store:{veg:2.5, meat:2.5, fish:2.5, game:2, milk:1.5, berries:2}},
+  refrigeration: {label:'Refrigeration',        cat:'food', need:{physics:56, chemistry:50}, any:[['steam_power','th_heat_work']], disc:'physics', store:{all:2}},
   electricity:   {label:'Electricity',          cat:'energy', need:{physics:62}, any:[['th_electromagnetism','steelmaking']], disc:'physics'},
   telegraph:     {label:'The telegraph',        cat:'communication', need:{physics:58}, any:[['electricity']], disc:'physics'}
 };

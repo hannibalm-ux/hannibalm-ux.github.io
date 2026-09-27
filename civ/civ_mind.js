@@ -428,7 +428,7 @@ function civMindsDaily(){
       for (const id in TECHS){ const T0 = TECHS[id]; const prac = [].concat(T0.prac||[]); if (!prac.includes(t) && !(id==='smoking' && (t==='fish'||t==='hunt'))) continue; if (knowsTech(c,id)) continue;
         if (!civTechPrereqs(c, id)) continue;
         const surplus = Object.entries(T0.need||{}).reduce((a,[k,v])=>a + Math.max(0, kn(c,k)-v), 0);
-        const p = 0.0035 * (0.3+cog(c,'creativity')) * (0.5+c.personality.openness) * (1 + surplus/40) * (S.civ.tech[id] && S.civ.tech[id].knowers ? 2.5 : 1);
+        const p = 0.0035 * (0.3+cog(c,'creativity')) * (0.5+c.personality.openness) * (1 + surplus/40) * (S.civ.tech[id] && S.civ.tech[id].knowers ? 2.5 : 1) * (T0.store && (S.civ.spoiled||0) > 25 ? 2 : 1); // necessity: rotting food sets people thinking about keeping it
         if (rnd() < p) civLearnTech(c, id, null); } }
     // skills fade a little without use
     if (d%7===0) for (const s in X.skill){ const A = Object.keys(ACTIVITIES).find(k=>ACTIVITIES[k].skill===s); if (A && X.practiced && X.practiced[A] > d-21) continue; X.skill[s] = +Math.max(0, X.skill[s]-0.15).toFixed(2); }
