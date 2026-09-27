@@ -1,6 +1,11 @@
 # Pixel Town — Rules, Mechanics and Engine Reference
 
-This document describes everything Pixel Town simulates and how. It covers the clock, the map, every villager system, the economy, government, justice, family life, the frontier, rendering, saving and testing. Numbers are the ones the code actually uses (`pixel_town.html`); where a rule is probabilistic, the odds are given.
+This document describes everything Pixel Town simulates and how. It covers the clock, the map, every villager system, the economy, government, justice, family life, the frontier, rendering, saving and testing. Numbers are the ones the code actually uses (`pixel_town.html` and `civ/*.js`); where a rule is probabilistic, the odds are given.
+
+Pixel Town has **two modes**:
+
+- **Civilization mode** (every new game). 100 people make camp by a river with crude shelters and about a week of food. There is no town, no jobs, no market, no government and no bridge. Everything else has to emerge from what they decide to do. It is described in **Part II** (sections 24 to 40).
+- **Classic mode** (old saves, or `pixel_town.html?mode=classic`). The established medieval town with 50 villagers, described in sections 1 to 23. Classic towns also gain the new minds, knowledge, research, prospecting and neighbouring settlements (section 39).
 
 ---
 
@@ -30,6 +35,26 @@ This document describes everything Pixel Town simulates and how. It covers the c
 22. [Save compatibility and automated tests](#22-save-compatibility-and-automated-tests)
 23. [Known limitations](#23-known-limitations)
 
+**Part II — Civilization mode**
+
+24. [Design principle](#24-design-principle)
+25. [The starting world](#25-the-starting-world)
+26. [Time tiers and performance](#26-time-tiers-and-performance)
+27. [People: bodies, minds, knowledge, skills](#27-people-bodies-minds-knowledge-skills)
+28. [The decision loop, goals and plans](#28-the-decision-loop-goals-and-plans)
+29. [Work, food and ecology](#29-work-food-and-ecology)
+30. [Emergent occupations and learning](#30-emergent-occupations-and-learning)
+31. [Building, land, farms, ranches, bridges and roads](#31-building-land-farms-ranches-bridges-and-roads)
+32. [Exchange: gifts, barter, money and markets](#32-exchange-gifts-barter-money-and-markets)
+33. [Organisations, businesses, jobs and contracts](#33-organisations-businesses-jobs-and-contracts)
+34. [Credit, banks, shares and bankruptcy](#34-credit-banks-shares-and-bankruptcy)
+35. [Government and justice from the ground up](#35-government-and-justice-from-the-ground-up)
+36. [Education, health and sport](#36-education-health-and-sport)
+37. [Science, technology and resources](#37-science-technology-and-resources)
+38. [Neighbours, imports and migration](#38-neighbours-imports-and-migration)
+39. [Classic towns: what they gain](#39-classic-towns-what-they-gain)
+40. [Civilization mode: interface, saves and tests](#40-civilization-mode-interface-saves-and-tests)
+
 ---
 
 ## 1. What Pixel Town is
@@ -44,13 +69,24 @@ The design goal is emergent history. The town remembers what happened, villagers
 
 | File | Purpose |
 |---|---|
-| `pixel_town.html` | The whole game: engine, art generator, UI, 2D and 3D renderers. Loads the 3D engine from `vendor/` only when 3D is switched on. |
+| `pixel_town.html` | The engine, the classic town, the art generator, UI, 2D and 3D renderers. Loads the 3D engine from `vendor/` only when 3D is switched on. |
+| `civ/civ_defs.js` | Data: knowledge domains, skills, cognition, goods, activities, occupations, structures, business types, organisation types, technologies, theories, minerals, neighbours, stage names. |
+| `civ/civ_core.js` | Mode flag, the wild world, people and households, structures and land, time tiers, moving agents, eating, health, births, deaths, marriage, weekly log. |
+| `civ/civ_mind.js` | Cognition, the decision loop, goals, learning, mentorship, technology discovery, emergent occupations. |
+| `civ/civ_build.js` | Projects, housing, fields, pens, animals, bridges, roads, property values, sales, rent, conversion, demolition. |
+| `civ/civ_econ.js` | Barter, money, markets, organisations, business formation, jobs, contracts, loans, banks, shares, the exchange, bankruptcy. |
+| `civ/civ_society.js` | Gatherings and government, justice, education, health care, sport, neighbours, food imports, migration. |
+| `civ/civ_science.js` | Hidden deposits, prospecting, claims, mines, oil and gas, research and the scientific method. |
+| `civ/civ_render.js`, `civ/civ_3d.js`, `civ/civ_ui.js` | 2D art for the new mode; low-poly people, 3D animals, props, crops, building condition and interiors (both modes); the panels. |
+| `civ/civ_overlay.js` | New systems for classic towns. |
 | `pixel_town_standalone.html` | The same game with Three.js inlined, so it runs from a single file by double-clicking. |
 | `vendor/three.module.min.js`, `vendor/three.LICENSE` | Three.js r169 (MIT) for the 3D view. |
 | `pixel_town_citizen_template.md` | Format for adding villagers from text or JSON. |
-| `tests/pixel_town.tests.js`, `tests/run_tests.js` | 43 automated scenario tests (Playwright). |
+| `tests/pixel_town.tests.js`, `tests/civ.tests.js`, `tests/run_tests.js` | 43 classic and 39 civilization-mode scenario tests (Playwright). |
 
-There is no server and no build step. Everything, including every sprite, building and tile, is drawn procedurally at startup from code. The town saves itself in the browser's `localStorage`.
+There is no server and no build step. Everything, including every sprite, building and tile, is drawn procedurally at startup from code. The town saves itself in the browser's `localStorage`. The standalone file inlines the `civ/` scripts as well as Three.js.
+
+**Starting a game:** a new game is a civilization with a random seed. `?seed=N` fixes the seed (the same seed gives the same world and the same first days). `?mode=classic` starts the classic town instead. An existing save always loads in the mode it was made in.
 
 ---
 
@@ -724,11 +760,16 @@ Each annexed region costs the treasury 2¢ + 2¢ per ring of distance, plus more
 
 - **Terrain:** the 2D ground is stretched over a height-mapped terrain with sunken water and raised rocks.
 - **Scenery:** real 3D buildings with lit windows at night, and instanced trees and rocks.
-- **Villagers:** voxel figures built from each villager's look.
-  - Faces have eyes, brows, a nose and a mouth.
-  - Seven hairstyles (short, long, bun, ponytail, curly, spiky, bald) and nine hats.
-  - Clothing includes open-front shirts over an undershirt, rolled cuffs, belts, tunics, aprons, coats and cuffed boots, plus beards and a satchel on a cross-body strap.
-  - A subtle per-voxel texture gives the pixelated look. Limbs swing as villagers walk, they turn to face where they go, and they cast shadows. Children are smaller.
+- **Villagers:** stylised low-poly figures (`civ/civ_3d.js`), in both modes.
+  - A tapered, flattened torso with shoulders, belt and pelvis; a neck; a rounded head with a jaw, nose, eyes, brows, ears and mouth.
+  - Jointed limbs: upper arm, elbow, forearm and hand; thigh, knee, shin and a shaped foot. Knees and elbows bend as people walk.
+  - Variation comes from genes: height, build (weight), jaw width and nose size; plus seven hairstyles, beards and nine hats.
+  - Age shows: children grow gradually (from about 45% of adult height), and from their mid-40s people get wrinkles, from 56 grey hair, from 58 a stoop that deepens, and after 62 a slower gait.
+  - Tools appear in hand for the work being done: axe, pickaxe, hammer, fishing rod, spear, basket, bucket, hoe, staff, book, flask, medical bag, crate or cooking pot. Tool work swings the arm.
+- **Animals:** real low-poly 3D models (cow, pig, sheep, chicken, goat, horse, dog, cat, deer, boar, rabbit, wolf, bird, fish). They walk and run with swinging legs, graze with their heads down, lie down to sleep at night, flee from people (wildlife), birds flap and fly, and fish jump in open water.
+- **Props:** wells, market stalls, lamps, scarecrows, hay, barrels, crates, carts, boats, graves, stakes, signs, scaffolds, rubble, camp fires with flickering flames, sacks, woodpiles, stone piles, oil derricks, weeds and goal posts are 3D models. Crops stand on field tiles and grow with the field; fences have posts and rails.
+- **Buildings show their history:** neglected buildings darken and gather weeds and broken fencing; prosperous ones gain an extension and flower boxes; old roofs turn mossy; profitable businesses get a signboard.
+- **Interiors:** when the camera is zoomed in close, the building under it opens up (roof removed, walls seen from inside) and shows simple furniture for its kind: beds and a hearth in homes, desks and a board in schools, cots in clinics, benches and flasks in labs, cells in jails, machines in industry, counters and shelves in shops. Interiors are built only when needed.
 - **Lighting:** a sun and sky that follow the clock, with soft shadow maps and point lights at street lamps.
 - **Volumetric light:** a full-screen pass marches each view ray through the low air (below 7 tiles high) and samples the sun's shadow map. Sunlit haze shows real shafts of shadow from buildings and trees. It is stronger at dawn and dusk and in fog, rain and snow, and street lamps glow with halos at night. Phones use half as many samples.
 - **Controls:** drag or WASD to pan, right-drag, two fingers or Q/E to turn, wheel or pinch to zoom, tap a villager to select them. Zooming in close aims the camera at faces.
@@ -748,7 +789,10 @@ Each annexed region costs the treasury 2¢ + 2¢ per ring of distance, plus more
 | Gov | Leader, council, campaign, laws, votes with each voter's statement |
 | Society | Love & family figures (marriages, divorce %, infidelity %, adoptions, genders), newspapers, teams, schemes, institutions |
 | Justice | Institutions and officials, jail and court, what the town says it needs, open and closed cases with evidence, statements, recusals and conflicts, and an optional **Reveal the truth** switch |
+| Science | Techniques known, theories and how accepted they are, research projects, the settlement's best knowledge per domain (both modes) |
 | Music | Soundtrack settings and Suno songs per phase |
+
+In civilization mode the Market tab is called **Economy**, and People, Economy, Land, Gov, Society and Justice show the civilization panels (section 40).
 
 The header shows the clock, date, week, weather and speed buttons. Stat tiles show population, leader, treasury, bridge, mood, herd, laws, next vote, trades, classes and construction.
 
@@ -814,19 +858,287 @@ When an older save loads, the game:
 
 A one-time notice explains what's new.
 
-**Tests** (`node tests/run_tests.js`, each in a fresh town):
+**Tests** (`node tests/run_tests.js`, each in a fresh page; the classic suite loads `?mode=classic`, the civilization suite loads a seeded new game):
 
 - **Justice (13):** constable fines for quarrels, cases from vandalism, unsolved crimes, suspect identification, disagreeing witnesses, innocent suspects cleared, conviction, acquittal, dismissal, repeat offenders, jail cutting work and income, recusal, corruption.
 - **Cognition (12):** witnessing, remembering, learning from a friend and from a newspaper, false rumours, contradictory evidence, gradual belief change, memories changing votes, policies changing opinions, fading and persisting memories, no instant knowledge of distant events.
 - **Frontier (16):** exploration cost, exploring in all four directions, fog hiding resources, exploration taking time, regions differing, discovery not being annexation, annexation succeeding and failing, new building space, new resources, rising upkeep, opinions on expansion, the frontier moving outward.
 - **Family (2):** only a woman and a man conceive; same-sex couples adopt.
+- **Civilization (39):** see section 40.
 
 ---
 
 ## 23. Known limitations
 
+**Civilization mode:**
+
+- **Fishing dominates early economies** on most seeds: the lake is rich and fishing needs no building. Farming grows through the first two years but rarely overtakes it; different origin peoples and valleys shift the balance but do not remove it.
+- **Some seeds starve.** A poor valley or a hard first winter can halve the population; imports and relief help only if the settlement can pay or is liked.
+- **Classic towns get only part of the new systems** (minds, knowledge, learning, research, prospecting, neighbours, 3D). Their economy, government and justice still run on the classic rules, because replacing them would change existing towns' history.
+- **Neighbouring settlements are abstract:** no roads or caravans are drawn beyond the map edge.
+- **Some finance and infrastructure is data only:** bonds, insurance claims, mortgages with foreclosure, pipelines, power stations, transit and fire services exist as definitions (buildings, business types, techniques) but have little or no behaviour yet.
+- **Unions, guilds, trade associations and charities** can be represented by the organisation model but nothing forms them yet.
+- **Interiors** are generic furniture sets per building kind.
+
+**Classic mode:**
+
 - **Winter food shortages:** these can still occur in later game years in some towns. The granary and caravans soften them, but the town can remain short of farmers.
 - **Speech and pronouns:** villagers' speech and many log lines use neutral wording ("they") rather than gendered pronouns.
-- **Animals** are flat sprites in 3D.
 - **Volumetric light** is tuned for desktop GPUs; phones use fewer samples.
 - **Save size:** the save grows with history and is kept within browser storage limits by capping memories, cases, logs and wires.
+
+
+---
+
+# Part II — Civilization mode
+
+## 24. Design principle
+
+A new game does not start as a working town. It starts as 100 people with crude shelter, personalities, knowledge, needs and free will. Occupations, farms, markets, money, businesses, roads, bridges, mines, schools, governments, courts, banks, companies, stock markets, leagues, hospitals and laboratories exist only if the people create them.
+
+Nothing is triggered by a date or a population count. Each institution grows out of a counter of real events: failed swaps, disputes, thefts, crossings the river blocked, sick people, children without lessons, unpaid debts. The player watches and can inspect everything, but never chooses careers, marriages, crimes, elections or daily actions. Settlements can fail: different seeds grow very different places, and some starve.
+
+## 25. The starting world
+
+| Rule | Value |
+|---|---|
+| People | exactly 100: 80 adults (16+) and 20 children |
+| Households | 13 families with children, 9 couples, and single adults sharing shelters in twos to fours (siblings, friends or strangers) |
+| Shelter | one crude structure per household: lean-to, crude hut or shared longhouse; poor comfort (12–20), insulation (8–22), durability (20–35), storage (20–90) and privacy (6–20); starting condition 55–80% |
+| Professions | none: every adult is a "Settler" with no job, workplace or career goal |
+| Emergency food | a cache of 1,150 smoked/dried and 700 grain (about 6–7 days for everyone), plus 2–7 days of food per household |
+| Possessions | vary by household: stone tools, rope, hides, cloth, pottery, shell beads (the richest have up to ~60), sometimes grain |
+| Terrain | the river, lake, hills and forests of the classic map, with seeded variety: denser or thinner woods, outcrops, sometimes a pond, and a meadow where they camp |
+| Crossing the river | one shallow ford (impassable in the first 12 days of spring and in storms); no bridge |
+| Not present | town hall, market, farms, ranches, mine, clinic, tavern, bakery, forge, school, bank, jail, court, arena, government, laws, taxes, money, roads |
+| Hidden | 30–50 mineral, oil and gas deposits (section 37) |
+| Nearby | 3–4 neighbouring settlements (section 38) |
+
+**Every seed is different.** Each settlement draws one or two **origin peoples** — a farming people, forest hunters, lake-shore fishers, travelling traders, craftspeople from a burned town, refugees from a city of learning, or upland herders — which make some backgrounds (60% of first backgrounds) and values (55% of people) more common. It also draws how rich the valley is: fish ×0.6–1.5, game ×0.5–1.6, forage ×0.7–1.3, soil ×0.7–1.4 and ore ×0.5–1.7. The settlement's **culture** (the share of adults valuing Freedom, Order, Community, Tradition and Prosperity) then shapes how readily it gathers, what form its government takes, whether offices are paid, and whether it taxes.
+
+People differ in knowledge, intelligence, skills, body, personality, values, family and possessions. Each adult has one to three **backgrounds** (farming, herding, hunting, fishing, building, crafts, weaving, cooking, healing, trading, teaching, stonework, leadership, reckoning, bookkeeping, foraging) that set starting knowledge, skills and a few known techniques — never a job.
+
+## 26. Time tiers and performance
+
+The clock is the same as classic mode (2.5 s per game minute). Work is split by how often it needs to run:
+
+| Tier | What runs |
+|---|---|
+| Every minute | movement, needs, the visible activity, eating; agents far outside the view and not walking update every 4 minutes (low fidelity) |
+| Every hour | market prices (8:00 and 16:00), businesses sell the day's output (18:00), moods |
+| Every day | weather, spoilage, building wear, health, births, deaths and marriage, learning and discovery, the economy, society, prospecting, trails, and a new plan for everyone |
+| Every week | occupations, goals, company decisions, finance and the stock exchange, property, bridges, laws and elections, sport, research institutes, neighbours |
+| Every 28 days | roads, stalled projects, migration, economic records |
+
+Every daily, weekly and monthly subsystem runs inside a guard: an error is recorded in `S.civ.errors` and the day continues (the tests fail if any error is recorded).
+
+## 27. People: bodies, minds, knowledge, skills
+
+- **Cognition** replaces the single "wit": reasoning, memory, learning ability, planning, social intelligence, creativity, practical intelligence, attention, emotional intelligence and risk assessment, each 0.05–0.97. Profiles are drawn separately; anyone who would be good at everything loses 0.3–0.5 on four attributes. The old "wit" is now derived from the profile.
+- **Knowledge** (0–100) in 25 domains, separate from intelligence: agriculture, animal husbandry, food & preservation, construction, crafts, wilderness lore, medicine, law, finance, trade, politics, teaching, reading & writing, history, geography, technology, and the sciences (mathematics, physics, chemistry, biology, geology, astronomy, engineering, agricultural science, environmental science).
+- **Skills** (0–100), 33 of them (foraging, hunting, fishing, woodcutting, stonework, construction, carpentry, farming, herding, cooking, crafting, smithing, weaving, mining, prospecting, medicine, accounting, investing, management, negotiation, trading, law, investigation, teaching, engineering, mathematics, chemistry, biology, physics, research, journalism, athletics, leadership). Each feeds one or more knowledge domains.
+- **Techniques** are known per person (section 37).
+- **Body:** strength, endurance, dexterity, health (0–100).
+- **Genes:** skin, hair and eye colour, height, build, jaw, nose and brow. Children take each colour from one parent and blend the measurements with a little mutation; cognition is also blended. Genes are saved and drive the 2D look and the 3D figure.
+- **Clothing** evolves from hides to linen to dyed cloth to coats as weaving, cloth and wealth arrive.
+
+## 28. The decision loop, goals and plans
+
+Every morning each adult runs **Observe → Remember → Interpret → Predict → Plan → Act → Evaluate → Learn**:
+
+1. **Observe:** days of food at home, season, weather, the state of the home, illness, hunger around them.
+2. **Remember:** the outcomes of past choices (a running average per task) and what friends said paid off.
+3. **Interpret:** how much each good is worth to this household now. Food is worth more when the larder is low; planners also count the coming winter; materials are worth more when their own (or, for civic-minded people, the community's) projects need them.
+4. **Predict:** the expected yield of every available task from skill, tools, techniques, season and local abundance. The guess is noisy when the person knows little about that field, whatever their reasoning; memory of outcomes gets more weight with memory ability, and friends' advice with social intelligence.
+5. **Plan:** scores add goal bonuses, habit (people known for a trade stick to it), risk aversion (low risk assessment discounts dangerous or uncertain work), laziness, and the household's division of labour (below). Attentive, careful planners pick the best option; others sometimes take the second best.
+6. **Act:** the day's blocks (sleep, breakfast, two work blocks, a meal on the spot, water or chores, supper, the evening fire, sleep).
+7. **Evaluate:** at the end of a block the actual yield is compared with the expectation, with a reason (picked-over area, scarce fish, no game left, bad season, the storm, injury, no tools, exhaustion, "I have got good at it", luck).
+8. **Learn:** the outcome updates future expectations; surprising outcomes become memories.
+
+Every important choice is stored as a **decision record** (situation, objective, action, expected value, actual value, reason) — the last 30 per person, shown in the People panel. Founding a business is recorded the same way.
+
+**Households divide the work:** adults are ranked by food skills; the top half (80% when food is under 1.5 days) provide food; the others fetch whatever the household's projects lack or build once materials are there.
+
+**Goals** come in four levels and are never careers handed out at birth:
+
+| Level | Goals |
+|---|---|
+| Immediate | secure enough food |
+| Short-term | build a home, repair the home, get proper tools, repay a debt, lay in winter stores |
+| Medium-term | improve the home, learn a skill, start a field, raise animals, start a business, buy land, improve income |
+| Long-term | become wealthy, build a family, become respected, discover something, improve the community, create an organisation |
+
+Long-term goals come from values and personality. Goals are dropped when they become impossible (after 120 days for non-long goals). **Starting a business** is a ten-step plan — learn → gain experience → save → acquire tools → secure property → obtain financing → build or lease premises → acquire inputs → sell → hire — which changes when circumstances change (a founder who cannot raise money gives up; one who can't build leases).
+
+## 29. Work, food and ecology
+
+| Task | Where | Output per effective hour | Notes |
+|---|---|---|---|
+| Foraging | open ground | berries 2.2, roots 1.1 | season ×0.8/1.3/1.2/0.3; depletes the local 10×10 cell |
+| Fishing | shore | fish 2.3 | ×1.6 with rope, ×1.5 with nets; season ×1/1.1/1/0.6; depletes the water cell |
+| Hunting | woods | a kill is 26–32 meat plus hides | success from skill, game about, company and fire-hardened spears; 0.4% injury risk per hour |
+| Cutting wood | next to a tree | wood 2.4 | fells the tree after 18–31 hits |
+| Gathering stone | next to rock | stone 1.8 | wears rock down to sand |
+| Gathering reeds | shore | fibre, thatch, clay | |
+| Fetching water | shore | 24 per hour | households need one jar per person per day; working by the water counts |
+| Preserving, crafting, building, farming, herding, healing, teaching, research, prospecting, mining, trading, working a job, keeping watch | | | sections 30–37 |
+
+Effort per minute = (0.35 + skill × 1.15) × (0.55 + practical intelligence × 0.45) × tools × energy × health, reduced for children, storms (×0.25), snow and rain.
+
+**Ecology:** forage regrows 4.5%/5%/3.5%/0.4% of the gap per day by season; fish 5% per day; game grows about 16% a week toward the cell's capacity and animals wander back into emptied woods. Overuse near the camp forces longer walks, and hunting collapses within weeks without restraint.
+
+**Eating:** three meals from the household store (oldest-spoiling first); when empty, the shared cache (while it lasts), then kin and friends (who share if agreeable or family), then the market once there is money. Hunger under 15 costs 6 health a day; no water for two days costs 8; cold homes in winter cost up to 4. At 0 health a person dies of starvation, thirst, cold or illness.
+
+**Spoilage:** each good loses 1/perish-days of its stock a day (berries and fish 3 days, meat 4, bread 4, grain 150, smoked food 90); homes slow it slightly, granaries and warehouses a lot. Overfull homes lose food.
+
+**Health:** illness chance rises with winter, crowding and poor sanitation (latrines, wells, sewage and germ theory lower it). Healers treat the sick and injured.
+
+**Births** need a settled, fed couple (woman and man) with room; there is no population cap.
+
+## 30. Emergent occupations and learning
+
+A person is recognised in an occupation when, over the last 3–5 weeks, one task took at least 42% of their working hours and 24+ hours, and at least two other households relied on the work (bought, bartered, were treated or taught) — or they did it for most of their time for four weeks. The title then rises with skill, knowledge, technique and institutions:
+
+| Occupation | Tiers |
+|---|---|
+| Forager | Forager → Herbalist (biology 25) |
+| Hunter / Fisher | → Master (skill 60+) |
+| Woodcutter | → Lumberjack (skill 58, metal saws) |
+| Stone | Stone Gatherer → Quarryman (50) → Mason (62, construction 40) |
+| Builder | Builder → Carpenter (52, construction 32) → Construction Contractor (runs a firm) |
+| Farmer | Gardener → Farmer (42) → Estate Farmer (runs a farm company) |
+| Herder | Herder → Rancher (owns a ranch) |
+| Cook | Cook → Baker (baking known) |
+| Toolmaker | Toolmaker → Smith (smelting) → Blacksmith (60, ironworking) |
+| Healer | Healer → Medical Worker (medicine 38) → Doctor (medicine 65 and a clinic or hospital) |
+| Teacher | Elder Teacher → Teacher (teaching 35) → Professor (55, a university) |
+| Trader | Trader → Merchant (48) → Shopkeeper (owns a shop) |
+| Prospector, Miner, Researcher, Watchman, Moneylender | … → Geologist, Mine Foreman, Natural Philosopher, Scientist, Banker |
+
+Occupations lapse when the work stops. Employees take their job title.
+
+**Learning:** skill grows with practice (×(0.4 + learning ability × 0.9), slower near 100), knowledge with it; working beside a mentor ×1.9, beside a parent ×1.5; skills fade slowly without use. Conversation passes knowledge and techniques from the better teacher to the other. Parents teach children a little every day; children of 10+ pick up their parents' techniques. **Mentorships** form between a keen learner (12–40, or with a learn-a-skill goal) and someone 20+ points better who likes them; the mentor's friends become the learner's acquaintances (professional connections). Coaches improve their players. Schools teach by level (section 36), and libraries let literate people read.
+
+## 31. Building, land, farms, ranches, bridges and roads
+
+Everything built is a **structure** from a data table of about 120 kinds: homes (lean-to, crude hut, longhouse, wattle hut, timber cabin, cottage, stone cottage, townhouse, row houses, duplex, boarding house, dormitory, apartment block, residential tower, mansion, estate), food and storage (garden, field, farm, orchard, pen, ranch, barn, drying racks, granary, warehouse, refrigerated store, well), commerce, workshops and industry, retail, hospitality, professional offices, banks and the exchange, education and science, health, government and justice, extraction, bridges, docks, roads, waterworks, sewage, power, transit, sport and leisure. Each lists materials, labour, required knowledge and techniques, and what it provides.
+
+**Projects:** a household, the community, the government or an organisation starts a project on free ground (clearing trees adds labour). Materials come from the owner's stores and from civic volunteers; work progresses only as far as the materials allow; projects without materials for 90 days are abandoned. Finished projects become structures on a **land parcel** with an owner and a value.
+
+**Homes improve only with knowledge, materials and means:** a household without a roof or too crowded builds the best home it can afford (else a crude hut or a longhouse); households that aspire to more upgrade in place or build anew, and the old home is passed to kin, rented, sold or left to decay.
+
+**Fields:** someone who knows cultivation (or has learned it) and whose household worries about food starts a garden or field in spring (or early autumn), using seed grain. Farming is sow → tend → harvest; growth takes about 30–50 days, frost kills unharvested crops, soil tires without crop rotation, and the plough, irrigation and rotation raise yields. Households add fields as harvests pay off.
+
+**Animals:** hunters with domestication sometimes bring back live goats or pigs. Two loose animals (or husbandry knowledge) lead to a pen. Animals have age, sex, health, owner, productivity and offspring; they breed in pens, give milk, eggs or wool, and are slaughtered when pens are full. Dogs and cats come to live with households.
+
+**Bridges:** every trip blocked by the river is counted where it wanted to cross. When crossings pile up, a footbridge, timber or stone bridge (whatever the settlers know how to build) goes up at the narrowest point near the busiest crossing, built by the community, the government, or an investor who charges a toll (unless a law bans private tolls). Owners repair bridges; neglected bridges rot and collapse; a better bridge replaces a failing one and the old one is torn down. There can be several.
+
+**Trails and roads:** each step wears the grass; 55 recent steps turn a tile into a trail, and unused trails grow back. Once road building is known and a government can pay, the busiest trails become roads (and later paved roads) that people walk faster on.
+
+**Anything can change:** structures wear with age and storms, are repaired by their users, can be upgraded, converted (a field into an orchard or pen), subdivided among heirs, sold, rented, abandoned (empty and decaying) and demolished (with some materials salvaged). No structure is protected.
+
+**Property values** follow location (distance to the market), water and road access, bridges nearby, jobs, schools, industry, trees, crime and demand (homeless households, migration pressure), plus the building's quality and condition and a business's profits; a mineral strike makes nearby land speculative for 120 days. Once there is money, homes are listed, sold (through a real-estate office if one exists), rented by landlords, and bought by developers.
+
+## 32. Exchange: gifts, barter, money and markets
+
+- **Gifts and favours:** kin and friends give food and materials; favours owed are remembered.
+- **Barter:** at the evening fire two adults compare what their households lack and have spare; a swap happens only if both gain, with negotiation skill tipping the quantities. The spot where it happened is remembered.
+- **Money:** when swaps keep failing because nothing matches (90 failed swaps, with 40 successful ones, and shell beads widely held or traders present), shell beads become money: household beads become savings and every good gets a price. Coins replace beads once coinage is known and there is a government or smelting.
+- **Market stages:** barter → a meeting place (12 swaps a week, 8 at one spot) → a trading spot (cleared by the community after 25 swaps a week) → market stalls (40 trades or 150 in value a week) → shops (the first business with its own premises) → a commercial district (four shops near the market).
+- **Prices** rise when people fail to buy and fall when goods sit unsold; the price level follows the money supply (e.g. after minting gold).
+
+## 33. Organisations, businesses, jobs and contracts
+
+**One organisation model** covers sole proprietorships, partnerships, family businesses, cooperatives, private companies, corporations, public corporations, holding companies, banks, credit unions, nonprofits, charities, guilds, trade associations, unions, sports clubs, leagues, schools, research institutes, the government and the exchange. Each tracks founders, owners and shares, board, manager, staff, cash, debt, stock, sites, revenue, expenses, profit, reputation, share price and an **organisational memory** (successful products, reliable suppliers, good employees, bad investments, profitable locations, failed expansions, lawsuits, lessons). Organisations survive their founders: shares pass to heirs and a new manager takes over.
+
+**Business types** are data (about 50): industry, inputs and outputs per worker-hour, the service sold, required skills, knowledge and techniques, equipment, start-up cost, worker range and compatible buildings — from smokehouses, mills and bakeries to sawmills, smelters, steelworks, textile mills, refineries, chemical works, shops, pubs, inns, hotels, clinics, pharmacies, law offices, banks, newspapers and carting.
+
+**Formation:** once there is money, ambitious or organisation-minded adults look for openings, weighing demand (unmet purchases, prices, service need), competition, their skills and knowledge, capital, property, available workers and inputs. The best opening becomes a ten-step plan (section 28). A founder short of money takes a partner who contributes capital; shares follow contributions.
+
+**Running a business:** staff on shift turn inputs into outputs (bought from the market, or through supply contracts); services are sold to customers who choose by price, quality and reputation; output is listed each evening. Weekly, each business updates its profit and memory, pays dividends or profit shares, hires when demand exceeds capacity, lays off when losing money, cuts prices or improves quality against a more profitable rival, advertises, buys out a struggling competitor, buys a supplier after repeated shortages (vertical integration) or signs a supply contract, opens a second site when profitable, and incorporates when growing and its owners understand shares. A business that runs out of money goes bankrupt.
+
+**Labour market:** employers post jobs with pay, schedule, required skill and location. Applicants compare pay with what they earn on their own, distance, the firm's reputation and conditions, and skill fit; employers pick by skill, credit record, trust and past work. Unfilled jobs raise their wage 8% a week. Employees do the company's work (its mine, field, building site or workshop).
+
+**Contracts** are enforceable obligations: employment, rent and leases, property sales, construction, loans, partnerships, supply agreements, professional services, sponsorship and sports employment. Repeated breaches become lawsuits.
+
+## 34. Credit, banks, shares and bankruptcy
+
+- **Finance stages:** none → informal lending → moneylenders → credit organisations → banks → financial institutions.
+- **Informal loans** come from trusting friends and family (family at 0%, others 4%, moneylenders 8%); repayments are weekly. Every borrower has a **credit history** (score, repaid, late, defaulted) that sets later terms.
+- **Banks and credit unions** are founded by experienced lenders with finance knowledge, capital and bookkeeping or writing. They take deposits, pay interest, lend at rates set by credit score and their own bad-loan record, and **fail** when bad loans leave them unable to pay depositors (a run returns only part of everyone's savings).
+- **Corporations** have 1,000 shares, a board and dividends (35% of profit); share prices follow book value and earnings, nudged by trading.
+- **Stock exchange:** founded by someone with finance knowledge once there are three corporations. Investors act on their style: conservative (dividends), growth (rising profits), value (below book value), speculation (momentum) — and dishonest insiders trade on what they know; if insider trading is outlawed and investigators exist, they can be caught.
+- **Bankruptcy:** an insolvent person or business goes to court if there is one (else creditors seize informally). A business still making money gets its debts **restructured** (longer terms, half the interest); otherwise it is **liquidated** and creditors are paid pro rata.
+
+## 35. Government and justice from the ground up
+
+Problems are counted as they happen (food, quarrels, theft, blocked crossings, sickness, shelter, spoiling food, injuries, money troubles, newcomers, schooling, water).
+
+**Government:**
+
+| Stage | How it arises |
+|---|---|
+| Gatherings | problems add up (9 × (1 + 0.8 × freedom − 0.6 × community − 0.4 × order)) and the most respected person calls a gathering at the fire; attendees agree on actions: rationing, food imports, a granary, a common field, drying racks, latrines, a well, a healer's hut or clinic, helping the homeless, a night watch, settling quarrels, a school |
+| Council | four gatherings within 28 days, three weeks after the first; its form depends on the settlement's values (council of elders, merchant council, chieftaincy, assembly, …) |
+| Leadership | the council cannot keep up with a crisis (food, crime, disputes, growth); the leader's title follows the form (chief, eldest speaker, first merchant, headman) |
+| Offices | treasurer (a common purse), watch captain (a watch), magistrate (many disputes) |
+| Elections | a legitimacy crisis (an unpopular or missing leader) in a settlement that values having a say and can count; chieftaincies, theocracies and oligarchies may never hold them; then every 8 weeks |
+| Laws | answers to problems actually suffered: theft, binding agreements, a land register (needs writing), building standards, insider trading, private tolls, schooling, sanitation, a food reserve, bankruptcy |
+| Taxation | offices (paid only where order and community outweigh freedom) or public projects cost money: a hearth, income or trade tax depending on the form, adopted sooner in orderly, communal cultures and later or never in freedom-loving ones |
+| Departments | four or more kinds of public service (works, justice, education, health, treasury) and a treasury over 150 |
+
+**Justice:** informal (family smooths things over, retaliation, compensation) → mediation (a respected, emotionally intelligent person settles disputes) → a community watch (agreed at a gathering; deters theft) → a constable (continued theft and a leader) → an investigator (unsolved thefts; can trace thieves, and sometimes follows a mistaken lead) → a magistrate (a heavy caseload) → a court (a courthouse is built when the magistrate falls behind) → jail (repeat offenders) → professional lawyers (skilled advocates who tip trials). Criminal cases (theft from need or greed, fights, insider trading) and **civil lawsuits** (unpaid debts, breach of contract, property and land disputes, partnership and shareholder disputes, fraud, negligence, personal injury, landlord disputes, inheritance, damaged property) record plaintiff, defendant, claim, evidence (written or spoken contracts, investigators' findings), witnesses, damages sought, settlement and judgment. Evidence strength, the judge's knowledge and the lawyers decide outcomes; innocent people can be convicted.
+
+## 36. Education, health and sport
+
+**Education:** informal (parents and elders) → a community school (a gathering founds one when there are six or more children and a teacher) → primary (reading and sums, once writing is known and a teacher is literate) → secondary (two teachers and a proper school) → trade school (many apprenticeships) → academy (scholars and money) → college (a library) → university (a laboratory) → research university (three active research projects). Schools are organisations with buildings: they can be expanded, and close (their building is sold) if they have no teachers. Curricula widen with the level. Writing lets the learned write books; ten books lead to a library.
+
+**Health:** healers treat the sick and injured (care quality from skill, herbal remedies, surgery, and theories — the humours theory makes care worse). A settlement with a recognised healer builds a healer's hut, then a clinic once masonry and medical knowledge exist; hospitals need germ theory. Care businesses charge fees once there is money.
+
+**Sport:** children play; young adults play on rest days; regulars form a team around an organiser (with a coach); four teams and an organiser make a league with a weekly schedule, a table, statistics (top scorers), a champion every season, ticket income (once there is money and a pitch), sponsorship contracts from businesses, player contracts and salaries, and transfers to richer clubs.
+
+## 37. Science, technology and resources
+
+**Techniques** (about 60) are known by people, not by the settlement: fire-hardening, smoking, nets, cultivation, domestication, pottery, weaving, carpentry, wells, counting, writing, bookkeeping, coinage, the plough, crop rotation, irrigation, milling, baking, brewing, cheesemaking, quarrying, masonry, the arch, smelting, bronze, ironworking, saws, sawn lumber, shaft mining, the wheel, roads, paving, bricks, glass, optics, goldsmithing, printing, probability, herbal remedies, surgery, pharmacology, germ theory, vaccination, sanitation, plumbing, cement, blasting powder, steam power, steelmaking, mechanical looms, multi-storey and steel-frame building, railways, drilling, refining, industrial chemistry, canning, refrigeration, electricity and the telegraph. Each needs knowledge levels, and many have several possible paths (any of several technique or theory combinations) rather than one fixed tree. A technique is found by practice (someone who keeps doing related work and knows enough may see a better way; creativity and openness help), by research, from neighbours via traders and migrants, or from books; it spreads by conversation, mentoring and parents.
+
+**Science** follows **observation → question → hypothesis → experiment → recording → replication → communication → revision of beliefs**. Curious people with science knowledge and food to spare pick an untested theory or a technique within reach. Experiments support a true theory with probability 0.55 + rigour × 0.4 and a false one with 0.5 − rigour × 0.4, so sloppy work can make a **wrong idea popular** (the humours, bad air, phlogiston, moon planting, dowsing, a flat-stone earth). Rigour comes from reasoning, mathematics, writing and laboratories. Results move the community's acceptance (weighted by rigour, written records and replication) and individual beliefs (against stubbornness); later careful work can overturn an accepted idea. Accepted theories unlock techniques (combustion → ironworking and explosives, germs → germ theory and canning, heat → steam power, …) or change outcomes (miasma improves sanitation for the wrong reason). Researchers who keep working found institutes and laboratories.
+
+**Resources:** copper, tin, iron, coal, lead, zinc, nickel, silver, gold, platinum, gemstones, salt, rare minerals, clay, oil and natural gas lie hidden, each deposit with a size, depth (1–6), purity and accessibility, placed by kind (outcrops, hills, streams, flats, seeps). Prospectors find them with geology knowledge and skill, visible clues (rock, streams, oil seeps), theories (ore veins help, dowsing hurts), depth reach from technique, time and luck. A find is only **claimed** (registered if a land register exists, else staked — and a rival may dispute an unregistered claim on something valuable). Then: a person with some mining knowledge digs a **private pit** in shallow ground; otherwise the finder has to found a mining company (capital, equipment, workers), which builds a quarry, open pit, shaft mine or deep mine depending on depth and technique. Mines yield ore by purity until worked out; accidents injure miners. Gold and silver become coin once there is a mint.
+
+**Oil and gas:** a seep is at first just black ooze of no known use. With drilling (geology and engineering, steam power or ironworking with the oil-origin theory), oil companies drill exploratory wells near seeps (geologists and the theory aim better) or at random: dry wells lose money and are remembered; a strike makes the deposit known and claimable, then oil and gas wells, refineries (kerosene and fuel), and chemical works follow. A precious-metal or oil strike causes a boom: land speculation, migration, new companies.
+
+## 38. Neighbours, imports and migration
+
+**Neighbouring settlements** (3–4 of Westford, Saltmere, Ironhold, Dunmoor, Greyholm) are simulated simply: population, food stock and production, resources, industries, prices, wealth, government form, known techniques and relations with Pixel Town. Their food rises and falls with the seasons and occasional failed harvests; shortages raise their prices.
+
+**Trade and knowledge:** traders take caravans every two weeks, selling surplus for the neighbour's goods and bringing back techniques.
+
+**Emergency food imports:** when the settlement runs short, a gathering or the government asks for quotes. Price = 1.1 × (1 + scarcity) × (1 + urgency × 0.4) + 0.12 × distance per unit; neighbours sell only above 14 days of their own food. It is paid from the treasury, the community fund or pooled goods (beads, hides, cloth, tools, metals). Shipments take the travel time (plus 3 days in winter, 1 in a storm), can be lost on the road (4%), and go to the common store. In a famine, a friendly neighbour may send free relief.
+
+**Strategic reserves:** with a granary or warehouse, surplus grain is bought from full households in autumn (more under a food-reserve law) and handed out as rations in shortages; rationing tightens when the cache runs low.
+
+**Migration** is reviewed every 28 days. Households in real hardship (little food, no home, deep unhappiness, prolonged hunger) weigh staying (food, home, work, kin, mood, the settlement's pull) against the best neighbour minus a moving cost; at most two leave a month. Neighbours send newcomers in proportion to how the settlement looks from outside: food, homelessness, open jobs, wages, crime, schools, healers, taxes and opportunity (strikes, businesses). Newcomers bring their hometown's knowledge, skills and techniques. There is **no population cap**: growth stops only when food, housing, work, health or land run out.
+
+## 39. Classic towns: what they gain
+
+Old saves keep every building, profession, institution and history. From the first load:
+
+- every villager gets a cognitive profile, genes, knowledge, skills and techniques inferred from their profession (farmers know cultivation and the plough, merchants writing and coinage, doctors herbal remedies and surgery, …), and "wit" becomes a view of the profile;
+- a day's work at a trade is practice that raises the matching skill; techniques can be discovered by practice;
+- each week the three most curious adults do research (theories, techniques), and miners and the curious prospect the hills for hidden deposits;
+- neighbouring settlements appear and trade news; the **Science** tab shows what the town knows;
+- the 3D view uses the new low-poly villagers, animals and props.
+
+The classic economy, government and justice keep their own rules (sections 8–13).
+
+## 40. Civilization mode: interface, saves and tests
+
+**Header tiles:** settlement stage (Camp → Hamlet → Village → Town → City → Major city, from population, organisations, structures, market, government and techniques), population, food in store (days), the cache, market stage, money, government stage and leader, justice stage, education stage, techniques known, organisations, building sites.
+
+**Panels:** People (occupation, work, skills; the inspector shows the mind profile, knowledge, skills, techniques, goals with their steps, decision records, beliefs, memories, genes, mentor and protégés, job, credit), Economy (market and finance stages with dates, money, prices, organisations with owners and memory, the exchange, jobs, loans, contracts), Land (projects with materials and work, structures by kind with condition, value and owner, resources found, animals, game, trails and roads), Gov (stage history, form, leader, council, offices, laws, taxes, elections, gatherings and decisions, current worries), Society (households by food, education, sport and the league table, neighbours, shipments and quotes, migration, relationships), Justice (stage history and every case), Science (techniques and who first knew them, theories and acceptance, research, knowledge).
+
+**Map:** hover shows structures (owner, condition, value, crop or herd), projects, the fire and cache, the ford, known deposits and seeps. The 2D map shows the camp fire, cache sacks, ford stones, oil seeps, stumps, woodpiles and stone piles, weeds on neglected buildings, building sites, pens and wild animals that flee from people.
+
+**Saves:** plans and walking paths are not saved (they are rebuilt on load). To keep saves well inside browser storage as the settlement grows, each week every person keeps their 36 strongest relationships, 18 most recent memories, 16 decision records and 24 most recent customers per trade. `S.mode = 'civ'` and everything new lives under `S.civ` (households, structures, projects, parcels, tile edits, ecology, deposits, techniques, theories, research, economy, organisations, jobs, contracts, government, justice, education, sport, neighbours, shipments, migration, animals, stats) and `citizen.civ` (cognition, knowledge, skills, techniques, genes, body, health, occupation, work log, customers, expectations, decision records, goals, beliefs, credit, investor style, mentor, job). The world is rebuilt from the seed plus the saved tile edits and structures. Old classic saves gain `S.civ` (overlay) and `citizen.civ` with defaults.
+
+**Tests** (`tests/civ.tests.js`, seeded): the exact starting population; 80 adults and 20 children; no professions or career goals (with real variety in minds, knowledge and possessions); no businesses; no government, justice or school; no farms; no ranches; no mine and hidden resources, no bridge; only crude housing; occupation recognition (including healer → medical worker); occupations in a free-running settlement; business creation from opportunity; the market progression; money from failed barter; learning from practice, parents and mentors; school formation; knowledge separate from intelligence and the science disciplines; research through the scientific method with wrong theories and new techniques; food-shortage detection; buying food from neighbours (and no food from starving ones); shipments arriving; bridges built and demolished; farms and ranches built, converted and demolished; a private mine; prospecting; a precious-metal strike; oil found by drilling and dry wells; migration-driven growth; growth past 110; partnerships; corporations and dividends; stock ownership and the exchange; loans and credit history; a civil lawsuit judged; bankruptcy by liquidation and restructuring; government emerging from problems; justice from mediation; 3D animals with persistent attributes; inherited, saved appearance with visible growth and aging.
