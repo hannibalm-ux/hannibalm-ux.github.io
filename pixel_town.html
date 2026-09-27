@@ -1329,7 +1329,7 @@ function castVote(c, p){
   if (isRival && choice==='No' && motivation==='Relationships') motivation='Spite';
   const ally = influencedBy.map(cById).sort((a,b)=>peekRel(c,b.id).affinity-peekRel(c,a.id).affinity)[0];
   const statement = voteStatement(c, p, choice, motivation, wallet, ally, isRival?prop:null);
-  p.votes.push({citizenId:c.id, choice, confidence:+Math.min(1,Math.abs(score)).toFixed(2), primaryMotivation:motivation, publicStatement:statement, castAtMinute:S.minute, decidedBy:'Fallback', influencedBy:influencedBy.slice(0,5), walletImpact:wallet});
+  p.votes.push({citizenId:c.id, choice, confidence:+Math.min(1,Math.abs(score)).toFixed(2), primaryMotivation:motivation, publicStatement:statement, score:+score.toFixed(3), castAtMinute:S.minute, decidedBy:'Fallback', influencedBy:influencedBy.slice(0,5), walletImpact:wallet});
   remember(c, `I voted ${choice} on the ${p.title}. ${choice==='Abstain'?'It barely touches me.':motivation==='Financial'?`It would ${wallet>=0?'help':'cost'} me about ${Math.abs(wallet)} coins a week.`:motivation==='Values'?'It is about what kind of town we are.':ally?`I stood with ${ally.name}.`:'I followed my gut.'}`, 5, [p.proposalId], 'Vote');
   S.bubbles.push({id:c.id, text:choice==='Yes'?'AYE':choice==='No'?'NAY':'…', until:performance.now()+4000, gm:S.minute});
 }
@@ -1537,7 +1537,7 @@ function landDaily(){
     if (b.house) residentsOf(b.id).forEach(r=>{ if (!isAdult(r) || r.id===pr.owner || (r.partner && r.partner===pr.owner) || mindOf(r).squat===b.id) return; const rent = Math.min(lawQuery.rentCap(), b.style==='tall' ? 4 : 3); if (r.wallet>=rent){ r.wallet-=rent; today(r).exp+=rent; payTo(pr.owner, rent); const w = cogOf(r).week; w.rent = (w.rent||0)+rent; w.landlord = pr.owner; } });
     if (isLodging(b.id)) residentsOf(b.id).forEach(r=>{ if (!isAdult(r) || r.work===b.id || r.id===pr.owner) return; const rent = b.id==='loc_tavern' ? 4 : 6; if (r.wallet>=rent){ r.wallet-=rent; today(r).exp+=rent; payTo(pr.owner, rent); } });
   });
-  Object.values(S.props).filter(p=>p.kind==='business').forEach(p=>{ S.citizens.forEach(w=>{ if (w.work!==p.bid || w.id===p.owner || !isAdult(w)) return;
+  Object.values(S.props).filter(p=>p.kind==='business').forEach(p=>{ S.citizens.forEach(w=>{ if (w.work!==p.bid || w.id===p.owner || !isAdult(w) || w.jail || w.away) return;
     const staff = BUILD_TYPES[p.type] && BUILD_TYPES[p.type].staff===w.profession;
     if (staff){ const o = alive(p.owner); if (o && o.wallet>=8){ o.wallet-=8; w.wallet+=8; today(w).inc+=8; } else if (p.owner==='town' && S.treasury>=8){ S.treasury-=8; w.wallet+=8; } else if (teamById(p.owner) && teamById(p.owner).funds>=8){ teamById(p.owner).funds-=8; w.wallet+=8; } }
     else if (w.wallet>=3){ w.wallet-=3; today(w).exp+=3; payTo(p.owner,3); } }); });
@@ -3106,7 +3106,7 @@ function learnFact(c, fid, who, w, src, from, fact){
 // everyone close enough to see it; only they get first-hand memories
 function witnesses(x, y, r, exclude){
   const out = [];
-  for (const o of S.citizens){ if (exclude && exclude.includes(o.id)) continue; if (o.rt.state==='Sleeping' || o.jail) continue; if (o.rt.loc && LOC[o.rt.loc] && LOC[o.rt.loc].indoor && !o.rt.path) continue;
+  for (const o of S.citizens){ if (exclude && exclude.includes(o.id)) continue; if (o.rt.state==="Sleeping" || o.jail || o.away) continue; if (o.rt.loc && LOC[o.rt.loc] && LOC[o.rt.loc].indoor && !o.rt.path) continue;
     if (Math.abs(o.rt.x-x)<=r && Math.abs(o.rt.y-y)<=r) out.push(o); }
   return out;
 }
@@ -3896,10 +3896,11 @@ function returnExpedition(e){
   publicEvent({type:'discovery', text, who:alivecrew.map(c=>c.id), topics:{expansion: A.danger>0.5 ? 0.1 : 0.35}, imp:7, kind:'land', at:'loc_town_square', r:10});
   S.world.log.unshift({day:d, text}); S.world.log = S.world.log.slice(0,30);
 }
+// explorers walk back into town mid-morning, when the square is busy enough for the news to spread
+function frontierReturns(){ if (!S.world) return; const d = dayOf(S.minute); S.world.exp.filter(e=>e.status==='out' && d>=e.back).forEach(returnExpedition); }
 function frontierDaily(){
   if (!S.world) return;
   const d = dayOf(S.minute);
-  S.world.exp.filter(e=>e.status==='out' && d>=e.back).forEach(returnExpedition);
   S.world.exp = S.world.exp.filter(e=>e.status==='out' || d-(e.home||e.start)<120).slice(-30);
   resourcesDaily(); upkeepDaily(); updateRegionStates();
   privateExpedition();
@@ -3966,7 +3967,7 @@ function dayStarted(){
   S.treasury = Math.max(0, S.treasury - 30);
   S.citizens.filter(c=>c.profession==='Doctor').forEach(doc=>{ if (S.treasury>=12){ S.treasury-=12; doc.wallet+=12; today(doc).inc+=12; } });
   if (S.treasury > 500){
-    const pot = Math.round((S.treasury-500)*0.5); const poor = S.citizens.slice().sort((a,b)=>a.wallet-b.wallet).slice(0,8);
+    const pot = Math.round((S.treasury-500)*0.5); const poor = S.citizens.filter(c=>!c.jail).sort((a,b)=>a.wallet-b.wallet).slice(0,8);
     const each = Math.floor(pot/poor.length);
     if (each>0){ poor.forEach(c=>{ c.wallet+=each; today(c).inc+=each; }); S.treasury -= each*poor.length;
       if (!S.week.works){ S.week.works=1; chronicle(`The treasury hired ${poor.map(c=>c.name.split(' ')[0]).join(', ')} for road and fence repairs (${each}¢ each).`, 4, '🛠️', 'economy'); } }
@@ -4053,6 +4054,7 @@ function simTick(){
   if (mod%60===0) hourTick();         // Order 400: economy
   if (mod===16*60+55) resolveMatch(); if (mod===17*60+50) resolveProtests();
   if (S.justice){ if (mod===14*60) startTrials(); if (mod===16*60) verdicts(); }
+  if (mod===10*60) frontierReturns();
 }
 
 // ---------- weekly log ----------
@@ -6306,14 +6308,27 @@ function welcome(upgraded){
     <li>Everything that happens goes into the <b>Log</b>, and each game week gets a report in <b>Weekly</b>.</li>
     <li>The town keeps running while the page is closed (up to 7 game days are simulated when you return).</li>
     <li>Every 4 weeks the town elects a <b>leader</b> and a <b>council of 5</b>, who draft laws and sway votes (<b>Gov</b> tab).</li>
-    <li>Homes, businesses and plots are bought and sold, and the town can vote to annex new territory (<b>Land</b> tab).</li>
+    <li>Homes, businesses and plots are bought and sold. Beyond the map is fog: send expeditions north, south, east or west, and the town votes on whether to annex what they find (<b>Land</b> tab).</li>
     <li>Villagers are wealthy, upper, middle class or poor. The rich build palaces, hotels, apartment towers, bathhouses and theaters, rivals open competing shops, and you can build or demolish from the <b>Land</b> tab.</li>
     <li>Villagers marry, have children and pass away; newcomers arrive with their own agendas. Add your own in <b>People</b> using the villager template.</li>
     <li>Villagers think and feel: emotions and the people they care about drive their goals. They team up, fall in love (sometimes with the wrong person), take up careers the town is missing, play sport, make music, print a newspaper, and sometimes try to change the town outside the rules (<b>Society</b> tab).</li>
+    <li>Villagers remember what they see and hear, form beliefs and opinions, trust some sources more than others, and pass news along, sometimes getting it wrong. Tap a villager to read their mind.</li>
+    <li>Crime is investigated, not simply punished: witnesses can be wrong, evidence can mislead, and the town builds its own courts and jail only when it needs them (<b>Justice</b> tab).</li>
     <li>Turn on the soundtrack in <b>Music</b>, and add your own Suno songs there.</li></ul>
     <div class="row" style="margin-top:10px"><button class="btn primary" id="ovGo">Enter town</button><button class="btn" id="ovMusic">Enter with music ♪</button></div>`);
   $('ovGo').onclick = ()=>overlay('');
   $('ovMusic').onclick = ()=>{ overlay(''); if (!music.cfg.on) music.toggle(); };
+}
+// shown once to an existing town the first time it loads with the new systems
+function whatsNew(next){
+  overlay(`<h3>Pixel Town has new ways to grow</h3>
+    <p>Your town and its history are exactly as you left them. From today:</p>
+    <ul style="padding-left:18px;font-size:14px">
+    <li><b>Minds</b>: villagers now remember what they see and hear, form beliefs and opinions, and decide whom to trust. They start with only broad views drawn from their values; the memories begin today.</li>
+    <li><b>Justice</b>: crimes become cases with witnesses and evidence that can point the wrong way. There is no court or jail yet. The town will create investigators, a magistrate, advocates and a jail only if its own history calls for them.</li>
+    <li><b>Frontier</b>: the land past the map is fog. Expeditions can discover new regions in every direction, and the town votes on whether to annex them (<b>Land</b> tab).</li></ul>
+    <div class="row" style="margin-top:10px"><button class="btn primary" id="ovGo">Back to town</button></div>`);
+  $('ovGo').onclick = ()=>{ overlay(''); if (next) next(); };
 }
 function fmtAway(ms){ const m=Math.round(ms/60000); if (m<60) return `${m} minute${m===1?'':'s'}`; const h=Math.round(m/6)/10; if (h<48) return `${h} hours`; return `${Math.round(h/24)} days`; }
 function boot(){
@@ -6326,11 +6341,12 @@ function boot(){
     clock.gameAnchor = S.minute; clock.realAnchor = Date.now();
     if (!clock.paused){
       const away = Math.floor((Date.now() - sv.savedAt)/MS_PER_GAME_MIN) + Math.max(0, Math.floor(sv.clock.gameAt) - S.minute);
-      if (away > 30) catchUp(away, `You were away for ${fmtAway(Date.now()-sv.savedAt)}. Life went on without you.`);
-    }
+      const away2 = away, gone = fmtAway(Date.now()-sv.savedAt), run = ()=>{ if (away2 > 30) catchUp(away2, `You were away for ${gone}. Life went on without you.`); };
+      if (!S.world.seen){ S.world.seen = 1; whatsNew(run); } else run();
+    } else if (!S.world.seen){ S.world.seen = 1; whatsNew(); }
   } else {
     upgraded = !!store.get(OLD_SAVE_KEY); store.del(OLD_SAVE_KEY);
-    S = newState(); S.bubbles = []; frontierInit(); indexCitizens();
+    S = newState(); S.bubbles = []; frontierInit(); S.world.seen = 1; indexCitizens();
     openWeek(); S.weather='Clear';
     S.citizens.forEach(c=>{ c.plan = buildPlan(c, 0); });
     chronicle('Pixel Town is founded. Fifty villagers wake up to their first spring morning.', 7, '🏡', 'founding');
