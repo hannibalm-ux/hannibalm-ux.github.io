@@ -434,7 +434,7 @@ function spotFor(c,locId){ const L=LOC[locId]; if (!L) return spotFor(c,'loc_tow
 
 // ---------- goods ----------
 const GOOD_DEFS = [
-  {id:'good_wheat',     name:'Wheat',     kind:'Resource', cat:'Crop',    base:3,  floor:1,  ceil:9,   e:0.6, a:0.25, perish:14, by:['Farmer']},
+  {id:'good_wheat',     name:'Wheat',     kind:'Resource', cat:'Crop',    base:3,  floor:1,  ceil:9,   e:0.6, a:0.25, perish:45, by:['Farmer']},
   {id:'good_vegetables',name:'Vegetables',kind:'Resource', cat:'Crop',    base:4,  floor:1,  ceil:12,  e:0.6, a:0.25, perish:5,  by:['Farmer'], need:{hunger:35}},
   {id:'good_timber',    name:'Timber',    kind:'Resource', cat:'Timber',  base:12, floor:4,  ceil:40,  e:0.7, a:0.25, by:['Woodcutter']},
   {id:'good_ore',       name:'Iron Ore',  kind:'Resource', cat:'Ore',     base:10, floor:3,  ceil:35,  e:0.6, a:0.25, by:['Miner']},
@@ -1069,7 +1069,7 @@ function work(c){
   const make = c.profession==='Farmer' ? (hash(c.id+S.minute)%100<60?'good_wheat':'good_vegetables') : P.make;
   const def = GD[make];
   if (P.cap && listed(make) >= P.cap*S.citizens.filter(o=>o.profession===c.profession).length) return;
-  if (listed(make, c.id) >= 24) return;
+  if (listed(make, c.id) >= (make==='good_wheat' && season===2 ? 45 : 24)) return; // at harvest, farmers fill the stores for winter
   if (def.recipe){
     for (const g in def.recipe){
       if ((c.inventory[g]||0) < def.recipe[g]){
@@ -1122,7 +1122,7 @@ function placeName(loc){ const n = LOC[loc] ? LOC[loc].name : 'town'; return n.s
 function romance(a,b){
   const ra=getRel(a,b.id), rb=getRel(b,a.id);
   if (a.partner || b.partner) return;
-  if (ra.tags.includes('Family') || a.age<18 || b.age<18) return;
+  if (ra.tags.includes('Family') || a.age<18 || b.age<18 || !mutual(a, b)) return;
   const romantic = a.traits.includes('Romantic') || b.traits.includes('Romantic');
   const seeking = romantic || a.agenda==='love' || b.agenda==='love' || a.agenda==='family' || b.agenda==='family' || (a.age>=20 && a.age<=50 && hash(a.id+b.id)%5===0);
   if (seeking && ra.affinity>72 && !ra.tags.includes('Crush') && Math.abs(a.age-b.age)<=12){ ra.tags.push('Crush'); chronicle(`${a.name} has a crush on ${b.name}.`, 4, '💘', 'romance'); remember(a,`I think I'm falling for ${b.name}.`,7,[b.id]); }
@@ -1866,7 +1866,7 @@ function births(){
   const d = dayOf(S.minute);
   S.citizens.slice().forEach(a=>{
     const b = a.partner && alive(a.partner); if (!b || a.id>b.id || a.home!==b.home) return;
-    if (a.age<20 || b.age<20 || a.age>45 || b.age>45) return;
+    if (a.age<20 || b.age<20 || !canConceive(a, b)) return;
     const kids = S.citizens.filter(k=>k.parents.includes(a.id) && k.profession==='Child').length;
     if (kids>=3 || residentsOf(a.home).length>=6 || S.citizens.length>=POP_CAP) return;
     const chance = 0.02 * ((a.agenda==='family'||b.agenda==='family') ? 2.5 : 1) * birthDamp() * (a.wallet+b.wallet<60 ? 0.4 : 1);
@@ -1983,7 +1983,7 @@ function arriveNewcomers(){
   const roll = r();
   const group = [];
   const lead = makeCitizen(newcomerDef(r, sur, {})); group.push(lead);
-  if (roll>0.65){ const sp = makeCitizen(newcomerDef(r, sur, {agenda: r()<0.5?lead.agenda:null, age: clamp(lead.age+Math.floor(r()*10)-5,19,70)})); sp.partner=lead.id; lead.partner=sp.id; group.push(sp);
+  if (roll>0.65){ const sp = makeCitizen(newcomerDef(r, sur, {agenda: r()<0.5?lead.agenda:null, age: clamp(lead.age+Math.floor(r()*10)-5,19,70)})); matchSpouse(lead, sp, r); sp.partner=lead.id; lead.partner=sp.id; group.push(sp);
     [[lead,sp],[sp,lead]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=85; R.trust=.9; R.tags=['Spouse','Family']; });
     if (roll>0.85 && lead.age<45){ const kr=mapRand(hash(lead.id+'kid')); const kd=newcomerDef(kr, sur, {age:4+Math.floor(kr()*10), prof:'Child'}); kd.prof='Child'; kd.agenda=null; kd.wallet=0; kd.look=lookForChild(kr, lead.look.skin, sp.look.hair, 'short'); kd.parents=[lead.id,sp.id]; kd.bio=`Moved to Pixel Town with ${lead.name} and ${sp.name}.`; const kid=makeCitizen(kd); group.push(kid);
       [lead,sp].forEach(p=>{ p.kids.push(kid.id); const R=getRel(p,kid.id); R.affinity=90; R.tags=['Family']; const R2=getRel(kid,p.id); R2.affinity=90; R2.tags=['Family']; }); } }
@@ -2211,13 +2211,91 @@ function teamsOf(c, kind){ return S.teams.filter(t=>t.active && t.members.includ
 function teamById(ownerId){ return S.teams.find(t=>'team:'+t.id===ownerId); }
 function disband(t, why){ t.active=false; if (why) chronicle(`The ${t.name} ${why}.`, 4, '🫂', 'society'); }
 
+
+// ---------- gender, orientation and adoption ----------
+// Gender follows the name (unisex names are settled once, by chance). Most villagers are drawn to the other
+// sex, some to their own, a few to both. Only a woman and a man can conceive; anyone can adopt.
+const NAME_GENDER = {
+  F:['Bea','Elsie','Gwen','Ivy','Nell','Posy','Rosa','Tamsin','Vera','Yara','Briar','Cora','Edda','Isla','Mabel','Orla','Una','Juniper','Hazel','Clover','Fern','Sorrel','Agnes','Delphine','Florence','Lila','Mara','Ada','Wren','Greta','Iris'],
+  M:['Alden','Dorian','Fenn','Hal','Jory','Milo','Otto','Silas','Ulric','Zeke','Arlo','Dell','Flint','Jasper','Nico','Perrin','Tobin','Moss','Basil','Rook','Barnaby','Cedric','Emmett','Oren','Finn','Tobias','Hugo','Bram','Pell']};
+function nameGender(first){ return NAME_GENDER.F.includes(first) ? 'F' : NAME_GENDER.M.includes(first) ? 'M' : null; }
+function genderOf(c){ if (!c.gender){ c.gender = nameGender(c.name.split(' ')[0]) || (c.look && c.look.beard ? 'M' : hash(c.id+'g')%2 ? 'F' : 'M'); if (c.gender==='F' && c.look) c.look.beard = false; } return c.gender; }
+function orientationOf(c){ if (!c.orient){ const h = hash(c.id+'o')%100; c.orient = h<88 ? 'straight' : h<94 ? 'gay' : 'bi'; } return c.orient; }
+function drawnTo(a, b){ const o = orientationOf(a), same = genderOf(a)===genderOf(b); return o==='bi' || (o==='gay' ? same : !same); }
+// about one villager in seven is the kind who would ever stray; everyone else stays faithful however tempted
+function prone(c){ if (c.prone==null){ let p = hash(c.id+'fid')%100 - (c.traits.includes('Romantic')?8:0) - (c.traits.includes('Reckless')?8:0) + (c.traits.includes('Honest')?20:0) + (c.values.includes('Family')?10:0); c.prone = p < 22; } return c.prone; }
+// someone who has strayed before waits a long while, and is less and less likely to do it again
+function strayOk(c){ return !c.strayDay || dayOf(S.minute)-c.strayDay > 120; }
+function strained(a, b){ return hash([a.id,b.id].sort().join('~')+'strain')%100 < 34; }
+function mutual(a, b){ return drawnTo(a, b) && drawnTo(b, a); }
+function canConceive(a, b){ if (genderOf(a)===genderOf(b)) return false; const w = genderOf(a)==='F' ? a : b, m = w===a ? b : a; return w.age>=18 && w.age<=45 && m.age>=18 && m.age<=62; }
+function firstNameFor(g, r){ const pool = FIRST_NAMES.filter(n=>{ const x = nameGender(n); return !x || x===g; }); return pool[Math.floor(r()*pool.length)]; }
+const GENDER_WORD = {F:'woman', M:'man'}, ORIENT_WORD = {straight:{F:'drawn to men', M:'drawn to women'}, gay:{F:'drawn to women', M:'drawn to men'}, bi:{F:'drawn to women and men', M:'drawn to women and men'}};
+// give everyone a gender and orientation that fits the couples already in town (old saves included)
+// a partner who arrives with someone is someone they are drawn to (and who is drawn to them)
+function matchSpouse(a, sp, r){
+  const g = genderOf(a), o = orientationOf(a), other = g==='F' ? 'M' : 'F';
+  const want = o==='gay' ? g : o==='straight' ? other : (r()<0.7 ? other : g);
+  if (genderOf(sp)!==want){ sp.name = `${firstNameFor(want, r)} ${sp.name.split(' ').slice(1).join(' ')}`; sp.gender = want; if (want==='F' && sp.look) sp.look.beard = false; }
+  sp.orient = orientationOf(sp)==='bi' ? 'bi' : want===g ? 'gay' : 'straight';
+}
+function genderInit(fresh){
+  indexCitizens();
+  if (fresh){ // a brand-new town: most of the founding couples are a woman and a man
+    const used = new Set(S.citizens.map(c=>c.name.split(' ')[0]));
+    S.citizens.forEach(a=>{ const b = a.partner && alive(a.partner); if (!b || a.id>b.id || CIT_DEFS.some(d=>d.id===b.id)) return; genderOf(a); genderOf(b);
+      if (genderOf(a)===genderOf(b) && hash(a.id+b.id)%100 < 85){ const g = genderOf(a)==='F' ? 'M' : 'F', pool = FIRST_NAMES.filter(n=>nameGender(n)===g && !used.has(n)); if (!pool.length) return;
+        const n = pool[hash(b.id)%pool.length]; used.add(n); b.name = `${n} ${b.name.split(' ').slice(1).join(' ')}`; b.gender = g; if (g==='F') b.look.beard = false; } }); }
+  S.relStats = S.relStats || {marriages:0, divorces:0, affairs:0, cheaters:[], married:[], adoptions:0};
+  S.citizens.forEach(c=>{ genderOf(c); orientationOf(c); });
+  // spouses are fitted first; someone who also has a lover of the other sex is bisexual
+  const fixed = new Set();
+  const fit = (a, b)=>{ if (!b || mutual(a,b)) { fixed.add(a.id); if (b) fixed.add(b.id); return; } const same = genderOf(a)===genderOf(b); [a,b].forEach(x=>{ if (!drawnTo(x, x===a?b:a)) x.orient = fixed.has(x.id) ? 'bi' : same ? 'gay' : 'straight'; fixed.add(x.id); }); };
+  S.citizens.forEach(a=>{ const b = a.partner && alive(a.partner); if (b) fit(a, b); });
+  S.citizens.forEach(a=>{ loversOf(a).forEach(id=>fit(a, alive(id))); if (a.courting && alive(a.courting)) fit(a, alive(a.courting)); });
+  S.citizens.forEach(c=>{ if (c.partner && !S.relStats.married.includes(c.id)){ S.relStats.married.push(c.id); if (c.id < c.partner) S.relStats.marriages++; } });
+}
+function adoptionDaily(){
+  if (S.citizens.length >= POP_CAP) return;
+  const orphans = S.citizens.filter(k=>k.profession==='Child' && !k.parents.some(id=>alive(id)));
+  S.citizens.slice().forEach(a=>{
+    const b = a.partner && alive(a.partner); if (!b || a.id>b.id || a.home!==b.home) return;
+    const kids = S.citizens.filter(k=>k.profession==='Child' && (k.parents.includes(a.id)||k.parents.includes(b.id))).length;
+    if (kids>=2 || a.age<24 || b.age<24 || a.age>54 || b.age>54) return;
+    const fertile = canConceive(a,b);
+    if (fertile && (kids>0 || Math.max(a.age,b.age)<38)) return; // couples who can have their own usually do
+    const want = (a.agenda==='family'||b.agenda==='family' ? 2 : 0) + (a.values.includes('Family')?1:0) + (b.values.includes('Family')?1:0) + (fertile?0:1) + (kids?0:0.5);
+    if (want<1.5 || residentsOf(a.home).length>=6 || a.wallet+b.wallet<60) return;
+    if (rnd() >= 0.003*want*birthDamp()*(orphans.length?2:1)) return;
+    adopt(a, b, orphans.shift() || null);
+  });
+}
+function adopt(a, b, kid){
+  const d = dayOf(S.minute);
+  if (kid){ kid.parents = [a.id, b.id]; kid.home = a.home; kid.bio += ` Adopted by ${a.name} and ${b.name} on ${fmtDate(d)}.`; }
+  else { const r = mapRand(hash(a.id+b.id+'adopt'+d)), g = r()<0.5 ? 'F' : 'M';
+    const kd = newcomerDef(r, surnameOf(a), {age:1+Math.floor(r()*9), prof:'Child'}); kd.prof = 'Child'; kd.agenda = null; kd.wallet = 0;
+    kd.name = `${firstNameFor(g, r)} ${surnameOf(a)}`; kd.id = uniqueId('cit_'+kd.name.toLowerCase().replace(/[^a-z]+/g,'_')); kd.home = a.home; kd.parents = [a.id, b.id];
+    kd.look = lookForChild(r, SKINS[Math.floor(r()*SKINS.length)], HAIRS[Math.floor(r()*HAIRS.length)], STYLES[Math.floor(r()*STYLES.length)]); kd.bio = `Adopted from the orphanage in the capital by ${a.name} and ${b.name} on ${fmtDate(d)}.`;
+    kid = makeCitizen(kd); kid.gender = g; kid.rt.x=kid.rt.ox=LOC[a.home].door[0]; kid.rt.y=kid.rt.oy=LOC[a.home].door[1];
+    S.citizens.push(kid); kid.plan = buildPlan(kid, d); const fee = Math.min(40, a.wallet); a.wallet -= fee; }
+  [a,b].forEach(p=>{ const R=getRel(p,kid.id); R.affinity=85; R.trust=.9; R.tags=['Family']; const R2=getRel(kid,p.id); R2.affinity=75; R2.trust=.8; R2.tags=['Family']; if (!p.kids.includes(kid.id)) p.kids.push(kid.id);
+    remember(p, `We adopted ${kid.name.split(' ')[0]} today.`, 10, [kid.id]); setEmotion(p,'Joyful',DAY); feel(p,'love',0.3); });
+  S.citizens.filter(k=>k!==kid && k.profession==='Child' && k.parents.some(x=>kid.parents.includes(x))).forEach(sib=>{ getRel(sib,kid.id).tags=['Family']; getRel(sib,kid.id).affinity=55; getRel(kid,sib.id).tags=['Family']; getRel(kid,sib.id).affinity=55; });
+  indexCitizens(); S.relStats.adoptions++;
+  chronicle(`${a.name} and ${b.name} adopted ${kid.name.split(' ')[0]}, ${kid.age<2?'a baby':`a ${kid.age}-year-old`}${kid.bio.includes('orphanage')?' from the orphanage in the capital':' who had lost their parents'}.`, 8, '🏡', 'family');
+  S.week.births.push(`${kid.name} (adopted by ${a.name} & ${b.name})`);
+}
+
 // ---------- romance: lovers, affairs, divorce and children ----------
 function loversOf(c){ const out=[]; for (const id in c.rel) if (c.rel[id].tags.includes('Lover') && alive(id)) out.push(id); return out; }
 function attraction(a, b){ return ((hash([a.id,b.id].sort().join('~'))%100)/100)*0.6 + (a.values.some(v=>b.values.includes(v))?0.15:0) + Math.max(0, 0.25 - Math.abs(a.age-b.age)/60); }
-function canRomance(a, b){ return a.age>=18 && b.age>=18 && isAdult(a) && isAdult(b) && Math.abs(a.age-b.age)<=15 && !peekRel(a,b.id).tags.includes('Family') && !a.parents.includes(b.id) && !b.parents.includes(a.id); }
+function canRomance(a, b){ return a.age>=18 && b.age>=18 && isAdult(a) && isAdult(b) && mutual(a, b) && Math.abs(a.age-b.age)<=15 && !peekRel(a,b.id).tags.includes('Family') && !a.parents.includes(b.id) && !b.parents.includes(a.id); }
 function becomeLovers(a, b, secret){
   [[a,b],[b,a]].forEach(([x,y])=>{ const r=getRel(x,y.id); if (!r.tags.includes('Lover')) r.tags.push('Lover'); if (secret && !r.tags.includes('Secret')) r.tags.push('Secret'); r.tags=r.tags.filter(t=>t!=='Rival'); feel(x,'love',0.4); });
   if (secret){
+    [a,b].forEach(x=>{ if (x.partner){ x.strayed = (x.strayed||0)+1; x.strayDay = dayOf(S.minute); } });
+    if (S.relStats){ S.relStats.affairs++; [a,b].forEach(x=>{ if (x.partner && !S.relStats.cheaters.includes(x.id)) S.relStats.cheaters.push(x.id); }); }
     S.secrets.push({id:'sec_'+(++S.secretSeq), kind:'affair', who:[a.id,b.id], day:dayOf(S.minute), heat:0, exposed:false, text:`${a.name} and ${b.name} are having an affair`});
     [a,b].forEach(x=>{ const o=x===a?b:a; remember(x, `${o.name} and I have been seeing each other in secret.`, 8, [o.id]); think(x, x.partner ? `Nobody can find out about ${lead(o)}.` : `I hope ${lead(o)} leaves them for me.`); });
   } else {
@@ -2230,7 +2308,7 @@ function endLovers(a, b, why){
   if (why) { chronicle(`${a.name} and ${b.name} split up (${why}).`, 4, '💔', 'romance'); [a,b].forEach(x=>feel(x,'sadness',0.3,`It is over with ${lead(x===a?b:a)}.`)); }
 }
 function divorce(a, b, why){
-  a.partner=null; b.partner=null;
+  a.partner=null; b.partner=null; if (S.relStats) S.relStats.divorces++;
   [[a,b],[b,a]].forEach(([x,y])=>{ const r=getRel(x,y.id); r.tags=r.tags.filter(t=>t!=='Spouse'); });
   chronicle(`${a.name} and ${b.name} have divorced${why?` (${why})`:''}.`, 8, '💔', 'romance'); S.week.rels.push(`${a.name} & ${b.name} divorced`);
   const owns = x => propOf(x.home) && propOf(x.home).owner===x.id;
@@ -2272,7 +2350,7 @@ function romanceDaily(){
       const secret = ra.tags.includes('Secret');
       // unmarried lovers may have a child together
       const kids = S.citizens.filter(k=>k.profession==='Child' && (k.parents.includes(a.id)||k.parents.includes(b.id))).length;
-      if (a.age<=45 && b.age<=45 && kids<4 && S.citizens.length<POP_CAP && rnd() < (secret?0.003:0.005)*birthDamp()){
+      if (canConceive(a, b) && kids<4 && S.citizens.length<POP_CAP && rnd() < (secret?0.003:0.005)*birthDamp()){
         const home = residentsOf(a.home).length<=residentsOf(b.home).length ? a.home : b.home;
         makeBaby(a, b, home, 'lovers');
         if (secret){ const s = S.secrets.find(x=>x.kind==='affair' && !x.exposed && x.who.includes(a.id) && x.who.includes(b.id)); if (s) expose(s, null, 'the baby gave them away'); }
@@ -2288,6 +2366,12 @@ function romanceDaily(){
     const sharp = spouses.reduce((m,sp)=>Math.max(m, mindOf(sp).wit), 0);
     if (spouses.length && rnd() < 0.01 + s.heat*0.01 + sharp*0.02) expose(s, spouses[0], 'a spouse found out');
   });
+  // some marriages are a poor match and slowly sour; the rest settle and recover from bad patches
+  S.citizens.forEach(a=>{ const b = a.partner && alive(a.partner); if (!b || a.id>b.id) return;
+    const ra = getRel(a,b.id), rb = getRel(b,a.id);
+    if (strained(a,b)){ const d0 = ra.strainFrom ?? (ra.strainFrom = dayOf(S.minute) + 15 + hash(a.id+b.id+'onset')%100), cap = 85 - (dayOf(S.minute)-d0)*2; ra.affinity = Math.max(-20, Math.min(ra.affinity, cap)); rb.affinity = Math.max(-20, Math.min(rb.affinity, cap+8));
+      if (ra.affinity<45 && !ra.tags.includes('Strained')){ ra.tags.push('Strained'); rb.tags.push('Strained'); chronicle(`${a.name} and ${b.name} have been quarrelling a lot lately.`, 4, '💢', 'romance'); [a,b].forEach(x=>remember(x, `${(x===a?b:a).name} and I can't seem to stop arguing.`, 7, [(x===a?b:a).id])); } }
+    else { if (ra.affinity<70) ra.affinity = Math.min(70, ra.affinity + 0.3); if (rb.affinity<70) rb.affinity = Math.min(70, rb.affinity + 0.3); } });
   // unhappy marriages end
   S.citizens.forEach(a=>{ const b = a.partner && alive(a.partner); if (!b || a.id>b.id) return;
     if (peekRel(a,b.id).affinity<5 && peekRel(b,a.id).affinity<15 && rnd()<0.08) divorce(a,b,'they could not stand each other any longer'); });
@@ -2890,7 +2974,7 @@ function socialize(c){
   if (cogOf(c).mems.some(x=>x.imp>=5 && S.minute-x.t<5*DAY)) opts.push(['news', 1.2 + (ra.affinity>40?0.6:0)]);
   if (m.griev.length && c.politics.civicEngagement>0.3) opts.push(['politics', 0.6 + c.politics.civicEngagement + m.emo.anger]);
   const sch = schemeOf(c); if (sch && !sch.members.includes(o.id) && !ILLEGAL.has(sch.kind)) opts.push(['recruit', 2.5]);
-  if (canRomance(c,o) && (!c.partner || c.partner===o.id || loversOf(c).includes(o.id) || peekRel(c,c.partner).affinity<45 || c.traits.includes('Romantic')) && attraction(c,o)>0.45) opts.push(['flirt', 0.6 + attraction(c,o)*2 + (m.goal&&m.goal.key==='love'?1.5:0) + m.emo.love]);
+  if (canRomance(c,o) && (!c.partner || c.partner===o.id || loversOf(c).includes(o.id) || peekRel(c,c.partner).affinity<45 || prone(c)) && attraction(c,o)>0.45) opts.push(['flirt', 0.6 + attraction(c,o)*2 + (m.goal&&m.goal.key==='love'?1.5:0) + m.emo.love]);
   if (c.wallet<25 && ra.affinity>40 && o.wallet>150 && !m.debts[o.id] && isAdult(c)) opts.push(['borrow', 2]);
   if (m.debts[o.id] && c.wallet>m.debts[o.id]+60) opts.push(['repay', 4]);
   if (rival && c.personality.agreeableness>0.55 && m.emo.anger<0.25) opts.push(['apologize', 1.5]);
@@ -2915,10 +2999,10 @@ function socialize(c){
       const both = peekRel(c,o.id).affinity>72 && peekRel(o,c.id).affinity>68 && back>0.6 && att>0.5;
       if (both && !loversOf(c).includes(o.id) && c.partner!==o.id){
         const married = (c.partner && c.partner!==o.id) || (o.partner && o.partner!==c.id);
-        if (!married && !loversOf(c).length && !loversOf(o).length && (c.courting===o.id || rnd()<0.15)) becomeLovers(c,o,false);
-        else if (married && !loversOf(c).length && !loversOf(o).length){ const weak = x => !x.partner || peekRel(x,x.partner).affinity<40 || x.traits.includes('Romantic') || x.traits.includes('Reckless');
+        if (!married && !loversOf(c).length && !loversOf(o).length && (c.courting===o.id || rnd()<0.06)) becomeLovers(c,o,false);
+        else if (married && !loversOf(c).length && !loversOf(o).length){ const weak = x => !x.partner || prone(x) || peekRel(x,x.partner).affinity<40;
           const restraint = (c.traits.includes('Honest')?0.5:0) + c.personality.conscientiousness*0.5 + (c.values.includes('Family')?0.3:0);
-          if (weak(c) && weak(o) && rnd() < 0.05*(1.2-restraint)) becomeLovers(c,o,true); } }
+          if ((!c.partner || prone(c)) && (!o.partner || prone(o)) && weak(c) && weak(o) && strayOk(c) && strayOk(o) && rnd() < 0.25*(1.2-restraint)*Math.pow(0.35, (c.strayed||0)+(o.strayed||0))) becomeLovers(c,o,true); } }
       break; }
     case 'borrow': { const amt = 20 + Math.floor(mindOf(o).wit*0) + (hash(c.id+o.id)%3)*10; if (o.traits.includes('Frugal') && rnd()<0.6 || o.traits.includes('Greedy')){ remember(c, `${o.name} refused to lend me money.`, 5, [o.id]); delta-=3; feel(c,'shame',0.1); break; }
       o.wallet-=amt; c.wallet+=amt; m.debts[o.id]=amt; remember(c, `${o.name} lent me ${amt}¢. I have to pay it back.`, 6, [o.id]); remember(o, `I lent ${c.name} ${amt}¢.`, 4, [c.id]); delta+=2; bub('¢'); break; }
@@ -2963,6 +3047,25 @@ function pursueGoals(){
 }
 
 // ---------- the daily society step ----------
+// the town granary: the council buys up cheap surplus grain at harvest and hands out rations when food runs short
+function granaryBuy(){
+  const G = S.granary = S.granary || {grain:0, bought:0, given:0, open:false};
+  const st = S.goods.good_wheat, n = S.citizens.length;
+  if (G.grain >= n*10 || S.treasury < 250 || st.price > GD.good_wheat.base+1 || listed('good_wheat') < n*0.8) return;
+  let want = Math.min(60, Math.round(listed('good_wheat') - n*0.5), n*10 - G.grain), got = 0, paid = 0;
+  S.listings.filter(l=>l.g==='good_wheat' && l.qty>0).sort((a,b)=>a.at-b.at).forEach(l=>{ if (want<=0 || S.treasury < st.price+200) return; const q = Math.min(l.qty, want); const seller = alive(l.seller);
+    l.qty -= q; want -= q; got += q; const cost = q*st.price; S.treasury -= cost; paid += cost; if (seller){ seller.wallet += cost; today(seller).inc += cost; } });
+  if (got){ G.grain += got; G.bought += got; if (!G.lastNote || dayOf(S.minute)-G.lastNote > 10){ G.lastNote = dayOf(S.minute); S.week.society.push(`the town granary bought ${got} sacks of surplus wheat (${paid}¢); it now holds ${G.grain}`); } }
+}
+function granaryRations(){
+  const G = S.granary; if (!G || G.grain<=0) return;
+  const hungry = S.citizens.filter(c=>c.needs.hunger<40 && !c.away && !c.jail).sort((a,b)=>(a.profession==='Child'?-1:0)-(b.profession==='Child'?-1:0) || a.needs.hunger-b.needs.hunger);
+  if (hungry.length < Math.max(3, S.citizens.length*0.04)){ if (G.open && !hungry.length) G.open = false; return; }
+  let given = 0; for (const c of hungry){ if (G.grain<=0) break; G.grain--; given++; applyNeeds(c, {hunger:40}); }
+  G.given += given;
+  if (!G.open){ G.open = true; chronicle(`Food is running short, so the council opened the town granary and is handing out rations of porridge and bread (${G.grain} sacks left).`, 7, '🌾', 'gov');
+    publicEvent({type:'granary', text:'The council opened the granary to feed the hungry.', topics:{council:0.3, relief:0.3}, imp:5, kind:'gov', at:'loc_town_square', r:10}); }
+}
 // in a food crisis a merchant sends for a caravan of grain and bread down the King's Road, at a price
 function foodCaravan(){
   const n = S.citizens.length, d = dayOf(S.minute);
@@ -3003,7 +3106,7 @@ function societyDaily(){
   institutionsDaily();
   teamsDaily();
   policeDaily();
-  justiceDaily(); theftDaily(); foodCaravan(); frontierDaily();
+  justiceDaily(); theftDaily(); foodCaravan(); frontierDaily(); adoptionDaily(); granaryBuy();
   // keep saves small: only the latest laws keep their full roll-call of votes
   if (d%7===1) S.gov.proposals.slice(0,-12).forEach(p=>{ if (p.votes && p.votes.length) p.votes=[]; });
 }
@@ -3980,7 +4083,7 @@ function dayStarted(){
     if (c.sick) c.sick++;
     if (c.sick>4){ c.sick=0; remember(c,'I finally shook off that illness on my own.',4); }
     if (!c.sick && rnd() < (season===3?0.03:0.015)){ c.sick=1; chronicle(`${c.name} woke up sick.`, 3, '🤒', 'health'); remember(c,'I woke up feeling awful.',5); }
-    if (c.courting && cById(c.courting) && !cById(c.courting).dead && peekRel(c,c.courting).affinity>=85 && S.minute-c.courtingSince > 10*DAY && c.id<c.courting && cById(c.courting).courting===c.id) wedding(c, cById(c.courting));
+    if (c.courting && cById(c.courting) && !cById(c.courting).dead && peekRel(c,c.courting).affinity>=85 && S.minute-c.courtingSince > 21*DAY && c.id<c.courting && cById(c.courting).courting===c.id) wedding(c, cById(c.courting));
   });
   lifeDaily();
   landDaily();
@@ -4000,6 +4103,7 @@ function repairBridge(){
 }
 function wedding(a,b){
   a.partner=b.id; b.partner=a.id; a.courting=b.courting=null;
+  if (S.relStats){ S.relStats.marriages++; [a,b].forEach(x=>{ if (!S.relStats.married.includes(x.id)) S.relStats.married.push(x.id); }); }
   [a,b].forEach(x=>{ const o=x===a?b:a; const r=getRel(x,o.id); r.tags=r.tags.filter(t=>t!=='Crush'); r.tags.push('Spouse','Family'); });
   chronicle(`Wedding bells! ${a.name} and ${b.name} were married on the town square.`, 10, '💍', 'romance');
   S.week.rels.push(`${a.name} & ${b.name} got married`);
@@ -4055,6 +4159,7 @@ function simTick(){
   if (mod===16*60+55) resolveMatch(); if (mod===17*60+50) resolveProtests();
   if (S.justice){ if (mod===14*60) startTrials(); if (mod===16*60) verdicts(); }
   if (mod===10*60) frontierReturns();
+  if (mod===7*60+30 || mod===12*60 || mod===18*60+30) granaryRations();
 }
 
 // ---------- weekly log ----------
@@ -5264,6 +5369,7 @@ function inspector(c){
   const plan = c.plan ? c.plan.blocks.map((b,i)=>`<tr style="${i===c.rt.blockIdx?'color:var(--accent)':''}"><td>${fmtClock(b.s)}</td><td>${esc(b.act)}</td><td>${esc(b.note)}</td></tr>`).join('') : '';
   const inc=weekSum(c,'inc'), exp=weekSum(c,'exp');
   return `<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${esc(c.name)}, ${c.age}</h2><button class="btn ${cam.follow?'on':''}" id="followBtn">${cam.follow?'Following':'Follow on map'}</button></div>
+    <p style="margin:6px 0">${genderOf(c)==='F'?'♀':'♂'} ${isAdult(c) ? `${GENDER_WORD[genderOf(c)]}, ${ORIENT_WORD[orientationOf(c)][genderOf(c)]}` : (genderOf(c)==='F'?'girl':'boy')}${c.parents.length && (c.bio||'').includes('Adopted') ? ' · adopted' : ''}</p>
     <p style="margin:6px 0"><b>${esc(profLabel(c.profession))}</b> · ${esc(LOC[c.home]?LOC[c.home].name:'no fixed home')}${c.work&&LOC[c.work]&&c.work!==WORKPLACE[c.profession]?` · works at ${esc(LOC[c.work].name)}`:''}. ${esc(c.bio)}</p>
     ${c.cls&&isAdult(c)?`<p style="margin:4px 0;font-size:13px">💎 Class: <b style="color:${CLASS_COL[c.cls]}">${c.cls==='Upper'?'Upper class':c.cls==='Middle'?'Middle class':c.cls}</b> · net worth ${c.worth!=null?c.worth:netWorth(c)}¢ (cash plus property)</p>`:''}
     <p class="muted" style="font-size:13px;margin:4px 0">Now: ${esc(doingText(c))}</p>
@@ -5398,7 +5504,11 @@ function parseTemplates(text){
     const rivals = parseList(o.rivals).map(n=>{ const c=findC(n); if (!c) warnings.push(`No villager called "${n}" (rivals).`); return c; }).filter(Boolean);
     let partner = o.partner ? findC(o.partner) : null; if (o.partner && !partner) warnings.push(`No villager called "${o.partner}" (partner).`); if (partner && partner.partner){ warnings.push(`${partner.name} is already married.`); partner=null; }
     let wit = null; if (o.intelligence){ const w = String(o.intelligence).toLowerCase(); wit = {genius:0.95, brilliant:0.9, clever:0.75, smart:0.75, sharp:0.7, average:0.5, simple:0.3, slow:0.2}[w.trim()] ?? parseFloat(w); if (isNaN(wit)){ warnings.push(`Intelligence "${o.intelligence}" not understood; using the default.`); wit=null; } else wit = clamp(wit>1?wit/100:wit, 0.05, 0.97); }
-    const def = {name, age, prof, traits, values, agenda, p, pol, wallet, wit, bio: o.bio || `Arrived in Pixel Town with a story still untold.`, look: lookFor(prof, mapRand(hash(name)), skin, hair, style, beard), friends, rivals, partner};
+    const gw = String(o.gender||o.sex||'').trim().toLowerCase(), gender = /^(f|female|woman|girl)$/.test(gw) ? 'F' : /^(m|male|man|boy)$/.test(gw) ? 'M' : null;
+    if (gw && !gender) warnings.push(`Gender "${o.gender||o.sex}" not recognised; it will follow the name.`);
+    const ow = String(o.orientation||'').trim().toLowerCase(), orient = /^(straight|hetero)/.test(ow) ? 'straight' : /^(gay|lesbian|homo)/.test(ow) ? 'gay' : /^(bi|pan)/.test(ow) ? 'bi' : null;
+    if (ow && !orient) warnings.push(`Orientation "${o.orientation}" not recognised (use straight, gay or bi).`);
+    const def = {name, age, prof, traits, values, agenda, p, pol, wallet, wit, gender, orient, bio: o.bio || `Arrived in Pixel Town with a story still untold.`, look: lookFor(prof, mapRand(hash(name)), skin, hair, style, beard), friends, rivals, partner};
     return {def, errors, warnings};
   });
 }
@@ -5406,6 +5516,8 @@ function addTemplateCitizen(def){
   const d = Object.assign({}, def, {id: uniqueId('cit_'+def.name.toLowerCase().replace(/[^a-z]+/g,'_'))});
   const c = makeCitizen(d);
   if (def.wit!=null) mindOf(c).wit = +def.wit.toFixed(2);
+  if (def.gender){ c.gender = def.gender; if (c.gender==='F') c.look.beard = false; } else genderOf(c); if (def.orient) c.orient = def.orient; else orientationOf(c);
+  if (def.partner && !def.partner.partner && !mutual(c, def.partner) && !def.orient){ c.orient = genderOf(c)===genderOf(def.partner) ? 'gay' : 'straight'; }
   if (def.partner && !def.partner.partner){ c.partner=def.partner.id; def.partner.partner=c.id; [[c,def.partner],[def.partner,c]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=85; R.trust=.9; R.tags=['Spouse','Family']; }); }
   def.friends.forEach(f=>{ [[c,f],[f,c]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=55; R.trust=.65; R.tags=['Friend']; }); });
   def.rivals.forEach(f=>{ [[c,f],[f,c]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=-50; R.trust=.2; R.tags=['Rival']; }); });
@@ -5419,7 +5531,7 @@ function citizenToTemplate(c){
   const agenda = c.agenda ? AGENDAS[c.agenda].label : '';
   const P = c.personality, Q = c.politics;
   const tagged = t => Object.entries(c.rel).filter(([id,r])=>r.tags.includes(t) && alive(id)).map(([id])=>cById(id).name).join(', ');
-  return [`name: ${c.name}`, `age: ${c.age}`, `profession: ${c.profession}`, `traits: ${c.traits.join(', ')}`, `values: ${c.values.join(', ')}`, `agenda: ${agenda}`, `wallet: ${c.wallet}`, `intelligence: ${mindOf(c).wit}`,
+  return [`name: ${c.name}`, `age: ${c.age}`, `gender: ${genderOf(c)==='F'?'female':'male'}`, `orientation: ${orientationOf(c)}`, `profession: ${c.profession}`, `traits: ${c.traits.join(', ')}`, `values: ${c.values.join(', ')}`, `agenda: ${agenda}`, `wallet: ${c.wallet}`, `intelligence: ${mindOf(c).wit}`,
     `personality: openness ${P.openness}, conscientiousness ${P.conscientiousness}, extraversion ${P.extraversion}, agreeableness ${P.agreeableness}, neuroticism ${P.neuroticism}`,
     `politics: economic ${Q.economicLeaning}, order ${Q.orderLeaning}, civic ${Q.civicEngagement}`,
     `skin: ${c.look.skin}`, `hair: ${c.look.hair}`, `hairstyle: ${c.look.style}`, `beard: ${c.look.beard?'yes':'no'}`,
@@ -5558,7 +5670,13 @@ function renderSociety(){
   const hearts = `<p style="font-size:13px">💍 ${couples.length} married couples · 💗 ${lovers.filter(x=>!x.secret).length} open lovers · 🔒 ${lovers.filter(x=>x.secret).length} secret affairs</p>
     ${lovers.map(x=>`<div class="vote">${x.secret?'🔒':'💗'} ${nm(x.a)} & ${nm(x.b)}${x.secret?' <span class="muted">(secret: only you know)</span>':''}</div>`).join('')}`;
   const crimes = S.crimes.length ? S.crimes.slice(0,10).map(x=>`<div class="vote"><span class="muted">Day ${x.day+1}</span> ${x.caught?'🚨':'❓'} ${esc(x.text)} <span class="muted">· ${x.caught?`caught: ${x.who.map(nm).join(', ')}`:'unsolved'}</span></div>`).join('') : '<p class="muted">No crimes so far.</p>';
-  $('p-soc').innerHTML = `<h2>The newspapers</h2>${news}
+  const RS = S.relStats || {marriages:0, divorces:0, cheaters:[], married:[], adoptions:0};
+  const mcouples = S.citizens.filter(c=>c.partner && c.id<c.partner && alive(c.partner)), sameSex = mcouples.filter(c=>genderOf(c)===genderOf(alive(c.partner))).length;
+  const adults = S.citizens.filter(isAdult), women = adults.filter(c=>genderOf(c)==='F').length;
+  const rel = `<h2>Love &amp; family</h2><div class="law" style="font-size:14px">💍 ${mcouples.length} married couples now${sameSex?` (${sameSex} same-sex)`:''} · ${RS.marriages} marriages recorded<br>
+    💔 ${RS.divorces} divorces: <b>${Math.round(RS.divorces/Math.max(1,RS.marriages)*100)}%</b> of marriages · 🤫 <b>${Math.round(RS.cheaters.length/Math.max(1,RS.married.length)*100)}%</b> of married villagers have strayed<br>
+    🏡 ${RS.adoptions} adoptions · ♀ ${women} women and ♂ ${adults.length-women} men among the adults</div>`;
+  $('p-soc').innerHTML = `${rel}<h2>The newspapers</h2>${news}
     <h2>What the town needs</h2><p class="muted" style="font-size:12px">Villagers notice gaps from their own lives (bored people see the need for music, parents see the need for a teacher) and clever ones see the whole town. Unhappy or poorly paid villagers switch careers to fill them.</p>${needHtml}
     <h2>Movements &amp; schemes</h2><p class="muted" style="font-size:12px">When the council won't fix what angers them, villagers act on their own: protests, strikes, boycotts, recall petitions, citizens' initiatives, new institutions, and, for the less scrupulous, bribes, black markets, squatting and sabotage. 🔒 marks what is still secret.</p>
     ${act.map(schRow).join('')||'<p class="muted">Nothing brewing right now.</p>'}${done.length?`<details><summary class="muted" style="cursor:pointer">Recent outcomes (${done.length})</summary>${done.map(schRow).join('')}</details>`:''}
@@ -5911,7 +6029,7 @@ function r3Init(){
   sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.04;
   scene.add(sun); scene.add(sun.target);
   scene.fog = new THREE.Fog(0x9fc8e8, 70, 200);
-  Object.assign(R3, {c3, renderer, scene, camera, hemi, sun, mobile});
+  Object.assign(R3, {c3, renderer, scene, camera, hemi, sun, mobile, vox:new Map()});
   // ground: the 2D pixel ground canvas stretched over a height-mapped terrain
   buildGround();
   R3.groundTex = r3Tex(ground); R3.groundTex.shared = true; R3.groundKey = groundKey;
@@ -5933,6 +6051,7 @@ function r3Init(){
   const N = R3.mobile ? 900 : 1800, pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N*3), 3));
   R3.rain = new THREE.Points(pg, new THREE.PointsMaterial({color:0xcfe4ff, size:0.09, transparent:true, opacity:0.75, depthWrite:false})); R3.rain.frustumCulled=false; R3.rain.visible=false; scene.add(R3.rain);
   R3.rainN = N;
+  try { r3VolInit(); } catch(e){ R3.vol = false; }
   r3Controls(c3);
 }
 // terrain heights: water sinks, rocky outcrops rise
@@ -6111,29 +6230,225 @@ function r3Props(){
   R3.glows = LAMPS.map(([x,y])=>{ const g = new THREE.Sprite(R3.glowMat); g.scale.set(2.6,2.6,1); g.position.set(x+0.72, 1.55, y+0.2); grp.add(g); return g; });
   R3.scene.add(R3.props = grp);
 }
+// ---------- voxel villagers: every villager is a small 3D figure built from their look ----------
+// Units are voxels (VOX world units each); the figure stands on y=0 and faces +z.
+const VOX = 0.05;
+let VOX_NOISE = null, VOX_MAT = null;
+function voxNoiseTex(){
+  if (VOX_NOISE) return VOX_NOISE;
+  const c = mk(32,32), g = c.getContext('2d'), img = g.createImageData(32,32);
+  for (let y=0;y<32;y++) for (let x=0;x<32;x++){ const n = hashf(x,y,901), v = Math.round(214 + n*41 - (hashf(x,y,902)<0.06 ? 26 : 0)); const i=(y*32+x)*4; img.data[i]=img.data[i+1]=img.data[i+2]=v; img.data[i+3]=255; }
+  g.putImageData(img,0,0);
+  VOX_NOISE = new THREE.CanvasTexture(c); VOX_NOISE.wrapS = VOX_NOISE.wrapT = THREE.RepeatWrapping; VOX_NOISE.magFilter = VOX_NOISE.minFilter = THREE.NearestFilter; VOX_NOISE.generateMipmaps = false;
+  return VOX_NOISE;
+}
+function voxMat(){ return VOX_MAT || (VOX_MAT = new THREE.MeshLambertMaterial({vertexColors:true, map:voxNoiseTex()})); }
+const VOX_FACES = [
+  [[1,0,0], [[1,0,1],[1,0,0],[1,1,0],[1,1,1]]], [[-1,0,0],[[0,0,0],[0,0,1],[0,1,1],[0,1,0]]],
+  [[0,1,0], [[0,1,1],[1,1,1],[1,1,0],[0,1,0]]], [[0,-1,0],[[0,0,0],[1,0,0],[1,0,1],[0,0,1]]],
+  [[0,0,1], [[0,0,1],[1,0,1],[1,1,1],[0,1,1]]], [[0,0,-1],[[1,0,0],[0,0,0],[0,1,0],[1,1,0]]]];
+// boxes: [x0,y0,z0,x1,y1,z1,hex] in voxels -> one merged, vertex-coloured geometry with one noise texel per voxel
+function voxGeo(boxes){
+  const n = boxes.length, pos = new Float32Array(n*72), nor = new Float32Array(n*72), col = new Float32Array(n*72), uv = new Float32Array(n*48), idx = new Uint32Array(n*36);
+  const C = new THREE.Color(); let v = 0;
+  boxes.forEach((b, bi)=>{
+    const [x0,y0,z0,x1,y1,z1,hex] = b, sz = [x1-x0, y1-y0, z1-z0], o = [x0,y0,z0], off = (hash(String(bi)+hex)%29)/32;
+    C.set(hex);
+    VOX_FACES.forEach(([nm, cs], fi)=>{
+      const base = v, shade = nm[1]>0 ? 1.06 : nm[1]<0 ? 0.78 : 1;
+      const ax = k => cs[k].map((q,i)=>q); // corner in 0/1
+      const d1 = [0,1,2].find(i=>cs[1][i]!==cs[0][i]), d2 = [0,1,2].find(i=>cs[3][i]!==cs[0][i]);
+      cs.forEach((q,ci)=>{
+        for (let i=0;i<3;i++){ pos[v*3+i] = (o[i] + q[i]*sz[i]) * VOX; nor[v*3+i] = nm[i]; }
+        col[v*3] = C.r*shade; col[v*3+1] = C.g*shade; col[v*3+2] = C.b*shade;
+        const a = Math.abs(q[d1]-cs[0][d1]), bb = Math.abs(q[d2]-cs[0][d2]);
+        uv[v*2] = a*sz[d1]/32 + off + o[d1]/32; uv[v*2+1] = bb*sz[d2]/32 + off*0.7 + o[d2]/32;
+        v++; });
+      const t = (bi*6+fi)*6; idx[t]=base; idx[t+1]=base+1; idx[t+2]=base+2; idx[t+3]=base; idx[t+4]=base+2; idx[t+5]=base+3;
+    });
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3)); g.setAttribute('normal', new THREE.BufferAttribute(nor,3));
+  g.setAttribute('color', new THREE.BufferAttribute(col,3)); g.setAttribute('uv', new THREE.BufferAttribute(uv,2)); g.setIndex(new THREE.BufferAttribute(idx,1));
+  g.computeBoundingSphere(); return g;
+}
+function voxShade(hex, f){ return shade(hex, f); }
+// what a villager looks like, as boxes for the body and each limb (limbs are relative to their pivots)
+function voxParts(c){
+  const L = c.look || {}, skin = L.skin || '#e0b090', hair = L.hair || '#5a3a20', hairD = voxShade(hair, 0.75), shirt = L.shirt || '#6a8a3a', pants = L.pants || '#3a3440', boots = L.boots || '#6a4028';
+  const female = genderOf(c)==='F', kid = !isAdult(c), style = L.style || 'short';
+  const tunic = L.apron && !L.bib ? L.apron : '#d8ceb0', belt = '#5a3a22', coat = L.coat;
+  const body = [], armL = [], armR = [], legL = [], legR = [];
+  const B = (arr, x0,y0,z0,x1,y1,z1,hex) => arr.push([x0,y0,z0,x1,y1,z1,hex]);
+  // legs (pivot at the hip, y=12)
+  [[legL,-3.9,-0.2],[legR,0.2,3.9]].forEach(([a,x0,x1])=>{
+    B(a, x0,-8,-1.8, x1,0,1.8, pants);
+    B(a, x0-0.15,-12,-2, x1+0.15,-8,2.4, boots); B(a, x0-0.3,-8.6,-2.1, x1+0.3,-7.6,2.1, voxShade(boots,1.25)); B(a, x0-0.15,-12,1.9, x1+0.15,-10.8,2.6, voxShade(boots,0.85)); });
+  // torso
+  const wide = female ? 3.8 : 4.1;
+  B(body, -wide-0.2,13,-2.3, wide+0.2,15.2,2.3, tunic); B(body, -wide-0.45,12,-2.55, wide+0.45,13,2.55, voxShade(tunic,0.92)); // flared hem
+  B(body, -wide-0.25,15.2,-2.35, wide+0.25,16.2,2.35, belt); B(body, -0.8,15.1,2.35, 0.8,16.3,2.6, '#c8a860');
+  B(body, -wide,16.2,-2.2, wide,23,2.2, shirt);
+  if (!coat && hash(c.id+'open')%2===0){ // open-fronted shirt over a light undershirt, as on the reference sheet
+    B(body, -1.3,16.2,2.2, 1.3,23,2.32, '#e4d8bc'); B(body, -1.8,16.2,2.2, -1.3,23,2.42, voxShade(shirt,0.8)); B(body, 1.3,16.2,2.2, 1.8,23,2.42, voxShade(shirt,0.8)); }
+  else B(body, -1.3,20.4,2.2, 1.3,23,2.35, '#e8dcc0'); // open collar
+  if (female) B(body, -wide+0.3,18,2.2, wide-0.3,20.4,2.5, voxShade(shirt,1.05));
+  if (coat){ B(body, -wide-0.35,12.8,-2.55, -1,23.2,2.55, coat); B(body, 1,12.8,-2.55, wide+0.35,23.2,2.55, coat); B(body, -1,12.8,-2.55, 1,23.2,-2.1, coat);
+    B(body, -wide-0.4,22.4,-2.6, wide+0.4,23.3,2.6, voxShade(coat, L.trim ? 1.35 : 0.85)); }
+  if (L.apron){ const top = L.bib ? 21 : 15.5; B(body, -3.2,9,2.35, 3.2,top,2.8, L.apron); if (L.bib){ B(body, -3.2,20.5,-2.4, -2.4,23,2.4, L.apron); B(body, 2.4,20.5,-2.4, 3.2,23,2.4, L.apron); }
+    if (L.stains){ B(body, -1.5,12,2.8, 0,13.2,2.9, '#9a2a2a'); B(body, 1,16,2.8, 2,17,2.9, '#9a2a2a'); } }
+  // a satchel on a cross-body strap for some villagers (like the reference sheet)
+  if (hash(c.id+'bag')%3===0 || c.away){ for (let k=0;k<7;k++){ const t = k/6, x = -3.6+t*7.4, y = 22.5-t*8; B(body, x-0.6,y-0.6,2.25, x+0.6,y+0.6,2.6, '#6a4e32'); B(body, -x-0.6,y-0.6,-2.6, -x+0.6,y+0.6,-2.25, '#6a4e32'); }
+    B(body, 3.6,11.2,-0.6, 5.8,15,2.6, '#7a6a4c'); B(body, 3.6,14,-0.6, 5.9,15.2,2.7, '#6a5a3e'); B(body, 5.8,12.5,0.4, 6,13.4,1.4, '#c8a860'); }
+  // arms (pivot at the shoulder, y=22.5)
+  [[armL,-1],[armR,1]].forEach(([a,s])=>{ const x0 = -1.35, x1 = 1.35;
+    B(a, x0,-3.6,-1.45, x1,0.4,1.45, coat || shirt); if (!coat) B(a, x0-0.12,-4.3,-1.57, x1+0.12,-3.4,1.57, voxShade(shirt,1.18)); // rolled cuff
+    if (coat) B(a, x0,-8.5,-1.45, x1,-3.6,1.45, coat); else B(a, x0+0.1,-8.5,-1.35, x1-0.1,-3.6,1.35, skin);
+    if (coat) B(a, x0-0.1,-8.9,-1.55, x1+0.1,-8.2,1.55, voxShade(coat,1.3));
+    B(a, x0+0.2,-10.3,-1.2, x1-0.2,-8.5,1.3, voxShade(skin,0.95)); });
+  // neck and head
+  B(body, -1.3,23,-1.2, 1.3,24,1.3, voxShade(skin,0.9));
+  const H0 = 24, hw = 3.5;
+  B(body, -hw,H0,-3.2, hw,H0+7,3.8, skin);
+  B(body, -hw-0.35,H0+2.4,-0.4, -hw,H0+4,0.8, voxShade(skin,0.9)); B(body, hw,H0+2.4,-0.4, hw+0.35,H0+4,0.8, voxShade(skin,0.9));
+  // face
+  const fz = 3.8, eyeY = H0+3.2;
+  [[-2.3,-0.9],[0.9,2.3]].forEach(([a,b],i)=>{ B(body, a,eyeY,fz, b,eyeY+1.2,fz+0.08, '#f4f0ea'); const px = i===0 ? b-0.7 : a; B(body, px,eyeY,fz+0.02, px+0.7,eyeY+1.2,fz+0.12, '#3a2a22');
+    B(body, a-0.1,eyeY+1.6,fz, b+0.1,eyeY+2.1,fz+0.12, hairD); if (female) B(body, (i===0?a-0.3:b), eyeY+0.8, fz, (i===0?a:b+0.3), eyeY+1.3, fz+0.1, '#2a1a14'); });
+  B(body, -0.45,H0+2.2,fz, 0.45,H0+3.3,fz+0.45, voxShade(skin,0.93));
+  B(body, -1.1,H0+1.1,fz, 1.1,H0+1.6,fz+0.08, female ? '#b8504a' : voxShade(skin,0.72));
+  B(body, -2.6,H0+1.6,fz, -1.6,H0+2.3,fz+0.05, voxShade(skin,1.04)); B(body, 1.6,H0+1.6,fz, 2.6,H0+2.3,fz+0.05, voxShade(skin,1.04));
+  if (L.beard && !female){ B(body, -hw-0.1,H0-0.3,1.8, hw+0.1,H0+1.9,4.1, hair); B(body, -1.4,H0+1.7,fz, 1.4,H0+2.2,fz+0.35, hair); B(body, -hw-0.1,H0+1.9,0.6, -hw+0.9,H0+3.6,3.9, hair); B(body, hw-0.9,H0+1.9,0.6, hw+0.1,H0+3.6,3.9, hair); }
+  // hair
+  const hatted = !!L.hat, top = H0+7;
+  if (style!=='bald'){
+    if (!hatted){ B(body, -hw-0.3,top-1.4,-3.6, hw+0.3,top+0.9,4.1, hair);
+      for (let k=0;k<10;k++){ const x = -hw + (hash(c.id+'h'+k)%70)/10; B(body, x,top+0.3,-3.2+(k%4)*1.8, x+1.1,top+1.1+(k%3)*0.3,-1.8+(k%4)*1.8, k%2?hairD:voxShade(hair,1.12)); }
+      for (let k=0;k<6;k++){ const side = k%2 ? 1 : -1, y = H0+3.5+(hash(c.id+'s'+k)%30)/10; B(body, side*(hw+0.25)-0.35,y,-3.2+k*0.9, side*(hw+0.25)+0.35,y+1.2,-2.4+k*0.9, k%3?hairD:hair); } }
+    B(body, -hw-0.3,H0+2.6,-3.7, hw+0.3,top-0.2,-3.1, hair);
+    B(body, -hw-0.35,H0+3.6,-3.4, -hw+0.3,top-0.4,2.4, hair); B(body, hw-0.3,H0+3.6,-3.4, hw+0.35,top-0.4,2.4, hair);
+    if (!hatted){ B(body, -hw-0.3,top-2.2,3.6, hw+0.3,top-1.2,4.2, hair); B(body, -hw-0.3,top-3.6,3.6, -hw+1.7,top-2.2,4.2, hair); B(body, hw-1.2,top-3,3.6, hw+0.3,top-2.2,4.2, hairD); }
+    if (style==='long'){ B(body, -hw-0.3,H0-2.5,-3.8, hw+0.3,H0+3,-3, hair); B(body, -hw-0.4,H0-1.5,-3.3, -hw+0.4,H0+3.6,2, hair); B(body, hw-0.4,H0-1.5,-3.3, hw+0.4,H0+3.6,2, hair); B(body, -hw,H0-2.5,-3.9, hw,H0-1.5,-3.3, hairD); }
+    if (style==='pony'){ B(body, -0.8,top-2.4,-4.2, 0.8,top-1.2,-3.6, '#3a2a1e'); B(body, -1.2,top-3,-5.8, 1.2,top-0.4,-4.1, hair); B(body, -1.3,top-5.4,-6.6, 1.3,top-2.6,-4.6, hair); B(body, -1.1,top-7.8,-6.4, 1.1,top-5,-4.6, hairD); B(body, -0.8,top-9,-5.9, 0.8,top-7.4,-4.8, hair); }
+    if (style==='bun'){ B(body, -1.6,top-1.4,-5.6, 1.6,top+1.6,-3.2, hair); B(body, -1.2,top-1,-5.9, 1.2,top+1.2,-5.4, hairD); }
+    if (style==='curly'){ for (let k=0;k<10;k++){ const a = k/10*Math.PI*2, x = Math.cos(a)*(hw-0.3), z = Math.sin(a)*3.2+0.2; B(body, x-0.9,top-1.8+(k%2),z-0.9, x+0.9,top+0.4+(k%3)*0.4,z+0.9, k%2?hair:hairD); } }
+    if (style==='spiky' && !hatted){ for (let k=0;k<7;k++){ const x = -hw+0.5+k, z = -2+(k%3)*1.8; B(body, x-0.5,top+0.8,z-0.5, x+0.5,top+2.2+(k%2),z+0.5, k%2?hair:hairD); } }
+  } else if (!hatted){ B(body, -hw-0.3,H0+2.6,-3.6, hw+0.3,H0+4.4,-2.8, hair); }
+  // hats
+  const hc = L.hatCol || {straw:'#d8b860', cowboy:'#8a5a30', cap:'#5a4a3a', bucket:'#6a7040', toque:'#f4f2ee', beanie:'#b83a2a', helmet:'#5a5a64', bandana:'#8a2a2a', tricorn:'#2a2230'}[L.hat] || '#5a4a3a';
+  const band = voxShade(hc, 0.7);
+  switch (L.hat){
+    case 'straw': B(body, -6,top-0.6,-5.4, 6,top,6, hc); B(body, -hw-0.2,top,-3.5, hw+0.2,top+2.4,3.9, hc); B(body, -hw-0.25,top,-3.55, hw+0.25,top+0.7,3.95, '#8a3a2a'); break;
+    case 'cowboy': B(body, -6.5,top-0.5,-5, 6.5,top,5.6, hc); B(body, -6.5,top,-5, -5,top+1.2,5.6, hc); B(body, 5,top,-5, 6.5,top+1.2,5.6, hc); B(body, -hw,top,-3.2, hw,top+3,3.5, hc); B(body, -hw-0.05,top,-3.25, hw+0.05,top+0.7,3.55, band); break;
+    case 'cap': B(body, -hw-0.3,top-1.2,-3.6, hw+0.3,top+1.4,4, hc); B(body, -hw,top-1.2,3.9, hw,top-0.6,6.8, band); break;
+    case 'bucket': B(body, -hw-0.4,top-1.4,-3.8, hw+0.4,top+2,4.2, hc); B(body, -hw-1.5,top-1.6,-4.9, hw+1.5,top-1,5.3, band); break;
+    case 'toque': B(body, -hw-0.2,top-1.2,-3.5, hw+0.2,top+0.3,3.9, hc); B(body, -hw-0.8,top+0.3,-4.1, hw+0.8,top+5,4.5, hc); break;
+    case 'beanie': B(body, -hw-0.35,top-1.8,-3.7, hw+0.35,top+1.6,4.1, hc); B(body, -hw-0.45,top-2.2,-3.8, hw+0.45,top-1,4.2, voxShade(hc,1.2)); B(body, -0.8,top+1.6,-0.6, 0.8,top+2.6,1, voxShade(hc,1.2)); break;
+    case 'helmet': B(body, -hw-0.5,top-1.6,-3.9, hw+0.5,top+2.2,4.3, hc); B(body, -hw-1.2,top-1.9,-4.6, hw+1.2,top-1.3,5, band); B(body, -0.6,top+2.2,-0.6, 0.6,top+3,1, '#c8a860'); break;
+    case 'bandana': B(body, -hw-0.35,top-1.8,-3.7, hw+0.35,top+0.8,4.1, hc); B(body, -0.8,top-2.4,-5, 0.8,top-0.8,-3.7, hc); break;
+    case 'tricorn': B(body, -5.5,top-0.4,-4.8, 5.5,top+0.4,5.2, hc); B(body, -hw,top+0.4,-3.2, hw,top+2.4,3.6, hc); B(body, -5.8,top+0.4,-5, -4.4,top+1.6,-3.6, hc); B(body, 4.4,top+0.4,-5, 5.8,top+1.6,-3.6, hc); B(body, -1,top+0.4,4.8, 1,top+1.6,5.8, hc); B(body, -5.5,top+0.4,-4.8, 5.5,top+0.8,-4.3, '#c8a860'); break;
+  }
+  return {body, armL, armR, legL, legR, kid};
+}
+function voxLookKey(c){ const L = c.look||{}; return [L.skin,L.hair,L.style,L.beard,L.shirt,L.pants,L.hat,L.hatCol,L.apron,L.bib,L.stains,L.coat,L.trim,L.boots, genderOf(c), isAdult(c), c.away?1:0].join('|'); }
+function voxBuild(c){
+  const P = voxParts(c), mat = voxMat(), g = new THREE.Group();
+  const mesh = (boxes, x, y) => { const m = new THREE.Mesh(voxGeo(boxes), mat); m.castShadow = true; m.receiveShadow = true; m.position.set(x*VOX, y*VOX, 0); g.add(m); return m; };
+  g.userData = {body:mesh(P.body,0,0), armL:mesh(P.armL,-5.6,22.5), armR:mesh(P.armR,5.6,22.5), legL:mesh(P.legL,0,12), legR:mesh(P.legR,0,12), key:voxLookKey(c), yaw:0, phase:hash(c.id)%100};
+  const k = P.kid ? 0.72 : 1.05; g.scale.set(k,k,k);
+  return g;
+}
+function voxDispose(g){ g.children.forEach(m=>m.geometry.dispose()); R3.scene.remove(g); }
+
+// ---------- volumetric light: sunlit haze with real shadow shafts, and glowing lamp halos at night ----------
+// The scene is drawn to an offscreen target; a full-screen pass then marches each view ray through the air,
+// asking the sun's shadow map whether every point is lit, so shafts of light and shadow show in the haze.
+function r3VolInit(){
+  const R = R3, steps = R.mobile ? 12 : 24;
+  const rt = new THREE.WebGLRenderTarget(4, 4, {type:THREE.HalfFloatType});
+  rt.depthTexture = new THREE.DepthTexture(4, 4); rt.depthTexture.type = THREE.UnsignedIntType; rt.samples = R.mobile ? 0 : 4;
+  const mat = new THREE.ShaderMaterial({
+    uniforms:{ tColor:{value:rt.texture}, tDepth:{value:rt.depthTexture}, tShadow:{value:null}, useShadow:{value:0},
+      projInv:{value:new THREE.Matrix4()}, camWorld:{value:new THREE.Matrix4()}, shadowMat:{value:new THREE.Matrix4()},
+      camPos:{value:new THREE.Vector3()}, sunDir:{value:new THREE.Vector3(0,1,0)}, sunCol:{value:new THREE.Color()}, fogCol:{value:new THREE.Color()},
+      haze:{value:0.02}, strength:{value:4}, maxDist:{value:90}, dbg:{value:0},
+      lampPos:{value:[0,1,2,3,4,5].map(()=>new THREE.Vector3())}, lampI:{value:[0,0,0,0,0,0]}, lampCol:{value:new THREE.Color(0xffc070)} },
+    vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+    fragmentShader:`
+      #include <packing>
+      varying vec2 vUv;
+      uniform sampler2D tColor, tDepth, tShadow; uniform float useShadow, haze, strength, maxDist, dbg;
+      uniform mat4 projInv, camWorld, shadowMat; uniform vec3 camPos, sunDir, sunCol, fogCol, lampCol;
+      uniform vec3 lampPos[6]; uniform float lampI[6];
+      float ign(vec2 p){ return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+      void main(){
+        vec3 col = texture2D(tColor, vUv).rgb; float d = texture2D(tDepth, vUv).x;
+        vec4 vp = projInv * vec4(vUv*2.0-1.0, d*2.0-1.0, 1.0); vp /= vp.w; vec3 wp = (camWorld * vp).xyz;
+        vec3 rd = wp - camPos; float len = length(rd); rd /= len; len = min(d >= 0.9999 ? maxDist : len, maxDist);
+        const float TOP = 7.0; float t0 = 0.0;   // only the air near the ground, where buildings and trees cast shadow, is marched
+        if (camPos.y > TOP) t0 = rd.y < -0.001 ? min(len, (camPos.y - TOP) / -rd.y) : len;
+        const int N = ${steps}; float stepL = max(len - t0, 0.0) / float(N), t = t0 + stepL * ign(gl_FragCoord.xy);
+        float mu = dot(rd, sunDir), g = 0.55, ph = (1.0-g*g) / (12.566 * pow(1.0 + g*g - 2.0*g*mu, 1.5)) + 0.02;
+        float T = 1.0; vec3 scat = vec3(0.0); float litSum = 0.0;
+        for (int i=0;i<N;i++){
+          vec3 p = camPos + rd*t; float dens = haze * exp(-max(p.y, 0.0)*0.3);
+          float lit = 1.0;
+          if (useShadow > 0.5){ vec4 sc = shadowMat * vec4(p, 1.0); sc.xyz /= sc.w;
+            if (sc.x>0.0 && sc.x<1.0 && sc.y>0.0 && sc.y<1.0 && sc.z<1.0) lit = step(sc.z - 0.002, unpackRGBAToDepth(texture2D(tShadow, sc.xy))); }
+          litSum += lit; vec3 L = sunCol * lit * ph * strength;
+          for (int j=0;j<6;j++){ vec3 dl = lampPos[j] - p; L += lampCol * lampI[j] * 0.35 / (0.35 + dot(dl, dl)); }
+          scat += T * dens * L * stepL; T *= exp(-dens * stepL * 0.5); t += stepL;
+        }
+        col = col * mix(1.0, T, 0.6) + scat + fogCol * (1.0 - T) * 0.12;
+        if (dbg > 0.5) col = vec3(litSum/float(N));
+        gl_FragColor = linearToOutputTexel(vec4(col, 1.0));
+      }`,
+    depthTest:false, depthWrite:false });
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); quad.frustumCulled = false;
+  const vs = new THREE.Scene(); vs.add(quad);
+  Object.assign(R, {vol:true, volRT:rt, volMat:mat, volScene:vs, volCam:new THREE.OrthographicCamera(-1,1,1,-1,0,1), volSize:new THREE.Vector2()});
+}
+function r3Draw(dark){
+  const R = R3;
+  if (!R.vol){ R.renderer.render(R.scene, R.camera); return; }
+  R.renderer.getDrawingBufferSize(R.volSize);
+  if (R.volRT.width!==R.volSize.x || R.volRT.height!==R.volSize.y) R.volRT.setSize(R.volSize.x, R.volSize.y);
+  R.renderer.setRenderTarget(R.volRT); R.renderer.render(R.scene, R.camera); R.renderer.setRenderTarget(null);
+  const U = R.volMat.uniforms, sun = R.sun, cam = R.camera;
+  U.projInv.value.copy(cam.projectionMatrixInverse); U.camWorld.value.copy(cam.matrixWorld); U.camPos.value.copy(cam.position);
+  U.sunDir.value.copy(sun.position).sub(sun.target.position).normalize();
+  U.sunCol.value.copy(sun.color).multiplyScalar(sun.intensity);
+  const sm = sun.shadow.map; U.useShadow.value = sm && sun.intensity>0.01 ? 1 : 0; if (sm){ U.tShadow.value = sm.texture; U.shadowMat.value.copy(sun.shadow.matrix); }
+  U.fogCol.value.copy(R.scene.fog.color);
+  const h = modOf(S.minute)/60, low = Math.max(0, 1 - Math.abs(Math.sin((h-6)/12*Math.PI))*1.6); // low sun at dawn and dusk
+  U.haze.value = 0.03 + low*0.03 + (S.weather==='Fog' ? 0.05 : S.weather==='Rain'||S.weather==='Storm' ? 0.025 : S.weather==='Snow' ? 0.02 : 0) + dark*0.02;
+  U.strength.value = (2.2 + low*2.5) * (R3.volBoost||1); U.haze.value *= (R3.hazeBoost||1);
+  R.lampLights.forEach((l,i)=>{ U.lampPos.value[i].copy(l.position); U.lampI.value[i] = l.intensity; });
+  U.dbg.value = R.volDebug ? 1 : 0; R.renderer.render(R.volScene, R.volCam);
+}
+
 function r3Villagers(frac, ts, dark){
   const cam3 = R3.camera, yaw = R3.yaw, rx = Math.cos(yaw), rz = -Math.sin(yaw), fx = -Math.sin(yaw), fz = -Math.cos(yaw);
   const tint = new THREE.Color().setRGB(1-dark*0.9, 1-dark*0.85, 1-dark*0.55);
   const seen = new Set(); let nb = 0; const m4 = new THREE.Matrix4();
+  const dtv = Math.min(0.1, (ts - (R3.voxT||ts))/1000); R3.voxT = ts;
   for (const c of S.citizens){
-    let s = R3.sprites.get(c.id);
-    if (!visibleCitizen(c)){ if (s) s.visible = false; continue; }
-    const atlas = atlasFor(c);
-    if (!s || s.userData.atlas!==atlas){ if (s) r3Dispose(s);
-      const tex = r3Tex(atlas); tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.repeat.set(1/3, 1/3); s = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, alphaTest:0.4, transparent:true}));
-      s.center.set(0.5, 0); s.userData = {atlas, id:c.id}; R3.scene.add(s); R3.sprites.set(c.id, s); }
+    let g = R3.vox.get(c.id);
+    if (!visibleCitizen(c)){ if (g) g.visible = false; continue; }
+    const key = voxLookKey(c);
+    if (!g || g.userData.key!==key){ if (g) voxDispose(g); g = voxBuild(c); R3.scene.add(g); R3.vox.set(c.id, g); }
     seen.add(c.id);
-    const p = citizenPos(c, frac); const X = p.x + 10/16, Z = p.y + 1;
-    let dir = 0, flip = false;
-    if (p.moving && (p.dx||p.dy)){ const mr = p.dx*rx + p.dy*rz, mf = p.dx*fx + p.dy*fz; if (Math.abs(mr)>Math.abs(mf)){ dir=2; flip = mr<0; } else dir = mf>0 ? 1 : 0; s.userData.dir=[dir,flip]; }
-    else if (s.userData.dir && p.moving) [dir,flip] = s.userData.dir;
-    let f = 0; if (p.moving){ const k = Math.floor(ts/140)%4; f = k===1?1:k===3?2:0; }
-    const t = s.material.map; t.repeat.x = flip ? -1/3 : 1/3; t.offset.set(flip ? (f+1)/3 : f/3, 1 - (dir+1)/3);
-    const k = SPRITE_K * (c.profession==='Child' ? 1 : 1);
-    s.scale.set(FW/16*k, FH/16*k, 1); s.position.set(X, (p.moving && f ? 0.04 : 0), Z); s.visible = true; s.material.color.copy(tint);
+    const p = citizenPos(c, frac), X = p.x + 10/16, Z = p.y + 1, U = g.userData;
+    if (p.moving && (p.dx||p.dy)) U.target = Math.atan2(p.dx, p.dy);
+    if (U.target!=null){ const dy = Math.atan2(Math.sin(U.target-U.yaw), Math.cos(U.target-U.yaw)); U.yaw += dy*Math.min(1, dtv*10); }
+    g.rotation.y = U.yaw;
+    const ph = ts/150 + U.phase, sw = p.moving ? Math.sin(ph) : 0, breathe = p.moving ? 0 : Math.sin(ts/900 + U.phase)*0.04;
+    U.legL.rotation.x = sw*0.65; U.legR.rotation.x = -sw*0.65; U.armL.rotation.x = -sw*0.6 + breathe; U.armR.rotation.x = sw*0.6 - breathe;
+    U.armL.rotation.z = -0.06; U.armR.rotation.z = 0.06;
+    g.position.set(X, p.moving ? Math.abs(Math.cos(ph))*0.035 : 0, Z); g.visible = true;
     if (nb < 399){ m4.makeTranslation(X, 0.02, Z-0.05); R3.blobs.setMatrixAt(nb++, m4); }
   }
-  for (const [id,s] of R3.sprites) if (!seen.has(id)){ if (!cById(id) || cById(id).dead){ r3Dispose(s); R3.sprites.delete(id); } else s.visible = false; }
+  for (const [id,g] of R3.vox) if (!seen.has(id)){ if (!cById(id) || cById(id).dead || !S.citizens.includes(cById(id))){ voxDispose(g); R3.vox.delete(id); } else g.visible = false; }
   // animals
   while (R3.animalSprites.length > ANIMALS.length) r3Dispose(R3.animalSprites.pop());
   ANIMALS.forEach((a,i)=>{ const img = ART.animals[a.kind][a.variant][a.walk>0 && Math.floor(a.walk)%2 ? 1 : 0];
@@ -6143,12 +6458,12 @@ function r3Villagers(frac, ts, dark){
     if (nb < 399){ m4.makeTranslation(a.x/16, 0.02, a.y/16-0.05); R3.blobs.setMatrixAt(nb++, m4); } });
   R3.blobs.count = nb; R3.blobs.instanceMatrix.needsUpdate = true;
   // selected villager: ring and name tag
-  const sel = ui.sel && cById(ui.sel), ss = sel && R3.sprites.get(sel.id);
+  const sel = ui.sel && cById(ui.sel), ss = sel && R3.vox.get(sel.id);
   if (ss && ss.visible){ R3.ring.visible = true; R3.ring.position.set(ss.position.x, 0.03, ss.position.z); R3.ring.rotation.y = ts/900;
     if (R3.tagFor!==sel.id+sel.name){ R3.tagFor = sel.id+sel.name; const c = mk(256,48), g = c.getContext('2d'); g.font='bold 22px system-ui, sans-serif'; const w = Math.min(250, g.measureText(sel.name).width+20);
       g.fillStyle='rgba(20,21,32,0.85)'; g.fillRect((256-w)/2, 6, w, 34); g.strokeStyle='#f2c14e'; g.lineWidth=2; g.strokeRect((256-w)/2, 6, w, 34); g.fillStyle='#fff'; g.textAlign='center'; g.fillText(sel.name, 128, 31);
       if (R3.tag.material.map) R3.tag.material.map.dispose(); R3.tag.material.map = new THREE.CanvasTexture(c); R3.tag.material.map.colorSpace = THREE.SRGBColorSpace; R3.tag.material.needsUpdate = true; }
-    R3.tag.visible = true; R3.tag.scale.set(4, 0.75, 1); R3.tag.position.set(ss.position.x, FH/16*SPRITE_K + 0.25, ss.position.z); }
+    R3.tag.visible = true; R3.tag.scale.set(4, 0.75, 1); R3.tag.position.set(ss.position.x, 1.75*ss.scale.y + 0.3, ss.position.z); }
   else { R3.ring.visible = false; R3.tag.visible = false; }
 }
 // ---------- sky, sun, weather ----------
@@ -6169,10 +6484,10 @@ function r3Sky(frac){
   const sx = Math.cos(ang)*1.2, sy = Math.max(0.2, Math.min(0.62, elev*0.8)), sz = 0.3;
   const L = Math.hypot(sx,sy,sz);
   R3.sun.position.set(tx + sx/L*80, sy/L*80, tz + sz/L*80); R3.sun.target.position.set(tx, 0, tz);
-  R3.sun.intensity = Math.max(0, elev>0 ? 2.4*Math.min(1, elev*2.5+0.15) : 0) * (1-overcast*0.75);
+  R3.sun.intensity = Math.max(0, elev>0 ? 3.4*Math.min(1, elev*2.5+0.15) : 0) * (1-overcast*0.75);
   R3.sun.color.copy(C('#ffffff').lerp(C('#ffb070'), duskAmt*0.8));
   R3.moon = R3.moon || null;
-  R3.hemi.intensity = 0.45 + 1.25*day*(1-overcast*0.3);
+  R3.hemi.intensity = 0.4 + 0.8*day*(1-overcast*0.2) + overcast*0.35;
   R3.hemi.color.copy(C('#dcecff').lerp(C('#5a70b0'), 1-day));
   R3.hemi.groundColor.copy(C('#5a6a44').lerp(C('#1a2030'), 1-day));
   R3.water.material.color.copy(C('#3e76b0').lerp(C('#10203a'), 1-day));
@@ -6213,7 +6528,7 @@ function r3Render(frac, ts){
   cam.x = clamp(cam.x, WX0, WX0+WW); cam.y = clamp(cam.y, WY0, WY0+WH);
   const tx = cam.x/TILE, tz = cam.y/TILE, d = R3.dist, cp = Math.cos(R3.pitch);
   R3.camera.position.set(tx + Math.sin(R3.yaw)*d*cp, d*Math.sin(R3.pitch), tz + Math.cos(R3.yaw)*d*cp);
-  R3.camera.lookAt(tx, 0.6, tz);
+  R3.camera.lookAt(tx, 0.6 + clamp((10-d)/8, 0, 1)*0.5, tz); // close up, aim at faces rather than feet
   // light, weather, windows, lamps
   const dark = r3Sky(frac);
   r3Weather(dt);
@@ -6223,7 +6538,7 @@ function r3Render(frac, ts){
   if (R3.boats) R3.boats.forEach((b,i)=>{ b.position.y = -0.1 + Math.sin(ts/700+i)*0.04; });
   R3.water.position.y = Math.sin(ts/1400)*0.015;
   r3Villagers(frac, ts, dark);
-  R3.renderer.render(R3.scene, R3.camera);
+  r3Draw(dark);
 }
 // ---------- controls: drag to pan, right-drag or two fingers to turn, wheel or pinch to zoom, tap to pick ----------
 function r3Controls(el){
@@ -6254,7 +6569,7 @@ function r3Controls(el){
 }
 function r3Pick(clientX, clientY){
   const r = R3.c3.getBoundingClientRect(), v = new THREE.Vector3(); let best = null, bd = 30;
-  for (const [id,s] of R3.sprites){ if (!s.visible) continue; v.set(s.position.x, s.scale.y*0.5, s.position.z).project(R3.camera); if (v.z>1) continue;
+  for (const [id,s] of R3.vox){ if (!s.visible) continue; v.set(s.position.x, 0.8*s.scale.y, s.position.z).project(R3.camera); if (v.z>1) continue;
     const sx = (v.x+1)/2*r.width + r.left, sy = (1-v.y)/2*r.height + r.top, d = Math.hypot(sx-clientX, sy-clientY); if (d<bd){ bd=d; best=id; } }
   if (best){ ui.sel = best; if (ui.tab!=='people') $('tabs').querySelector('[data-p=people]').click(); else renderPeople(); }
 }
@@ -6336,7 +6651,7 @@ function boot(){
   const sv = loadGame();
   let upgraded = false;
   if (sv){
-    S = sv.state; RNG.s = S.rng || 1; S.bubbles = []; upgradeV3(S); frontierInit(); fixPropTypes(); applyWorldChanges(); fixPropTypes(); indexCitizens();
+    S = sv.state; RNG.s = S.rng || 1; S.bubbles = []; upgradeV3(S); frontierInit(); genderInit(); fixPropTypes(); applyWorldChanges(); fixPropTypes(); indexCitizens();
     clock.speed = sv.clock.speed||1; clock.paused = !!sv.clock.paused;
     clock.gameAnchor = S.minute; clock.realAnchor = Date.now();
     if (!clock.paused){
@@ -6346,7 +6661,7 @@ function boot(){
     } else if (!S.world.seen){ S.world.seen = 1; whatsNew(); }
   } else {
     upgraded = !!store.get(OLD_SAVE_KEY); store.del(OLD_SAVE_KEY);
-    S = newState(); S.bubbles = []; frontierInit(); S.world.seen = 1; indexCitizens();
+    S = newState(); S.bubbles = []; frontierInit(); genderInit(true); S.world.seen = 1; indexCitizens();
     openWeek(); S.weather='Clear';
     S.citizens.forEach(c=>{ c.plan = buildPlan(c, 0); });
     chronicle('Pixel Town is founded. Fifty villagers wake up to their first spring morning.', 7, '🏡', 'founding');
