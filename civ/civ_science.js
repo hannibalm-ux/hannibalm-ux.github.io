@@ -146,7 +146,7 @@ function civPickQuestion(c){
   const techs = Object.values(TECHS).filter(T0=>T0.disc && !civTechKnown(T0.id) && Object.entries(T0.need||{}).every(([k,v])=>kn(c,k) >= v*0.85));
   const pickT = theories.length && (rnd()<0.55 || !techs.length);
   if (pickT){ const T0 = theories.sort((a,b)=>(C.theories[a.id]?1:0)-(C.theories[b.id]?1:0) || kn(c,b.disc)-kn(c,a.disc))[0]; return {theory:T0.id, disc:T0.disc, q:`Is it true that ${T0.label.toLowerCase()}?`}; }
-  if (techs.length){ const T0 = techs.sort((a,b)=>kn(c,b.disc)-kn(c,a.disc))[0]; return {tech:T0.id, disc:T0.disc, q:`Could we manage ${T0.label.toLowerCase()}?`}; }
+  if (techs.length){ const need = (S.civ.spoiled||0) > 40 ? 1 : 0; const T0 = techs.sort((a,b)=>need*((b.store?1:0)-(a.store?1:0)) || kn(c,b.disc)-kn(c,a.disc))[0]; return {tech:T0.id, disc:T0.disc, q:`Could we manage ${T0.label.toLowerCase()}?`}; }
   return null;
 }
 CIV_WORK.research = (c, b, hrs) => {

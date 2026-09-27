@@ -239,7 +239,7 @@
   // ============================ 3D AND APPEARANCE ============================
   test('V38', '3D animals are real animated models with persistent attributes', async ()=>{
     await three();
-    ['cow','pig','sheep','chicken','horse','dog','cat','goat','deer','boar','rabbit','wolf','bird','fish'].forEach(k=>{ const g = an3Build(k, 0); ok(g.isGroup && g.userData.core && g.userData.core.isMesh, k+' is not a 3D model'); if (!['bird','fish'].includes(k)) ok(g.userData.legs.length===4, k+' has no legs'); if (k==='bird') ok(g.userData.wings, 'birds have no wings'); });
+    ['cow','pig','sheep','chicken','horse','dog','cat','goat','deer','boar','rabbit','wolf','bird','fish'].forEach(k=>{ const g = an3Build(k, 0); ok(g.isGroup && g.userData.core && g.userData.core.isMesh, k+' is not a 3D model'); if (!['bird','fish'].includes(k)) ok(g.userData.legs.length===(k==='chicken' ? 2 : 4), k+' has the wrong number of legs'); if (k==='bird') ok(g.userData.wings, 'birds have no wings'); });
     const c = adults()[0]; const a = civNewAnimal('goat', {k:'hh', id:c.civ.hh}, {age:200, sex:'F'}); ['age','health','sex','owner','prod','born','mother','kids'].forEach(f=>ok(f in a, 'animal lacks '+f));
     const saved = JSON.parse(JSON.stringify(S.civ.animals)); ok(saved.find(x=>x.id===a.id).sex==='F', 'animal not saved');
     ok(typeof lpBuild==='function' && typeof r3Animals==='function', 'no 3D animal pass');
@@ -255,6 +255,69 @@
     // grown bodies and old age show in the 3D figure
     const kid = kids[0]; kid.age = 3; const g1 = lpBuild(kid); kid.age = 30; kid.profession = 'Settler'; const g2 = lpBuild(kid); kid.age = 75; const g3 = lpBuild(kid);
     ok(g1.scale.y < g2.scale.y*0.8, 'children are not smaller'); ok(g3.userData.stoop > 0.2, 'the old do not stoop');
+  });
+
+  test('V40', 'A woman who marries takes a hyphenated surname; divorce restores her birth name', ()=>{
+    const f = adults().find(c=>genderOf(c)==='F' && !c.partner && !c.maiden), m = adults().find(c=>genderOf(c)==='M' && !c.partner && surnameOf(c)!==surnameOf(f));
+    ok(f && m, 'no unmarried pair to test');
+    const first = f.name.split(' ')[0], own = surnameOf(f), his = surnameOf(m), hisName = m.name;
+    civMarry(f, m);
+    ok(f.name===`${first} ${own}-${his}`, 'bride is called '+f.name); ok(f.maiden===own, 'birth surname not kept'); ok(m.name===hisName, 'the husband\'s name changed');
+    ok(S.chronicle.slice(-6).some(e=>(e.text||'').includes(`She is now ${f.name}`)), 'the name change was not announced');
+    civDivorce(f, m); ok(f.name===`${first} ${own}` && !f.maiden, 'divorce did not restore '+f.name);
+    // the classic town does the same
+    ok(typeof marriedName==='function' && typeof restoreBirthName==='function', 'classic wedding lacks hyphenation');
+  });
+  test('V41', 'Food storage can be learned, and knowing how keeps food from spoiling', ()=>{
+    ['storage_pits','salting','sealed_jars','root_cellar','raised_granary','pest_control'].forEach(t=>ok(TECHS[t] && TECHS[t].store && TECHS[t].prac, t+' is not a learnable storage technique'));
+    const h = Object.values(S.civ.hh).find(h=>hhMembers(h).filter(isAdult).length>=1), mem = hhMembers(h).filter(isAdult);
+    const saved = mem.map(m=>m.civ.techs.slice()); const keepStore = Object.assign({}, h.store);
+    const lose = () => { h.store = {fish:100, veg:100, grain:100}; const cs = S.civ.commons; S.civ.commons = {}; civSpoilage(); S.civ.commons = cs; return 300 - (h.store.fish||0) - (h.store.veg||0) - (h.store.grain||0); };
+    mem.forEach(m=>m.civ.techs = m.civ.techs.filter(t=>!TECHS[t] || !TECHS[t].store));
+    const without = lose();
+    mem[0].civ.techs.push('salting','root_cellar','sealed_jars');
+    const withT = lose();
+    ok(withT < without*0.75, `techniques barely helped: ${without.toFixed(1)} vs ${withT.toFixed(1)} lost`);
+    const mult = civHHStoreMult(h); ok(mult.fish > 1.7 && mult.veg > 1.7, 'storage multipliers not applied');
+    mem.forEach((m,i)=>m.civ.techs = saved[i]); h.store = keepStore;
+  });
+  test('V42', 'Food is distributed: kin share, the common store rations, spare perishables are given away', ()=>{
+    const hs = Object.values(S.civ.hh).filter(h=>hhMembers(h).some(isAdult));
+    const poor = hs[0], rich = hs.find(h=>h!==poor);
+    const pa = hhMembers(poor).find(isAdult), ra = hhMembers(rich).filter(isAdult);
+    const keepP = Object.assign({}, poor.store), keepR = Object.assign({}, rich.store), keepC = Object.assign({}, S.civ.commons);
+    poor.store = {}; rich.store = {grain:400, fish:60}; S.civ.commons = {};
+    ra.forEach(r=>{ r.personality.agreeableness = 0.9; getRel(pa, r.id).tags.push('Family'); getRel(r, pa.id).tags.push('Family'); });
+    civDistributeFood();
+    ok(storeFood(poor.store) > 0, 'relatives with plenty did not share'); ok(S.civ.dist.shared > 0 && S.civ.dist.helped >= 1, 'sharing not recorded');
+    // no relatives with food: the common store hands out rations
+    poor.store = {}; rich.store = {}; S.civ.commons = {grain:500}; S.civ.rationToday = 0; civDistributeFood();
+    ok(storeFood(poor.store) > 0 && S.civ.dist.rations > 0, 'the common store did not ration');
+    poor.store = keepP; rich.store = keepR; S.civ.commons = keepC;
+  });
+  test('V43', 'The resources tab shows food, storage, animals, trees, materials and minerals', ()=>{
+    ok(document.querySelector('[data-p=res]') && $('p-res'), 'no resources tab');
+    civResSnapshot(); civRenderResources(); const html = $('p-res').innerHTML;
+    ['Food', 'Storage', 'spoiled', 'Keeping food', 'Sharing food', 'Animals', 'Wild game', 'Trees standing', 'Building materials', 'Ores', 'Energy', 'Made goods'].forEach(k=>ok(html.includes(k), 'resources tab lacks '+k));
+    const R = civResourceTotals(); ok(isFinite(R.foodDays) && R.trees > 0 && R.cap > 0, 'resource totals are wrong');
+    ok((S.civ.resHist||[]).length >= 1, 'no resource history kept');
+  });
+  test('V44', 'Clicking a building in the land tab finds it on the map', ()=>{
+    civRenderLand(); const link = $('p-land').querySelector('[data-loc]'); ok(link, 'buildings are not clickable');
+    const [x,y,w,h] = link.dataset.loc.split(',').map(Number); cam.x = 0; cam.y = 0; cam.follow = true;
+    link.click();
+    ok(Math.abs(cam.x - (x+w/2)*TILE) < 1 && Math.abs(cam.y - (y+h/2)*TILE) < 1, 'camera did not move to the building'); ok(!cam.follow, 'camera still following someone');
+    ok(ui.hl && ui.hl.x===x && ui.hl.until > performance.now(), 'building not highlighted');
+  });
+  test('V45', 'People and animals are detailed voxel models; the palette is wide', async ()=>{
+    await three();
+    const f = adults().find(c=>genderOf(c)==='F'), g = lpBuild(f), U = g.userData;
+    const tris = o => { let n = 0; o.traverse(m=>{ if (m.isMesh) n += m.geometry.index ? m.geometry.index.count/3 : m.geometry.attributes.position.count/3; }); return n; };
+    ok(tris(g) > 1500, 'the figure is too simple: '+tris(g)+' triangles');
+    ok(U.aL.joint && U.lL.joint && U.hand, 'limbs do not bend'); const box = new THREE.Box3().setFromObject(g), sz = box.getSize(new THREE.Vector3());
+    ok(sz.y > sz.x*2.2 && sz.y > 1.2 && sz.y < 2.2, 'unrealistic proportions '+sz.x.toFixed(2)+'x'+sz.y.toFixed(2));
+    ['cow','horse','sheep','deer','dog'].forEach(k=>{ const a = an3Build(k, 0); ok(a.userData.head && a.userData.head.isGroup, k+' has no posable head'); ok(tris(a) > 250, k+' is too simple'); });
+    ok(SKINS.length >= 12 && HAIRS.length >= 14 && EYES.length >= 10 && CLOTH.dyed.length >= 16 && CLOTH.pants.length >= 6, 'palette is still narrow');
   });
 
   async function run(which){

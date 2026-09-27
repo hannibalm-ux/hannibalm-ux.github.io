@@ -1,7 +1,7 @@
 /* =====================================================================
    Pixel Town — 3D models
-   Stylised low-poly people (jointed limbs, faces, body variation, aging, genetics, tools in hand),
-   animated low-poly animals, 3D props, crops, fences and carts, buildings that show their upkeep,
+   Voxel people with realistic proportions (jointed limbs, sculpted faces, clothing, body variation, aging,
+   genetics, tools in hand), voxel animals with species anatomy, 3D props, crops, fences and carts, buildings that show their upkeep,
    and simple interiors that are only built when the camera is close enough to see them.
    Used by both the classic town and the civilization mode.
    ===================================================================== */
@@ -23,81 +23,154 @@ function lpG(){ if (LPG.ico) return LPG;
   return LPG; }
 const lpShade = (hex, f) => shade(hex, f);
 
-// ---------- people ----------
-// proportions are in metres-ish world units; the whole figure is scaled by genes and age
+// ---------- people: detailed voxel figures with realistic proportions ----------
+// Built from boxes in "voxels" (VOX world units each), like a hand-made voxel character sheet: an adult is about
+// 37 voxels tall (six and a half heads), with a proper chest and shoulders, sleeves, belt, tunic, trousers and boots,
+// a sculpted face and clumped voxel hair. Limbs are split at elbows and knees so they bend.
+const VOX = 0.043;
 function lpLook(c){
   const L = c.look || {}, G = (c.civ && c.civ.genes) || {height:(hash(c.id+'h')%100)/100, build:(hash(c.id+'b')%100)/100, jaw:(hash(c.id+'j')%100)/100, nose:(hash(c.id+'n')%100)/100, brow:0.5, eye:'#3a2a1a'};
   const female = genderOf(c)==='F', kid = !isAdult(c), age = c.age||30;
-  return {L, G, female, kid, age, skin:L.skin||'#e0b090', hair:L.hair||'#5a3a20', shirt:L.shirt||'#6a8a3a', pants:L.pants||'#3a3440', boots:L.boots||'#6a4028', eye:L.eye||G.eye||'#3a2a1a'};
+  return {L, G, female, kid, age, skin:L.skin||'#e0b090', hair:L.hair||'#5a3a20', shirt:L.shirt||'#4e8a3a', pants:L.pants||'#3a2a24', boots:L.boots||'#7a5030', eye:L.eye||G.eye||'#3a2a1a', under:L.under||(L.apron&&!L.bib?L.apron:'#d8ceb0')};
 }
-function lpKey(c){ const L = c.look||{}, G = (c.civ&&c.civ.genes)||{}; return [L.skin,L.hair,L.style,L.beard,L.shirt,L.pants,L.hat,L.apron,L.coat,L.boots,G.height,G.build,G.jaw,G.nose, genderOf(c), isAdult(c), Math.floor((c.age||0)/4)].join('|'); }
+function lpKey(c){ const L = c.look||{}, G = (c.civ&&c.civ.genes)||{}; return [L.skin,L.hair,L.style,L.beard,L.shirt,L.pants,L.hat,L.apron,L.coat,L.boots,L.under,L.eye,G.height,G.build,G.jaw,G.nose, genderOf(c), isAdult(c), Math.floor((c.age||0)/4), c.away?1:0].join('|'); }
+let VOX_NOISE = null, VOX_MAT = null;
+function voxNoiseTex(){
+  if (VOX_NOISE) return VOX_NOISE;
+  const c = mk(32,32), g = c.getContext('2d'), img = g.createImageData(32,32);
+  for (let y=0;y<32;y++) for (let x=0;x<32;x++){ const n = hashf(x,y,901), v = Math.round(214 + n*41 - (hashf(x,y,902)<0.06 ? 26 : 0)); const i=(y*32+x)*4; img.data[i]=img.data[i+1]=img.data[i+2]=v; img.data[i+3]=255; }
+  g.putImageData(img,0,0);
+  VOX_NOISE = new THREE.CanvasTexture(c); VOX_NOISE.wrapS = VOX_NOISE.wrapT = THREE.RepeatWrapping; VOX_NOISE.magFilter = VOX_NOISE.minFilter = THREE.NearestFilter; VOX_NOISE.generateMipmaps = false;
+  return VOX_NOISE;
+}
+function voxMat(){ return VOX_MAT || (VOX_MAT = new THREE.MeshLambertMaterial({vertexColors:true, map:voxNoiseTex()})); }
+const VOX_FACES = [
+  [[1,0,0], [[1,0,1],[1,0,0],[1,1,0],[1,1,1]]], [[-1,0,0],[[0,0,0],[0,0,1],[0,1,1],[0,1,0]]],
+  [[0,1,0], [[0,1,1],[1,1,1],[1,1,0],[0,1,0]]], [[0,-1,0],[[0,0,0],[1,0,0],[1,0,1],[0,0,1]]],
+  [[0,0,1], [[0,0,1],[1,0,1],[1,1,1],[0,1,1]]], [[0,0,-1],[[1,0,0],[0,0,0],[0,1,0],[1,1,0]]]];
+// boxes: [x0,y0,z0,x1,y1,z1,hex] in voxels -> one merged, vertex-coloured geometry with one noise texel per voxel
+function voxGeo(boxes){
+  const n = boxes.length, pos = new Float32Array(n*72), nor = new Float32Array(n*72), col = new Float32Array(n*72), uv = new Float32Array(n*48), idx = new Uint32Array(n*36);
+  const C = new THREE.Color(); let v = 0;
+  boxes.forEach((b, bi)=>{
+    const [x0,y0,z0,x1,y1,z1,hex] = b, sz = [x1-x0, y1-y0, z1-z0], o = [x0,y0,z0], off = (hash(String(bi)+hex)%29)/32;
+    C.set(hex);
+    VOX_FACES.forEach(([nm, cs], fi)=>{
+      const base = v, shade = nm[1]>0 ? 1.06 : nm[1]<0 ? 0.78 : 1;
+      const ax = k => cs[k].map((q,i)=>q); // corner in 0/1
+      const d1 = [0,1,2].find(i=>cs[1][i]!==cs[0][i]), d2 = [0,1,2].find(i=>cs[3][i]!==cs[0][i]);
+      cs.forEach((q,ci)=>{
+        for (let i=0;i<3;i++){ pos[v*3+i] = (o[i] + q[i]*sz[i]) * VOX; nor[v*3+i] = nm[i]; }
+        col[v*3] = C.r*shade; col[v*3+1] = C.g*shade; col[v*3+2] = C.b*shade;
+        const a = Math.abs(q[d1]-cs[0][d1]), bb = Math.abs(q[d2]-cs[0][d2]);
+        uv[v*2] = a*sz[d1]/32 + off + o[d1]/32; uv[v*2+1] = bb*sz[d2]/32 + off*0.7 + o[d2]/32;
+        v++; });
+      const t = (bi*6+fi)*6; idx[t]=base; idx[t+1]=base+1; idx[t+2]=base+2; idx[t+3]=base; idx[t+4]=base+2; idx[t+5]=base+3;
+    });
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3)); g.setAttribute('normal', new THREE.BufferAttribute(nor,3));
+  g.setAttribute('color', new THREE.BufferAttribute(col,3)); g.setAttribute('uv', new THREE.BufferAttribute(uv,2)); g.setIndex(new THREE.BufferAttribute(idx,1));
+  g.computeBoundingSphere(); return g;
+}
 function lpBuild(c){
-  const g = lpG(), K = lpLook(c), {L, G, female, kid} = K, age = K.age;
-  const wide = (female ? 0.9 : 1) * (0.86 + G.build*0.36), hipW = female ? 1.12 : 1;
+  const K = lpLook(c), {L, G, female, kid} = K, age = K.age, hr = mapRand(hash(c.id+'vox'));
+  const sh = (h,f) => shade(h,f);
+  const skin = K.skin, skinD = sh(skin,0.88), skinL = sh(skin,1.05), hair = K.hair, hairD = sh(hair,0.7), hairL = sh(hair,1.18);
+  const shirt = L.coat || K.shirt, shirtD = sh(shirt,0.78), shirtL = sh(shirt,1.14), under = K.under, underD = sh(under,0.84);
+  const pants = K.pants, pantsD = sh(pants,0.8), boots = K.boots, bootsL = sh(boots,1.2), bootsD = sh(boots,0.72);
+  const w = (female ? 0.88 : 1) * (0.84 + (G.build||0.5)*0.2), hipW = female ? 1.08 : 1;
   const body = [], armUL = [], armLL = [], armUR = [], armLR = [], legU = [], legL = [];
-  const skin = K.skin, cloth = L.coat || K.shirt, trouser = K.pants;
-  // torso: tapered, flattened front to back; the belt and hem
-  body.push(lpPart(g.cylT, K.shirt, [0,1.09,0], [0,0,0], [0.19*wide, 0.46, 0.13*wide]));
-  body.push(lpPart(g.cylT, lpShade(K.shirt,0.85), [0,1.34,0], [Math.PI,0,0], [0.2*wide, 0.08, 0.135*wide]));   // shoulders
-  body.push(lpPart(g.cyl, trouser, [0,0.84,0], [0,0,0], [0.155*wide*hipW, 0.12, 0.11*wide]));                   // pelvis
-  body.push(lpPart(g.cyl, '#4a3222', [0,0.9,0], [0,0,0], [0.162*wide*hipW, 0.035, 0.117*wide]));                // belt
-  if (L.coat) body.push(lpPart(g.cylT, L.coat, [0,0.95,0], [0,0,0], [0.2*wide, 0.62, 0.14*wide]));
-  if (L.apron) body.push(lpPart(g.box, L.apron, [0,0.92,0.105*wide], [0,0,0], [0.24*wide, 0.42, 0.02]));
-  if (female && !kid) body.push(lpPart(g.ico, K.shirt, [0,1.19,0.07*wide], [0,0,0], [0.16*wide, 0.07, 0.07]));
-  // neck and head: a rounded skull, a jaw shaped by genes, nose, eyes, brows and ears
-  body.push(lpPart(g.cyl, lpShade(skin,0.92), [0,1.41,0], [0,0,0], [0.05, 0.1, 0.05]));
-  const hy = 1.56, jaw = 0.85 + G.jaw*0.3, nose = 0.7 + G.nose*0.7;
-  body.push(lpPart(g.ico, skin, [0,hy,0], [0,0,0], [0.112, 0.13, 0.118]));
-  body.push(lpPart(g.box, skin, [0,hy-0.075,0.02], [0,0,0], [0.15*jaw, 0.07, 0.15]));
-  body.push(lpPart(g.cone, lpShade(skin,0.93), [0,hy-0.01,0.118], [Math.PI/2,0,0], [0.018*nose, 0.05*nose, 0.02*nose]));
-  [-1,1].forEach(s=>{ body.push(lpPart(g.sph, '#f4f0ea', [0.042*s, hy+0.02, 0.1], [0,0,0], [0.02,0.017,0.012])); body.push(lpPart(g.sph, K.eye, [0.042*s, hy+0.02, 0.109], [0,0,0], [0.011,0.011,0.006]));
-    body.push(lpPart(g.box, lpShade(K.hair,0.8), [0.045*s, hy+0.055+(G.brow||0.5)*0.01, 0.105], [0,0,-0.15*s], [0.045, 0.011, 0.012]));
-    body.push(lpPart(g.sph, lpShade(skin,0.9), [0.113*s, hy, 0], [0,0,0], [0.02,0.035,0.025])); });
-  body.push(lpPart(g.box, female ? '#b8504a' : lpShade(skin,0.72), [0, hy-0.06, 0.112], [0,0,0], [0.045, 0.008, 0.01]));
-  if (age>45) body.push(lpPart(g.box, lpShade(skin,0.8), [0, hy+0.075, 0.108], [0,0,0], [0.08, 0.004, 0.006]));             // wrinkles
-  if (age>60) [-1,1].forEach(s=>body.push(lpPart(g.box, lpShade(skin,0.8), [0.075*s, hy+0.01, 0.1], [0,0,0.6*s], [0.02, 0.004, 0.006])));
-  if (L.beard && !female && !kid){ body.push(lpPart(g.ico, K.hair, [0, hy-0.1, 0.055], [0,0,0], [0.1*jaw, 0.07, 0.08])); body.push(lpPart(g.box, K.hair, [0, hy-0.04, 0.115], [0,0,0], [0.07, 0.015, 0.012])); }
-  // hair and hats
-  const style = L.style || 'short', top = hy+0.09;
-  if (style!=='bald' && !(L.hat && ['helmet','beanie','bandana'].includes(L.hat))){
-    body.push(lpPart(g.half, K.hair, [0, hy+0.02, -0.01], [0,0,0], [0.123, 0.135, 0.128]));
-    if (style==='long'){ body.push(lpPart(g.box, K.hair, [0, hy-0.1, -0.08], [0.15,0,0], [0.22, 0.3, 0.06])); }
-    if (style==='bun') body.push(lpPart(g.sph, K.hair, [0, top+0.02, -0.1], [0,0,0], [0.06,0.06,0.06]));
-    if (style==='pony') body.push(lpPart(g.cyl, K.hair, [0, hy-0.06, -0.14], [0.4,0,0], [0.035, 0.2, 0.035]));
-    if (style==='curly') for (let k=0;k<9;k++){ const a = k/9*Math.PI*2; body.push(lpPart(g.ico0, K.hair, [Math.cos(a)*0.1, top-0.02+(k%2)*0.02, Math.sin(a)*0.09-0.01], [0,0,0], [0.045,0.045,0.045])); }
-    if (style==='spiky') for (let k=0;k<6;k++) body.push(lpPart(g.cone, K.hair, [-0.07+k*0.028, top+0.03, -0.02+(k%2)*0.03], [0,0,(k-2.5)*0.15], [0.025, 0.07, 0.025]));
-  } else if (style==='bald' && !L.hat) body.push(lpPart(g.half, K.hair, [0, hy-0.01, -0.03], [0.5,0,0], [0.12, 0.08, 0.1]));
-  const hc = L.hatCol || {straw:'#d8b860', cowboy:'#8a5a30', cap:'#5a4a3a', bucket:'#6a7040', toque:'#f4f2ee', beanie:'#b83a2a', helmet:'#5a5a64', bandana:'#8a2a2a', tricorn:'#2a2230'}[L.hat] || '#5a4a3a';
-  if (L.hat==='straw' || L.hat==='cowboy'){ body.push(lpPart(g.cyl, hc, [0, top+0.01, 0], [0,0,0], [0.22, 0.012, 0.22])); body.push(lpPart(g.cylT, hc, [0, top+0.06, 0], [0,0,0], [0.1, 0.09, 0.1])); }
-  else if (L.hat==='helmet'){ body.push(lpPart(g.half, hc, [0, hy+0.04, 0], [0,0,0], [0.14, 0.13, 0.14])); body.push(lpPart(g.cyl, hc, [0, hy+0.04, 0.02], [0,0,0], [0.16, 0.01, 0.16])); }
-  else if (L.hat==='beanie' || L.hat==='bandana'){ body.push(lpPart(g.half, hc, [0, hy+0.03, 0], [0,0,0], [0.128, 0.14, 0.13])); }
-  else if (L.hat==='cap' || L.hat==='bucket'){ body.push(lpPart(g.half, hc, [0, hy+0.04, 0], [0,0,0], [0.126, 0.12, 0.128])); body.push(lpPart(g.box, lpShade(hc,0.8), [0, top-0.03, 0.12], [0,0,0], [0.14, 0.01, 0.08])); }
-  else if (L.hat==='toque'){ body.push(lpPart(g.cyl, hc, [0, top+0.08, 0], [0,0,0], [0.11, 0.16, 0.11])); }
-  else if (L.hat==='tricorn'){ body.push(lpPart(g.cone, hc, [0, top+0.04, 0], [0,0,0], [0.2, 0.08, 0.2])); }
-  // arms: upper arm from the shoulder, forearm from the elbow, a hand
-  const ua = cloth, fa = L.coat ? L.coat : skin;
-  [armUL, armUR].forEach(a=>a.push(lpPart(g.cap, ua, [0,-0.13,0], [0,0,0], [0.043*Math.sqrt(wide), 0.17, 0.043*Math.sqrt(wide)])));
-  [armLL, armLR].forEach(a=>{ a.push(lpPart(g.cap, fa, [0,-0.11,0], [0,0,0], [0.036*Math.sqrt(wide), 0.15, 0.036*Math.sqrt(wide)])); a.push(lpPart(g.ico, lpShade(skin,0.95), [0,-0.25,0.01], [0,0,0], [0.04,0.05,0.035])); });
-  // legs: thigh from the hip, shin from the knee, a shaped foot
-  legU.push(lpPart(g.cap, trouser, [0,-0.18,0], [0,0,0], [0.062*Math.sqrt(wide), 0.22, 0.062*Math.sqrt(wide)]));
-  if (L.coat) legU.push(lpPart(g.cyl, L.coat, [0,-0.05,0], [0,0,0], [0.07, 0.12, 0.07]));
-  legL.push(lpPart(g.cap, trouser, [0,-0.18,0], [0,0,0], [0.05, 0.2, 0.05]));
-  legL.push(lpPart(g.cyl, K.boots, [0,-0.33,0], [0,0,0], [0.056, 0.1, 0.056]));
-  legL.push(lpPart(g.ico, K.boots, [0,-0.4,0.05], [0,0,0], [0.06, 0.04, 0.12]));
-  const mat = lpMat(), grp = new THREE.Group(), fig = new THREE.Group(); grp.add(fig);
-  const mesh = (parts) => { const m = new THREE.Mesh(lpMerge(parts), mat); m.castShadow = true; m.receiveShadow = true; return m; };
+  const B = (a,x0,y0,z0,x1,y1,z1,hex) => a.push([x0,y0,z0,x1,y1,z1,hex]);
+  // legs: hip pivot at y=17, knee at 8.2 below it; boots with a turned-down cuff and a real foot
+  const lw = 1.95*w, ld = 1.95;
+  B(legU, -lw,-8.4,-ld, lw,0.4,ld, pants); B(legU, -lw-0.05,-8.4,ld-0.4, -lw+0.6,0.2,ld+0.05, pantsD); B(legU, -lw,-1.2,-ld-0.05, lw,0.4,ld+0.05, pantsD);
+  B(legL, -lw*0.96,-3.2,-ld*0.96, lw*0.96,0.2,ld*0.96, pants);
+  B(legL, -lw-0.25,-8.2,-ld-0.25, lw+0.25,-3,ld+0.25, boots);
+  B(legL, -lw-0.5,-4.2,-ld-0.5, lw+0.5,-2.8,ld+0.5, bootsL); B(legL, -lw-0.5,-4.2,ld+0.4, lw+0.5,-3.6,ld+0.55, sh(boots,1.05));
+  B(legL, -lw-0.25,-8.8,-ld-0.25, lw+0.25,-7,ld+1.9, bootsD); B(legL, -lw-0.3,-8.8,-ld-0.3, lw+0.3,-8.3,ld+2, '#2a1c14'); B(legL, -lw+0.3,-7.6,ld+1.5, lw-0.3,-7,ld+1.95, sh(boots,1.1));
+  // hips, tunic hem, belt
+  B(body, -4.4*w*hipW,14.6,-2.3, 4.4*w*hipW,18,2.3, pants);
+  B(body, -4.95*w*hipW,13.4,-2.8, 4.95*w*hipW,17.6,2.8, under); B(body, -5*w*hipW,13.4,-2.85, 5*w*hipW,14.1,2.85, underD);
+  B(body, -4.85*w,17.6,-2.65, 4.85*w,18.7,2.65, '#4e3222'); B(body, -0.7,17.5,2.65, 0.7,18.8,2.85, '#c8a860');
+  // torso: an open shirt over an undershirt, broad at the shoulders
+  B(body, -4.65*w,18.7,-2.45, 4.65*w,26.2,2.45, shirt);
+  B(body, -5.3*w,25.4,-2.6, 5.3*w,27.4,2.6, shirt); B(body, -5.3*w,27.1,-2.6, 5.3*w,27.5,2.6, shirtL);
+  B(body, -4.65*w,18.7,-2.5, 4.65*w,19.3,-2.45, shirtD); B(body, -0.3,19,-2.55, 0.3,26.8,-2.45, shirtD);
+  if (female && !kid){ B(body, -3.5*w,21.4,2.4, -1.25,24.8,3.05, shirt); B(body, 1.25,21.4,2.4, 3.5*w,24.8,3.05, shirt); B(body, -3.4*w,21.2,2.4, 3.4*w,21.6,2.85, shirtD); if (!L.coat){ B(body, -1.3,21.4,2.4, 1.3,24.8,2.9, under); B(body, -2.1,21.4,2.9, -1.2,24.9,3.25, shirtD); B(body, 1.2,21.4,2.9, 2.1,24.9,3.25, shirtD); } }
+  if (!L.coat){ B(body, -1.55,18.7,2.45, 1.55,26.9,2.62, under); B(body, -1,24.9,2.5, 1,27.3,2.7, skin);
+    B(body, -2.25,18.9,2.45, -1.45,27.2,2.85, shirtD); B(body, 1.45,18.9,2.45, 2.25,27.2,2.85, shirtD); B(body, -2.3,25.8,2.6, -1.3,27.3,3, shirtL); B(body, 1.3,25.8,2.6, 2.3,27.3,3, shirtL); }
+  else { B(body, -5*w,12.2,-2.8, 5*w,18.7,2.8, L.coat); B(body, -0.2,12.2,2.8, 0.2,26,2.95, sh(L.coat,0.7)); B(body, -1.2,25,2.45, 1.2,27.3,2.7, under); }
+  if (L.apron){ const top = L.bib ? 24 : 17.8; B(body, -3.3,11,2.8, 3.3,top,3.2, L.apron); if (L.bib){ B(body, -3.3,23.4,-2.5, -2.6,27.3,2.5, L.apron); B(body, 2.6,23.4,-2.5, 3.3,27.3,2.5, L.apron); } if (L.stains){ B(body,-1.5,14,3.2,0,15.2,3.3,'#9a2a2a'); B(body,1,18.5,3.2,2,19.5,3.3,'#9a2a2a'); } }
+  // a satchel on a cross-body strap, as on the reference sheet
+  if (hash(c.id+'bag')%3!==1 || c.away){ for (let k=0;k<9;k++){ const t = k/8, x = -4.4+t*8.8, y = 27-t*9.2; B(body, x-0.55,y-0.6,2.45, x+0.55,y+0.6,2.85, '#6a4e32'); B(body, -x-0.55,y-0.6,-2.85, -x+0.55,y+0.6,-2.45, '#6a4e32'); }
+    B(body, 4.4*w,12.4,-1.4, 6.9*w,17.6,2.5, '#7a6a4c'); B(body, 4.35*w,16,-1.45, 6.95*w,17.8,2.6, '#665838'); B(body, 6.9*w,14.6,0.4, 7.05*w,15.4,1.4, '#c8a860'); }
+  // neck and head: a sculpted face with a jaw, nose, eyes, brows, ears, cheeks and mouth shaped by genes
+  B(body, -1.35,27.3,-1.25, 1.35,28.8,1.35, skinD);
+  const H0 = 28.6, jw = 2.2 + (G.jaw||0.5)*0.9;
+  B(body, -3.25,H0+1.2,-2.9, 3.25,H0+7.4,3.2, skin);
+  B(body, -jw,H0-0.2,-2.2, jw,H0+1.4,2.95, skin); B(body, -jw+0.4,H0-0.2,2.6, jw-0.4,H0+0.5,3.05, skinD);
+  B(body, -3.25,H0+1.2,3.1, -2.6,H0+3,3.25, skinD); B(body, 2.6,H0+1.2,3.1, 3.25,H0+3,3.25, skinD);
+  const ey = H0+3.4;
+  [[-2.35,-0.75],[0.75,2.35]].forEach(([a,b],i)=>{ B(body, a,ey,3.2, b,ey+1.05,3.27, '#f6f2ec'); const px = i===0 ? b-0.8 : a; B(body, px,ey,3.22, px+0.8,ey+1.05,3.32, K.eye); B(body, px+(i===0?0.25:0.2),ey+0.25,3.3, px+(i===0?0.6:0.55),ey+0.75,3.36, '#141014');
+    B(body, a-0.1,ey+1.45,3.2, b+0.1,ey+1.9+(G.brow||0.5)*0.2,3.33, hairD); if (female) B(body, (i===0?a-0.3:b), ey+0.7, 3.2, (i===0?a:b+0.3), ey+1.15, 3.3, '#2a1a14');
+    if (female || kid) B(body, i===0?-2.6:1.6, H0+2,3.2, i===0?-1.6:2.6, H0+2.6,3.26, mix(skin,'#d86a6a',0.28)); });
+  const nw = 0.42 + (G.nose||0.5)*0.28, nl = 0.55 + (G.nose||0.5)*0.75;
+  B(body, -nw,H0+2.2,3.2, nw,H0+3.8,3.2+nl, sh(skin,0.95)); B(body, -nw-0.1,H0+2.2,3.2, nw+0.1,H0+2.6,3.2+nl*0.8, skinD);
+  B(body, -1.05,H0+1.2,3.2, 1.05,H0+1.62,3.28, female ? '#b8504a' : sh(skin,0.72)); B(body, -1.35,H0+1.5,3.2, -1.05,H0+1.8,3.26, sh(skin,0.8)); B(body, 1.05,H0+1.5,3.2, 1.35,H0+1.8,3.26, sh(skin,0.8));
+  B(body, -3.55,H0+2.2,-0.7, -3.2,H0+4.4,0.8, skinD); B(body, 3.2,H0+2.2,-0.7, 3.55,H0+4.4,0.8, skinD);
+  if (age>45) B(body, -2,ey+2.1,3.2, 2,ey+2.3,3.26, skinD);
+  if (age>60){ B(body, -3,ey-0.2,3.2, -2.5,ey+0.9,3.26, skinD); B(body, 2.5,ey-0.2,3.2, 3,ey+0.9,3.26, skinD); B(body, -1.8,H0+0.8,3.2, -1.4,H0+2,3.26, skinD); B(body, 1.4,H0+0.8,3.2, 1.8,H0+2,3.26, skinD); }
+  if (L.beard && !female && !kid){ B(body, -jw-0.2,H0-0.8,0.8, jw+0.2,H0+1.9,3.4, hair); B(body, -1.5,H0+1.8,3.2, 1.5,H0+2.3,3.45, hair); B(body, -3.3,H0+1.2,0.2, -2.4,H0+3.6,3.2, hair); B(body, 2.4,H0+1.2,0.2, 3.3,H0+3.6,3.2, hair); }
+  // hair: clumped voxels with light and dark strands
+  const style = L.style || 'short', hatted = !!L.hat, top = H0+7.4, cl = k => [hair, hairD, hairL, hair][Math.floor(hr()*4)];
+  if (style!=='bald'){
+    if (!hatted){ B(body, -3.55,top-1.4,-3.3, 3.55,top+0.7,3.55, hair);
+      for (let k=0;k<16;k++){ const x = -3.4 + hr()*6, z = -3 + hr()*6, h = 0.4 + hr()*1.1; B(body, x,top+0.4,z, x+1.1+hr()*0.6,top+0.7+h,z+1.1+hr()*0.6, cl(k)); }
+      for (let k=0;k<7;k++){ const x = -3.3 + k*0.95, len = 0.4 + hr()*1.1; B(body, x,top-0.6-len,3.15, x+1.05,top+0.4,3.75, cl(k)); } }
+    const backLow = style==='long' ? H0-3 : style==='short' || style==='spiky' ? H0+2.6 : H0+1.4;
+    B(body, -3.55,backLow,-3.55, 3.55,top-0.2,-2.7, hair); for (let k=0;k<6;k++){ const x = -3.5 + k*1.2; B(body, x,backLow-hr()*1.2,-3.7, x+1.2,backLow+1.5,-3.3, cl(k)); }
+    [-1,1].forEach(s=>{ B(body, s<0?-3.6:3.25,H0+2.8-(style==='long'?4:0),-3.3, s<0?-3.25:3.6,top-0.2,1.8, hair); for (let k=0;k<4;k++){ const z = -3 + k*1.3, y = H0+2.6+hr()*1.2; B(body, s<0?-3.8:3.35,y,z, s<0?-3.35:3.8,y+1.6,z+1.2, cl(k)); } });
+    if (style==='long'){ for (let k=0;k<7;k++){ const x = -3.4 + k*0.98; B(body, x,H0-3.6-hr()*1.4,-3.8, x+1,H0+1,-2.9, cl(k)); } }
+    if (style==='pony'){ B(body, -0.8,top-2.6,-3.95, 0.8,top-1.3,-3.4, '#3a2a1e');
+      const seg = [[0,top-1.2,-4.6,2.6],[0,top-0.2,-6,2.4],[0,top-1.8,-7.1,2.3],[0,top-4,-7.4,2.1],[0,top-6.3,-7.1,1.9],[0,top-8.3,-6.6,1.5]];
+      seg.forEach(([x,y,z,s2],i)=>{ B(body, x-s2/2,y-1.3,z-s2/2, x+s2/2,y+1.1,z+s2/2, cl(i)); for (let k=0;k<3;k++){ const ox = (hr()-0.5)*s2, oz = (hr()-0.5)*s2; B(body, x+ox-0.55,y-1.8+hr(),z+oz-0.55, x+ox+0.55,y+0.2,z+oz+0.55, cl(k+i)); } }); }
+    if (style==='bun'){ B(body, -1.7,top-1.3,-5.6, 1.7,top+1.7,-3.2, hair); B(body, -1.2,top-0.8,-5.95, 1.2,top+1.2,-5.4, hairD); B(body, -1.4,top+1.4,-5, 1.4,top+2,-3.6, hairL); }
+    if (style==='curly'){ for (let k=0;k<22;k++){ const a = hr()*Math.PI*2, rr = 3.4, x = Math.cos(a)*rr, z = Math.sin(a)*rr*0.95, y = H0+2.5+hr()*6; B(body, x-0.9,y-0.9,z-0.9, x+0.9,y+0.9,z+0.9, cl(k)); } }
+    if (style==='spiky' && !hatted){ for (let k=0;k<9;k++){ const x = -3+k*0.75, z = -2.4+(k%3)*1.8; B(body, x-0.45,top+0.6,z-0.45, x+0.45,top+2.2+hr()*1.2,z+0.45, cl(k)); } }
+  } else if (!hatted){ B(body, -3.55,H0+2.6,-3.4, 3.55,H0+4.6,-2.6, hair); B(body, -3.6,H0+2.6,-2.6, -3.25,H0+4.4,0.6, hair); B(body, 3.25,H0+2.6,-2.6, 3.6,H0+4.4,0.6, hair); }
+  const hc = L.hatCol || {straw:'#d8b860', cowboy:'#8a5a30', cap:'#5a4a3a', bucket:'#6a7040', toque:'#f4f2ee', beanie:'#b83a2a', helmet:'#5a5a64', bandana:'#8a2a2a', tricorn:'#2a2230'}[L.hat] || '#5a4a3a', band = sh(hc,0.7);
+  switch (L.hat){
+    case 'straw': B(body, -6,top-0.6,-5.6, 6,top,6.2, hc); B(body, -3.6,top,-3.6, 3.6,top+2.4,3.9, hc); B(body, -3.65,top,-3.65, 3.65,top+0.7,3.95, '#8a3a2a'); break;
+    case 'cowboy': B(body, -6.4,top-0.5,-5.2, 6.4,top,5.8, hc); B(body, -6.4,top,-5.2, -5,top+1.2,5.8, hc); B(body, 5,top,-5.2, 6.4,top+1.2,5.8, hc); B(body, -3.4,top,-3.3, 3.4,top+3,3.6, hc); B(body, -3.45,top,-3.35, 3.45,top+0.7,3.65, band); break;
+    case 'cap': B(body, -3.8,top-1.3,-3.8, 3.8,top+1.3,4, hc); B(body, -3.4,top-1.3,3.9, 3.4,top-0.7,6.6, band); break;
+    case 'bucket': B(body, -3.9,top-1.4,-3.9, 3.9,top+2,4.2, hc); B(body, -5,top-1.6,-5, 5,top-1,5.3, band); break;
+    case 'toque': B(body, -3.7,top-1.2,-3.7, 3.7,top+0.3,3.9, hc); B(body, -4.2,top+0.3,-4.2, 4.2,top+4.6,4.4, hc); break;
+    case 'beanie': B(body, -3.9,top-2,-3.9, 3.9,top+1.6,4.1, hc); B(body, -4,top-2.4,-4, 4,top-1.2,4.2, sh(hc,1.2)); B(body, -0.8,top+1.6,-0.6, 0.8,top+2.6,1, sh(hc,1.2)); break;
+    case 'helmet': B(body, -4,top-1.8,-4, 4,top+2.2,4.3, hc); B(body, -4.7,top-2.1,-4.7, 4.7,top-1.5,5, band); B(body, -0.6,top+2.2,-0.6, 0.6,top+3,1, '#c8a860'); break;
+    case 'bandana': B(body, -3.85,top-2,-3.85, 3.85,top+0.8,4.1, hc); B(body, -0.8,top-2.6,-5.1, 0.8,top-0.8,-3.8, hc); break;
+    case 'tricorn': B(body, -5.5,top-0.4,-4.8, 5.5,top+0.4,5.2, hc); B(body, -3.4,top+0.4,-3.2, 3.4,top+2.4,3.6, hc); B(body, -5.8,top+0.4,-5, -4.4,top+1.6,-3.6, hc); B(body, 4.4,top+0.4,-5, 5.8,top+1.6,-3.6, hc); B(body, -1,top+0.4,4.8, 1,top+1.6,5.8, hc); break;
+  }
+  // arms: short rolled sleeves, bare forearms, hands with a thumb; coats cover the arm
+  const aw = 1.55*Math.sqrt(w);
+  [[armUL,armLL,-1],[armUR,armLR,1]].forEach(([u,l,s])=>{
+    B(u, -aw,-4.8,-aw, aw,0.9,aw, shirt); B(u, -aw-0.15,-5.5,-aw-0.15, aw+0.15,-4.5,aw+0.15, L.coat ? shirt : shirtL);
+    B(u, -aw+0.2,-7.4,-aw+0.2, aw-0.2,-5.5,aw-0.2, L.coat ? shirt : skin);
+    B(l, -aw+0.25,-5.4,-aw+0.25, aw-0.25,0.2,aw-0.25, L.coat ? shirt : skin); B(l, -aw+0.3,-5.6,-aw+0.3, aw-0.3,-4.9,aw-0.3, L.coat ? sh(shirt,1.2) : skinD);
+    B(l, -aw+0.2,-7.9,-1.1, aw-0.2,-5.4,1.35, skin); B(l, s<0?aw-0.6:-aw-0.2, -6.6,0.2, s<0?aw+0.2:-aw+0.6, -5.4,1.2, skinD); B(l, -aw+0.25,-8.3,-0.9, aw-0.25,-7.8,1.1, skinD); });
+  // assemble: joints at the shoulders, elbows, hips and knees
+  const mat = voxMat(), grp = new THREE.Group(), fig = new THREE.Group(); grp.add(fig);
+  const mesh = boxes => { const m = new THREE.Mesh(voxGeo(boxes), mat); m.castShadow = true; m.receiveShadow = true; return m; };
   const torso = mesh(body); fig.add(torso);
-  const limb = (up, low, x, y, lowY) => { const pivot = new THREE.Group(); pivot.position.set(x, y, 0); pivot.add(mesh(up)); const joint = new THREE.Group(); joint.position.set(0, lowY, 0); joint.add(mesh(low)); pivot.add(joint); fig.add(pivot); return {pivot, joint}; };
-  const sx = 0.215*wide, hx = 0.085*wide*hipW;
-  const aL = limb(armUL, armLL, -sx, 1.33, -0.27), aR = limb(armUR, armLR, sx, 1.33, -0.27);
-  const lL = limb(legU, legL, -hx, 0.82, -0.4), lR = limb(legU, legL, hx, 0.82, -0.4);
-  // tool socket in the right hand
-  const hand = new THREE.Group(); hand.position.set(0, -0.26, 0.02); aR.joint.add(hand);
-  // size: genes set the adult height; children grow gradually; the old shrink a little and stoop
-  const adultH = 0.92 + G.height*0.18 + (female ? -0.04 : 0.02);
+  const limb = (up, low, x, y, lowY) => { const pivot = new THREE.Group(); pivot.position.set(x*VOX, y*VOX, 0); pivot.add(mesh(up)); const joint = new THREE.Group(); joint.position.set(0, lowY*VOX, 0); joint.add(mesh(low)); pivot.add(joint); fig.add(pivot); return {pivot, joint}; };
+  const sx = 6.0*w, hx = 2.3*w*hipW;
+  const aL = limb(armUL, armLL, -sx, 26.9, -7.4), aR = limb(armUR, armLR, sx, 26.9, -7.4);
+  const lL = limb(legU, legL, -hx, 17, -8.4), lR = limb(legU, legL, hx, 17, -8.4);
+  const hand = new THREE.Group(); hand.position.set(0, -6.8*VOX, 0.3*VOX); aR.joint.add(hand);
+  // size from genes; children grow gradually; the old shrink a little and stoop
+  const adultH = 0.94 + (G.height||0.5)*0.16 + (female ? -0.05 : 0.02);
   const growth = kid ? clamp(0.42 + (age/17)*0.58, 0.42, 1) : 1, shrink = age>65 ? 1 - (age-65)*0.003 : 1;
-  const s = adultH*growth*shrink*1.0; grp.scale.set(s*(kid ? 1 : 0.94+G.build*0.12), s, s);
-  if (kid) torso.scale.set(1, 1, 1);
+  const s = adultH*growth*shrink; grp.scale.set(s, s, s);
   const stoop = age>58 ? clamp((age-58)/30, 0, 0.35) : 0;
   grp.userData = {fig, torso, aL, aR, lL, lR, hand, tool:null, toolKind:null, key:lpKey(c), yaw:0, phase:hash(c.id)%100, stoop, slow: age>62 ? 0.7 : kid ? 1.25 : 1};
   return grp;
@@ -158,51 +231,91 @@ function lpAnimate(c, g, p, ts, dtv){
   return {moving, sleep};
 }
 
-// ---------- animals ----------
+// ---------- animals: voxel anatomy (legs, belly, neck and head, muzzle, ears, horns, tails, markings) ----------
+// Sizes are in animal voxels (AVOX world units). Each animal has a body, a head on a neck that bends to graze,
+// four legs that swing (two for birds), and its species' markings.
+const AVOX = 0.036;
 const AN3 = {
-  cow:    {body:'#f0f0f4', spot:'#1e1e26', len:0.62, h:0.46, w:0.3, leg:0.3, head:0.14, horns:true, tail:true},
-  sheep:  {body:'#ece8dc', spot:'#2a2428', len:0.42, h:0.3, w:0.26, leg:0.18, head:0.1, woolly:true},
-  pig:    {body:'#e8a4b0', spot:'#c87888', len:0.44, h:0.28, w:0.24, leg:0.12, head:0.11, snout:true, tail:true},
-  chicken:{body:'#f4f0e6', spot:'#d83a2a', len:0.16, h:0.14, w:0.12, leg:0.08, head:0.06, bird:true},
-  goat:   {body:'#d8ccb4', spot:'#8a7a60', len:0.38, h:0.3, w:0.18, leg:0.22, head:0.09, horns:true, beard:true, tail:true},
-  horse:  {body:'#8a5a34', spot:'#3a2214', len:0.7, h:0.52, w:0.26, leg:0.45, head:0.15, mane:true, long:true, tail:true},
-  dog:    {body:'#a8763e', spot:'#5a3a1e', len:0.34, h:0.22, w:0.14, leg:0.17, head:0.09, ears:true, tail:true},
-  cat:    {body:'#7a7a82', spot:'#3a3a42', len:0.26, h:0.14, w:0.1, leg:0.11, head:0.07, ears:true, tail:true},
-  deer:   {body:'#9a6a3a', spot:'#f0e8d8', len:0.5, h:0.36, w:0.2, leg:0.4, head:0.1, antlers:true, long:true},
-  boar:   {body:'#4a3a30', spot:'#2a1e18', len:0.48, h:0.34, w:0.26, leg:0.16, head:0.13, tusks:true, snout:true},
-  rabbit: {body:'#a8987e', spot:'#f0e8d8', len:0.18, h:0.14, w:0.12, leg:0.05, head:0.07, longears:true},
-  wolf:   {body:'#7a7a80', spot:'#3a3a40', len:0.46, h:0.28, w:0.16, leg:0.26, head:0.1, ears:true, tail:true},
-  bird:   {body:'#5a4a3a', spot:'#e0a030', len:0.12, h:0.08, w:0.08, leg:0.03, head:0.05, flyer:true},
-  fish:   {body:'#8aa0b8', spot:'#c8d8e8', len:0.28, h:0.08, w:0.06, leg:0, head:0, fish:true}
+  cow:    {L:30, H:13, W:12, leg:13, lw:3.4, neck:5, nk:0.3, hl:10, hh:7.5, hw:7, snout:3.5, body:'#f2efe8', belly:'#e8e2d6', dark:'#1e1e24', hoof:'#2a2420', nose:'#e8a0a8', spots:true, horns:'#e8e0c8', ears:'side', tail:'tuft', udder:true, alt:'#8a5a3a'},
+  horse:  {L:30, H:12, W:10, leg:19, lw:2.8, neck:10, nk:0.5, hl:12, hh:6, hw:5.5, snout:4, body:'#8a5a34', belly:'#7a4e2c', dark:'#2a1a10', hoof:'#1e1814', nose:'#3a2a20', mane:true, ears:'up', tail:'long', alt:'#e8e0d0'},
+  pig:    {L:22, H:10, W:11, leg:6, lw:3, neck:1, nk:0, hl:7, hh:8, hw:8, snout:3, body:'#eaa6b2', belly:'#f2bcc6', dark:'#c87888', hoof:'#8a4a50', nose:'#d88a96', disc:true, ears:'flop', tail:'curl', alt:'#6a4a3a'},
+  sheep:  {L:20, H:11, W:11, leg:8, lw:2.1, neck:2, nk:0.3, hl:7, hh:6, hw:5, snout:2, body:'#ece8dc', belly:'#ded8c8', dark:'#2a2428', hoof:'#1a1618', nose:'#2a2428', wool:true, darkface:true, ears:'side', tail:'stub', alt:'#3a3436'},
+  goat:   {L:18, H:9, W:7, leg:11, lw:1.9, neck:5, nk:0.6, hl:8, hh:5, hw:4.5, snout:2.5, body:'#d8ccb4', belly:'#e8dcc6', dark:'#8a7a60', hoof:'#3a3028', nose:'#4a3e30', horns:'#c8bca4', back:true, beard:true, ears:'side', tail:'up', alt:'#4a3a2a'},
+  deer:   {L:22, H:9, W:7, leg:16, lw:1.8, neck:8, nk:0.6, hl:9, hh:5, hw:4.5, snout:3, body:'#9a6a3a', belly:'#e8dcc8', dark:'#5a3a1e', hoof:'#2a2018', nose:'#2a2018', antlers:true, ears:'up', tail:'white', alt:'#b88a52'},
+  boar:   {L:22, H:11, W:9, leg:7, lw:2.6, neck:1, nk:0, hl:9, hh:7, hw:6.5, snout:3.5, body:'#4a3a30', belly:'#3a2e26', dark:'#2a1e18', hoof:'#1a1410', nose:'#5a4a40', disc:true, tusks:true, ridge:true, ears:'up', tail:'thin', alt:'#6a5040'},
+  dog:    {L:16, H:7, W:6, leg:8, lw:2, neck:4, nk:0.7, hl:7, hh:5, hw:4.5, snout:3, body:'#a8763e', belly:'#e0c8a0', dark:'#5a3a1e', hoof:'#3a2a1a', nose:'#1a1410', ears:'flop', tail:'up', alt:'#2a2420'},
+  wolf:   {L:20, H:8, W:7, leg:10, lw:2.2, neck:4, nk:0.5, hl:8, hh:5.5, hw:5, snout:3.5, body:'#7a7a80', belly:'#c8c8cc', dark:'#3a3a40', hoof:'#2a2a2e', nose:'#141418', ears:'up', tail:'bushy', alt:'#5a524a'},
+  cat:    {L:11, H:5, W:4.5, leg:5, lw:1.4, neck:2, nk:0.7, hl:4, hh:4, hw:4.2, snout:1, body:'#7a7a82', belly:'#c8c8cc', dark:'#3a3a42', hoof:'#3a3a42', nose:'#e8a0a8', stripes:true, ears:'point', tail:'cat', alt:'#d8883a'},
+  rabbit: {L:8, H:6, W:5, leg:2, lw:1.5, neck:1, nk:0.5, hl:4, hh:4, hw:3.6, snout:1, body:'#a8987e', belly:'#e8e0d0', dark:'#6a5a44', hoof:'#6a5a44', nose:'#e8a0a8', ears:'long', tail:'puff', alt:'#e8e4dc'},
+  chicken:{L:7, H:6, W:5, leg:4, lw:0.7, neck:2, nk:0.9, hl:3, hh:3, hw:2.6, snout:1.2, body:'#f4f0e6', belly:'#e8e2d4', dark:'#d83a2a', hoof:'#e8a030', nose:'#f0a020', biped:true, comb:true, tail:'feathers', alt:'#c87a3a'},
+  bird:   {L:5, H:3, W:3, leg:1, lw:0.4, neck:1, nk:0.5, hl:2.4, hh:2.2, hw:2, snout:1, body:'#5a4a3a', belly:'#b8a890', dark:'#2a2018', hoof:'#e0a030', nose:'#e0a030', flyer:true, tail:'feathers', alt:'#3a5a8a'},
+  fish:   {L:11, H:3.6, W:1.8, fish:true, body:'#8aa0b8', belly:'#e0e8f0', dark:'#4a6078', alt:'#b88a5a'}
 };
 function an3Build(kind, variant){
-  const A = AN3[kind] || AN3.dog, g = lpG(), body = [], legs = [], body2 = variant ? lpShade(A.body, 0.78) : A.body;
-  const H = A.leg + A.h/2;
-  if (A.fish){ body.push(lpPart(g.ico, body2, [0,0,0], [0,0,0], [A.w, A.h, A.len/2])); body.push(lpPart(g.cone, A.spot, [0,0,-A.len*0.55], [-Math.PI/2,0,0], [A.h*0.9, A.len*0.25, 0.02])); }
-  else {
-    body.push(lpPart(A.woolly ? g.ico0 : g.ico, body2, [0,H,0], [0,0,0], [A.w, A.h/2, A.len/2]));
-    if (kind==='cow' && !variant) body.push(lpPart(g.ico0, A.spot, [A.w*0.6, H+0.04, 0.05], [0,0,0], [A.w*0.45, A.h*0.3, A.len*0.2]));
-    const hz = A.len/2 + A.head*0.6, hy = H + A.h*(A.long ? 0.55 : 0.2);
-    if (A.long) body.push(lpPart(g.cyl, body2, [0, H+A.h*0.35, A.len/2], [0.7,0,0], [A.w*0.35, A.h*0.7, A.w*0.35]));
-    body.push(lpPart(g.ico, body2, [0, hy, hz], [0,0,0], [A.head*0.8, A.head*0.85, A.head*1.1]));
-    body.push(lpPart(g.sph, '#101010', [A.head*0.45, hy+A.head*0.3, hz+A.head*0.6], [0,0,0], [0.012,0.012,0.012])); body.push(lpPart(g.sph, '#101010', [-A.head*0.45, hy+A.head*0.3, hz+A.head*0.6], [0,0,0], [0.012,0.012,0.012]));
-    if (A.snout) body.push(lpPart(g.cyl, lpShade(body2,0.85), [0, hy-A.head*0.2, hz+A.head*1.0], [Math.PI/2,0,0], [A.head*0.4, A.head*0.3, A.head*0.35]));
-    if (A.horns) [-1,1].forEach(s=>body.push(lpPart(g.cone, '#e8e0c8', [s*A.head*0.5, hy+A.head*0.8, hz-A.head*0.2], [0,0,s*0.5], [0.02, A.head*0.7, 0.02])));
-    if (A.antlers) [-1,1].forEach(s=>{ body.push(lpPart(g.cyl, '#c8b090', [s*A.head*0.5, hy+A.head*1.3, hz-A.head*0.2], [0,0,s*0.4], [0.012, A.head*1.6, 0.012])); body.push(lpPart(g.cyl, '#c8b090', [s*A.head*0.95, hy+A.head*1.7, hz], [0.5,0,s*1.1], [0.01, A.head*0.9, 0.01])); });
-    if (A.ears) [-1,1].forEach(s=>body.push(lpPart(g.cone, lpShade(body2,0.8), [s*A.head*0.5, hy+A.head*0.85, hz-A.head*0.2], [0,0,s*0.2], [A.head*0.25, A.head*0.5, A.head*0.12])));
-    if (A.longears) [-1,1].forEach(s=>body.push(lpPart(g.cap, body2, [s*A.head*0.35, hy+A.head*1.4, hz-A.head*0.3], [-0.2,0,s*0.15], [A.head*0.18, A.head*0.9, A.head*0.1])));
-    if (A.tusks) [-1,1].forEach(s=>body.push(lpPart(g.cone, '#f0e8d8', [s*A.head*0.3, hy-A.head*0.3, hz+A.head*1.1], [-0.6,0,0], [0.012, 0.05, 0.012])));
-    if (A.beard) body.push(lpPart(g.cone, A.spot, [0, hy-A.head*0.9, hz+A.head*0.3], [Math.PI,0,0], [A.head*0.2, A.head*0.6, A.head*0.2]));
-    if (A.mane) body.push(lpPart(g.box, A.spot, [0, H+A.h*0.75, A.len*0.45], [0.7,0,0], [0.04, A.h*0.7, A.len*0.25]));
-    if (A.tail) body.push(lpPart(g.cyl, A.spot, [0, H+A.h*0.1, -A.len/2-0.05], [-0.6,0,0], [0.02, A.h*0.6, 0.02]));
-    if (A.bird){ body.push(lpPart(g.cone, '#f0a020', [0, hy-0.01, hz+A.head*1.1], [Math.PI/2,0,0], [0.02,0.05,0.02])); body.push(lpPart(g.box, A.spot, [0, hy+A.head*0.9, hz], [0,0,0], [0.015,0.04,0.05])); }
-    if (!A.flyer) [[-1,1],[1,1],[-1,-1],[1,-1]].forEach(([sx,sz])=>legs.push([sx*A.w*0.55, A.leg, sz*A.len*0.32]));
-  }
-  const mat = lpMat(), grp = new THREE.Group(), core = new THREE.Mesh(lpMerge(body), mat); core.castShadow = true; grp.add(core);
-  const legGeo = lpMerge([lpPart(g.cyl, lpShade(A.bird ? '#e0a030' : body2, A.bird ? 1 : 0.7), [0,-A.leg/2,0], [0,0,0], [A.bird?0.008:Math.max(0.018, A.w*0.14), A.leg, A.bird?0.008:Math.max(0.018, A.w*0.14)])]);
-  const legM = legs.map(([x,y,z])=>{ const p = new THREE.Group(); p.position.set(x, y, z); const m = new THREE.Mesh(legGeo, mat); m.castShadow = true; p.add(m); grp.add(p); return p; });
-  let wings = null; if (A.flyer){ const wg = lpMerge([lpPart(g.box, lpShade(body2,0.8), [0.1,0,0], [0,0,0], [0.2,0.01,0.08])]); wings = [-1,1].map(s=>{ const p = new THREE.Group(); p.position.set(0, A.h/2+0.02, 0); const m = new THREE.Mesh(wg, mat); if (s<0) m.scale.x = -1; p.add(m); grp.add(p); return p; }); }
-  grp.userData = {core, legs:legM, wings, kind, h:H, phase:Math.random()*10};
+  const A = AN3[kind] || AN3.dog, r = mapRand(hash(kind+(variant||0)+'an'));
+  const B = (a,x0,y0,z0,x1,y1,z1,hex) => a.push([x0,y0,z0,x1,y1,z1,hex]);
+  const bodyC = variant && A.alt ? A.alt : A.body, bodyD = shade(bodyC,0.82), bodyL = shade(bodyC,1.1);
+  const core = [], head = [], legBoxes = [], L = A.L, H = A.H, W = A.W, y0 = A.leg||0;
+  const grp = new THREE.Group(), mat = voxMat();
+  const mk = (boxes) => { const g = voxGeo(boxes); g.scale(AVOX/VOX, AVOX/VOX, AVOX/VOX); const m = new THREE.Mesh(g, mat); m.castShadow = true; m.receiveShadow = true; return m; };
+  if (A.fish){ B(core, -W/2,-H/2,-L/2, W/2,H/2,L/2, bodyC); B(core, -W/2-0.05,-H/2,-L/2+1, W/2+0.05,-H/6,L/2-1, A.belly); B(core, -0.2,-H*0.9,-L/2-3, 0.2,H*0.9,-L/2, A.dark); B(core, -0.2,H/2,-2, 0.2,H/2+1.6,2, A.dark); B(core, -W/2-0.05,0.3,L/2-2, -W/2,1,L/2-1.2, '#141418'); B(core, W/2,0.3,L/2-2, W/2+0.05,1,L/2-1.2, '#141418');
+    const m = mk(core); grp.add(m); grp.userData = {core:m, head:null, legs:[], wings:null, kind, phase:Math.random()*10}; return grp; }
+  // body with a rounded chest and rump, a lighter belly and a back line
+  B(core, -W/2,y0+1,-L/2+1, W/2,y0+H-1,L/2-1, bodyC);
+  B(core, -W/2+1,y0,-L/2+2, W/2-1,y0+H,L/2-2, bodyC);
+  B(core, -W/2+0.8,y0-0.05,-L/2+3, W/2-0.8,y0+1.2,L/2-3, A.belly);
+  B(core, -W/2+1.2,y0+H-0.3,-L/2+2, W/2-1.2,y0+H+0.3,L/2-3, bodyL);
+  if (A.wool){ for (let k=0;k<40;k++){ const x = (r()-0.5)*W, y = y0+1+r()*(H-1), z = (r()-0.5)*(L-3), s = 1.4+r()*1.2; const sx = Math.abs(x) > W/2-1.5 ? Math.sign(x)*(W/2-0.5) : x; B(core, sx-s/2,y-s/2,z-s/2, sx+s/2,y+s/2,z+s/2, [bodyC, shade(bodyC,0.92), shade(bodyC,1.05)][k%3]); } }
+  if (A.spots && !variant){ for (let k=0;k<6;k++){ const side = k%2 ? 1 : -1, z = -L/2+3+r()*(L-8), y = y0+2+r()*(H-5), s = 3+r()*4; B(core, side>0?W/2-0.2:-W/2-0.1, y, z, side>0?W/2+0.1:-W/2+0.2, y+s*0.7, z+s, A.dark); } B(core, -2,y0+H-0.2,-3, 3,y0+H+0.35,2, A.dark); }
+  if (A.stripes){ for (let k=0;k<5;k++){ const z = -L/2+2+k*2; B(core, -W/2-0.05,y0+H-2.5,z, W/2+0.05,y0+H+0.1,z+0.8, A.dark); } }
+  if (A.ridge){ B(core, -0.8,y0+H,-L/2+3, 0.8,y0+H+1.4,L/2-4, A.dark); for (let k=0;k<6;k++) B(core, -0.5,y0+H+1,-L/2+4+k*2.5, 0.5,y0+H+2+r(),-L/2+5+k*2.5, A.dark); }
+  if (A.udder && !variant) B(core, -2.2,y0-1.6,-L/2+5, 2.2,y0+0.2,-L/2+10, A.nose);
+  // tail
+  const tz = -L/2+0.5, ty = y0+H-2;
+  if (A.tail==='tuft'){ B(core, -0.5,ty-8,tz-1, 0.5,ty,tz, bodyD); B(core, -0.9,ty-10,tz-1.4, 0.9,ty-7.5,tz+0.4, A.dark); }
+  if (A.tail==='long'){ for (let k=0;k<5;k++) B(core, -1.1,ty-2-k*2.2,tz-1.5-Math.min(k,2)*0.8, 1.1,ty+0.4-k*2.2,tz, A.dark); }
+  if (A.tail==='curl'){ B(core, -0.4,ty,tz-1.5, 0.4,ty+0.8,tz, bodyD); B(core, -0.4,ty+0.8,tz-2.2, 0.4,ty+1.8,tz-1.2, bodyD); }
+  if (A.tail==='up'){ B(core, -0.6,ty,tz-1.2, 0.6,ty+1.2,tz, bodyD); B(core, -0.6,ty+1,tz-2.2, 0.6,ty+3.4,tz-1, bodyD); }
+  if (A.tail==='bushy'){ B(core, -1.2,ty-4,tz-3, 1.2,ty+0.5,tz, bodyC); B(core, -1,ty-5.5,tz-3.6, 1,ty-3.5,tz-1.8, A.belly); }
+  if (A.tail==='cat'){ for (let k=0;k<5;k++) B(core, -0.5,ty+k*1.2,tz-1-k*0.5, 0.5,ty+1.3+k*1.2,tz-k*0.5, k>3?A.dark:bodyC); }
+  if (A.tail==='white'){ B(core, -1,ty-1,tz-1.2, 1,ty+1.4,tz, '#f4f0ea'); }
+  if (A.tail==='puff'){ B(core, -1.2,ty-1,tz-1.8, 1.2,ty+1.4,tz, '#f4f0ea'); }
+  if (A.tail==='thin'){ B(core, -0.3,ty-4,tz-0.6, 0.3,ty,tz, A.dark); }
+  if (A.tail==='stub'){ B(core, -1,ty-2,tz-1.2, 1,ty+0.6,tz, bodyC); }
+  if (A.tail==='feathers'){ for (let k=0;k<3;k++) B(core, -1+k*0.7,ty-0.5,tz-2-k*0.3, -0.4+k*0.7,ty+3+k*0.4,tz, k===1?A.dark:bodyD); }
+  if (A.comb){ /* on head below */ }
+  // head on a neck: the head group pivots where the neck meets the shoulders
+  const hl = A.hl, hh = A.hh, hw = A.hw, nk = A.neck, ang = A.nk;
+  const ny = nk*Math.sin(ang*1.2+0.3), nz = nk*Math.cos(ang*1.2+0.3);
+  for (let k=0;k<Math.max(1,Math.round(nk/2));k++){ const t = k/Math.max(1,Math.round(nk/2)); B(head, -hw*0.42,t*ny-1,t*nz-1.5, hw*0.42,t*ny+hh*0.55,t*nz+1.5, bodyC); }
+  const hy = ny - hh*0.35, hz = nz;
+  B(head, -hw/2,hy,hz-hl*0.35, hw/2,hy+hh,hz+hl*0.55, A.darkface ? A.dark : bodyC);
+  B(head, -hw/2+0.5,hy-0.2,hz+hl*0.55-0.5, hw/2-0.5,hy+hh*0.62,hz+hl*0.55+A.snout, A.darkface ? A.dark : (A.nose && A.disc ? bodyC : shade(bodyC,0.95)));
+  B(head, -hw/2+0.7,hy-0.3,hz+hl*0.55+A.snout-0.4, hw/2-0.7,hy+hh*0.45,hz+hl*0.55+A.snout+0.25, A.nose);
+  if (A.disc) B(head, -1.2,hy+0.6,hz+hl*0.55+A.snout+0.2, 1.2,hy+2,hz+hl*0.55+A.snout+0.5, shade(A.nose,0.7));
+  [-1,1].forEach(s=>{ B(head, s*hw/2-(s>0?0.1:-0.1)-0.6*s, hy+hh*0.6, hz+hl*0.2, s*hw/2+(s>0?0.05:-0.05), hy+hh*0.6+1, hz+hl*0.2+1, '#f4f0ea'); B(head, s*hw/2+(s>0?0:-0.1), hy+hh*0.62, hz+hl*0.2+0.3, s*hw/2+(s>0?0.12:0.02), hy+hh*0.62+0.7, hz+hl*0.2+0.8, '#141014'); });
+  const ey = hy+hh, ez = hz-hl*0.1;
+  if (A.ears==='side') [-1,1].forEach(s=>B(head, s>0?hw/2:-hw/2-2.2, ey-1.6, ez-0.6, s>0?hw/2+2.2:-hw/2, ey-0.6, ez+0.8, bodyD));
+  if (A.ears==='up') [-1,1].forEach(s=>B(head, s*hw*0.3-0.8, ey, ez-0.6, s*hw*0.3+0.8, ey+2.4, ez+0.4, bodyD));
+  if (A.ears==='point') [-1,1].forEach(s=>{ B(head, s*hw*0.3-0.9, ey, ez-0.3, s*hw*0.3+0.9, ey+1.2, ez+0.5, bodyD); B(head, s*hw*0.3-0.4, ey+1.2, ez-0.2, s*hw*0.3+0.4, ey+2, ez+0.3, bodyD); });
+  if (A.ears==='flop') [-1,1].forEach(s=>B(head, s>0?hw/2-0.2:-hw/2-1, ey-3.4, ez-0.4, s>0?hw/2+1:-hw/2+0.2, ey+0.2, ez+1.4, bodyD));
+  if (A.ears==='long') [-1,1].forEach(s=>{ B(head, s*hw*0.25-0.6, ey, ez-0.8, s*hw*0.25+0.6, ey+5, ez+0.2, bodyC); B(head, s*hw*0.25-0.3, ey+0.5, ez+0.2, s*hw*0.25+0.3, ey+4.5, ez+0.3, '#e8b0b8'); });
+  if (A.horns && (kind!=='cow' || true)) [-1,1].forEach(s=>{ B(head, s*hw*0.3-0.5, ey, ez-0.5, s*hw*0.3+0.5, ey+1.6, ez+0.5, A.horns); B(head, s*hw*0.3+(A.back?-0.5:s*0.4)-0.4, ey+1.4, ez-(A.back?1.8:0)-0.4, s*hw*0.3+(A.back?0.5:s*1.6)+0.4, ey+2.2, ez-(A.back?0.6:0)+0.4, A.horns); });
+  if (A.antlers && !variant) [-1,1].forEach(s=>{ const bx = s*hw*0.3; B(head, bx-0.4, ey, ez-0.4, bx+0.4, ey+5, ez+0.4, '#c8b090'); B(head, bx+s*0.4-0.3, ey+2.5, ez-0.3, bx+s*2.6+0.3, ey+3.1, ez+0.3, '#c8b090'); B(head, bx-0.3, ey+4.6, ez-1.8, bx+0.3, ey+5.2, ez+0.3, '#c8b090'); B(head, bx+s*2.4-0.3, ey+3, ez-0.3, bx+s*2.4+0.3, ey+4.4, ez+0.3, '#c8b090'); });
+  if (A.tusks) [-1,1].forEach(s=>B(head, s*hw*0.35-0.3, hy+0.5, hz+hl*0.55+A.snout-1, s*hw*0.35+0.3, hy+2.2, hz+hl*0.55+A.snout-0.4, '#f0e8d8'));
+  if (A.beard) B(head, -0.8, hy-2.2, hz+hl*0.4, 0.8, hy+0.2, hz+hl*0.55+0.5, A.dark);
+  if (A.mane){ B(core, -0.9,y0+H-1,L/2-6, 0.9,y0+H+1.2,L/2-1, A.dark); for (let k=0;k<Math.round(nk/2);k++){ const t = k/Math.round(nk/2); B(head, -0.9, t*ny+hh*0.5-0.5, t*nz-2.2, 0.9, t*ny+hh*0.5+1.4, t*nz-0.4, A.dark); } B(head, -1, ey-0.4, ez-1.4, 1, ey+1.2, ez+1.6, A.dark); }
+  if (A.comb){ B(head, -0.35, ey, ez-0.6, 0.35, ey+1.4, ez+1.4, A.dark); B(head, -0.3, hy-1.6, hz+hl*0.4, 0.3, hy, hz+hl*0.55+0.4, A.dark); }
+  // legs (two for birds): each hangs from its pivot, with a darker hoof, paw or foot
+  const legPos = A.biped ? [[-W*0.22, 0],[W*0.22, 0]] : [[-W/2+A.lw*0.6, L/2-A.lw-1.5],[W/2-A.lw*0.6, L/2-A.lw-1.5],[-W/2+A.lw*0.6, -L/2+A.lw+1.5],[W/2-A.lw*0.6, -L/2+A.lw+1.5]];
+  const legBx = []; const lw = A.lw, lh = A.leg;
+  if (!A.flyer){ B(legBx, -lw/2,-lh*0.55,-lw/2, lw/2,0.8,lw/2, A.biped ? A.hoof : bodyC); B(legBx, -lw*0.42,-lh+1,-lw*0.42, lw*0.42,-lh*0.5,lw*0.42, A.biped ? A.hoof : bodyD); B(legBx, -lw/2-0.05,-lh,-lw/2-0.05, lw/2+0.05,-lh+1.2,lw/2+(A.biped?1.5:0.3), A.hoof); }
+  const legGeo = legBx.length ? (()=>{ const g = voxGeo(legBx); g.scale(AVOX/VOX, AVOX/VOX, AVOX/VOX); return g; })() : null;
+  const coreM = mk(core); grp.add(coreM);
+  const headG = new THREE.Group(); headG.position.set(0, (y0+H-2)*AVOX, (L/2-2)*AVOX); const headM = mk(head); headG.add(headM); grp.add(headG);
+  const legs = legGeo ? legPos.map(([x,z])=>{ const p = new THREE.Group(); p.position.set(x*AVOX, y0*AVOX+0.01, z*AVOX); const m = new THREE.Mesh(legGeo, mat); m.castShadow = true; p.add(m); grp.add(p); return p; }) : [];
+  let wings = null; if (A.flyer){ const wb = [[0,-0.2,-1.6, 5,0.3,1.6, bodyD]]; const wg = voxGeo(wb); wg.scale(AVOX/VOX, AVOX/VOX, AVOX/VOX); wings = [-1,1].map(s=>{ const p = new THREE.Group(); p.position.set(s*W/2*AVOX, (y0+H*0.8)*AVOX, 0); const m = new THREE.Mesh(wg, mat); if (s<0) m.scale.x = -1; p.add(m); grp.add(p); return p; }); }
+  grp.userData = {core:coreM, head:headG, legs, wings, kind, h:y0+H, leg:y0, phase:Math.random()*10};
   return grp;
 }
 function r3Animals(ts, dark){
@@ -221,8 +334,8 @@ function r3Animals(ts, dark){
     U.legs.forEach((l,i)=>{ l.rotation.x = moving ? Math.sin(ph + (i%2?Math.PI:0) + (i>1?Math.PI/2:0))*0.6*speed*0.6 : 0; });
     if (U.wings){ const flap = Math.sin(ts/60 + U.phase)*0.9; U.wings[0].rotation.z = flap; U.wings[1].rotation.z = -flap; g.position.y = 2.2 + Math.sin(ts/700 + U.phase)*0.4; }
     const graze = !moving && !night && !U.wings && ['cow','sheep','goat','horse','deer','rabbit'].includes(a.kind) && Math.sin(ts/1500+U.phase)>0;
-    U.core.rotation.x = graze ? 0.25 : 0; U.core.position.y = moving ? Math.abs(Math.sin(ph))*0.02*speed : 0;
-    if (night && !U.wings && a.kind!=='chicken'){ g.scale.y = 0.72; U.legs.forEach(l=>l.visible = false); } else { g.scale.y = 1; U.legs.forEach(l=>l.visible = true); }
+    if (U.head) U.head.rotation.x += ((graze ? 0.75 : 0) - U.head.rotation.x)*0.1; U.core.position.y = moving ? Math.abs(Math.sin(ph))*0.02*speed : 0;
+    if (night && !U.wings && a.kind!=='chicken'){ g.position.y = -(U.leg||0)*AVOX*0.9; U.legs.forEach(l=>l.visible = false); if (U.head) U.head.rotation.x = 0.35; } else U.legs.forEach(l=>l.visible = true);
     g.visible = true;
   });
   for (const [k,g] of R3.an3) if (!seen.has(k)){ lpDispose(g); R3.an3.delete(k); }

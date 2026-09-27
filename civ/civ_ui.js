@@ -76,14 +76,67 @@ function civRenderEconomy(){
 function civRenderLand(){
   const C = S.civ, cats = {};
   Object.values(C.structs).forEach(s=>{ const D = STRUCTURES[s.def]; (cats[D.cat] = cats[D.cat] || []).push(s); });
-  const projs = Object.values(C.projects).map(p=>`<div style="font-size:12px">🏗️ <b>${esc(STRUCTURES[p.def].label)}</b> for ${esc(civOwnerLabel(p.owner))} · materials ${civBar(civProjectMatFrac(p)*100)} · work ${civBar(p.done/p.labor*100,100,'#f2c14e')} ${Object.entries(p.need).map(([g,q])=>`${CG[g]?CG[g].name.toLowerCase():g} ${Math.floor(p.have[g]||0)}/${q}`).join(', ')}</div>`).join('') || '<span class="muted">Nothing under construction</span>';
-  const deps = C.deposits.filter(d=>d.known || d.suspected).map(d=>`<div style="font-size:12px">${d.known?'⛏️':'❓'} ${esc(MIN[d.min].label)}${d.known?` · ${Math.round(d.left)} units · depth ${d.depth} · purity ${Math.round(d.purity*100)}%`:' (a seep; nobody knows its use)'} · ${d.claim?`claimed by ${esc(civOwnerLabel(d.claim.who))}${d.claim.registered?' (registered)':''}`:'unclaimed'}${d.mine?' · mined':''}</div>`).join('') || '<span class="muted">Nothing found yet. The ground keeps its secrets.</span>';
+  const projs = Object.values(C.projects).map(p=>`<div style="font-size:12px">🏗️ <b><a ${locAttr(p.x,p.y,p.w,p.h,STRUCTURES[p.def].label)}>${esc(STRUCTURES[p.def].label)}</a></b> for ${esc(civOwnerLabel(p.owner))} · materials ${civBar(civProjectMatFrac(p)*100)} · work ${civBar(p.done/p.labor*100,100,'#f2c14e')} ${Object.entries(p.need).map(([g,q])=>`${CG[g]?CG[g].name.toLowerCase():g} ${Math.floor(p.have[g]||0)}/${q}`).join(', ')}</div>`).join('') || '<span class="muted">Nothing under construction</span>';
+  const deps = C.deposits.filter(d=>d.known || d.suspected).map(d=>`<div style="font-size:12px">${d.known?'⛏️':'❓'} <a ${locAttr(d.x,d.y,1,1,MIN[d.min].label)}>${esc(MIN[d.min].label)}</a>${d.known?` · ${Math.round(d.left)} units · depth ${d.depth} · purity ${Math.round(d.purity*100)}%`:' (a seep; nobody knows its use)'} · ${d.claim?`claimed by ${esc(civOwnerLabel(d.claim.who))}${d.claim.registered?' (registered)':''}`:'unclaimed'}${d.mine?' · mined':''}</div>`).join('') || '<span class="muted">Nothing found yet. The ground keeps its secrets.</span>';
   const an = {}; C.animals.forEach(a=>{ an[a.kind] = (an[a.kind]||0)+1; });
   $('p-land').innerHTML = `<h2>Land & building</h2>
+    <p class="muted" style="font-size:12px;margin:2px 0 6px">Click any building, site or find to show it on the map.</p>
     <div class="card"><b>Under construction</b>${projs}</div>
-    ${Object.entries(cats).map(([cat, list])=>`<div class="card"><b>${esc(cat[0].toUpperCase()+cat.slice(1))} (${list.length})</b>${list.slice(0,30).map(s=>`<div style="font-size:12px">${esc(s.name)} <span class="muted">· ${esc(STRUCTURES[s.def].label)} · ${esc(civOwnerLabel(s.owner))} · ${civBar(s.cond)}${civMoneyOn()?` · ${s.value}¢`:''}${s.forSale?' · for sale':''}${s.status!=='active'?' · '+s.status:''}${STRUCTURES[s.def].farm&&s.meta?` · ${s.meta.stage}${s.meta.crop?' '+s.meta.crop:''}`:''}</span></div>`).join('')}</div>`).join('')}
+    ${Object.entries(cats).map(([cat, list])=>`<div class="card"><b>${esc(cat[0].toUpperCase()+cat.slice(1))} (${list.length})</b>${list.slice(0,60).map(s=>`<div style="font-size:12px"><a ${locAttr(s.x,s.y,s.w,s.h,s.name)}>${esc(s.name)}</a> <span class="muted">· ${esc(STRUCTURES[s.def].label)} · ${esc(civOwnerLabel(s.owner))} · ${civBar(s.cond)}${civMoneyOn()?` · ${s.value}¢`:''}${s.forSale?' · for sale':''}${s.status!=='active'?' · '+s.status:''}${STRUCTURES[s.def].farm&&s.meta?` · ${s.meta.stage}${s.meta.crop?' '+s.meta.crop:''}`:''}</span></div>`).join('')}</div>`).join('')}
     <div class="card"><b>Resources found</b>${deps}</div>
     <div class="card"><b>Animals kept</b> ${Object.entries(an).map(([k,v])=>`<span class="chip">${esc(ANIMAL_KINDS[k]?ANIMAL_KINDS[k].label:k)} ×${v}</span>`).join('')||'<span class="muted">none</span>'}<br><span class="muted" style="font-size:12px">Wild game left: ${C.eco.cells.reduce((a,e)=>a+e.g,0)} · trees felled: ${C.stats.trees_felled||0} · trail tiles worn: ${Object.keys(C.trail).length} · road tiles: ${Object.keys(C.roads).length}</span></div>`;
+  wireLocate($('p-land'));
+}
+// ---------- resources: everything the settlement has, where it is kept, and how it is changing ----------
+function civResourceTotals(){
+  const C = S.civ, where = {hh:{}, commons:{}, biz:{}}, tot = {};
+  const add = (bucket, st) => { for (const g in st){ if (!CG[g]) continue; bucket[g] = (bucket[g]||0) + st[g]; tot[g] = (tot[g]||0) + st[g]; } };
+  Object.values(C.hh).forEach(h=>add(where.hh, h.store)); add(where.commons, C.commons); Object.values(C.orgs).forEach(o=>{ if (o.stock) add(where.biz, o.stock); });
+  const need = S.citizens.reduce((a,c)=>a + (isAdult(c)?90:62), 0) || 1;
+  const foodPts = CIV_FOODS.reduce((a,g)=>a + (tot[g]||0)*CG[g].food, 0);
+  const cap = Object.values(C.hh).reduce((a,h)=>a + hhCap(h), 0) + civStructsOf(x=>STRUCTURES[x.def].store && x.status==='active').reduce((a,x)=>a + STRUCTURES[x.def].store, 0);
+  const used = Object.values(C.hh).reduce((a,h)=>a + storeUnits(h.store), 0) + storeUnits(C.commons);
+  const dom = {}; C.animals.forEach(a=>{ dom[a.kind] = (dom[a.kind]||0)+1; });
+  const eco = C.eco ? C.eco.cells.reduce((a,e)=>({game:a.game+e.g, gcap:a.gcap+e.gcap, fish:a.fish+e.fish, fishcap:a.fishcap+e.fishcap, forage:a.forage+e.f, fcap:a.fcap+e.fcap, small:a.small+(e.small||0)}), {game:0,gcap:0,fish:0,fishcap:0,forage:0,fcap:0,small:0}) : null;
+  let trees = 0; for (let y=Y0; y<Y0+MH; y++) for (let x=X0; x<X0+MW; x++) if (tileAt(x,y)===T.TREE) trees++;
+  const deps = C.deposits.filter(d=>d.known);
+  return {where, tot, need, foodPts, foodDays: foodPts/need, cap, used, dom, eco, trees, deps, mined: deps.reduce((a,d)=>a + Math.max(0, (d.size||0) - (d.left||0)), 0)};
+}
+function civResSnapshot(){
+  const R = civResourceTotals(), t = R.tot, C = S.civ;
+  C.resHist = (C.resHist || []).concat({d:civDay(), food:+R.foodDays.toFixed(1), wood:Math.round(t.wood||0), stone:Math.round(t.stone||0), animals:C.animals.length, game:R.eco ? R.eco.game : 0, trees:R.trees, spoiled:Math.round(C.spoiledDay||0)}).slice(-52);
+}
+function civRenderResources(){
+  const C = S.civ, R = civResourceTotals(), t = R.tot, n = v => v>=100 ? Math.round(v).toLocaleString() : (+v.toFixed(1)).toString();
+  const H = C.resHist || [], sp = k => H.length>1 ? sparkline(H.map(x=>x[k])) : '';
+  const row = (g, extra) => `<tr><td>${esc(CG[g].name)}</td><td class="num">${n(t[g]||0)}</td><td class="num muted">${n(R.where.hh[g]||0)}</td><td class="num muted">${n(R.where.commons[g]||0)}</td><td class="num muted">${n(R.where.biz[g]||0)}</td>${extra!=null?`<td class="num">${extra}</td>`:''}</tr>`;
+  const table = (goods, head, extra) => goods.length ? `<table class="tbl" style="width:100%;font-size:12px"><tr><th>${head}</th><th class="num">total</th><th class="num">homes</th><th class="num">common</th><th class="num">firms</th>${extra?`<th class="num">${extra[0]}</th>`:''}</tr>${goods.map(g=>row(g, extra ? extra[1](g) : null)).join('')}</table>` : '<span class="muted">none</span>';
+  const foods = CIV_FOODS.filter(g=>t[g]>0.05).sort((a,b)=>(t[b]*CG[b].food)-(t[a]*CG[a].food));
+  const byCat = cat => CIV_GOODS.filter(g=>g.cat===cat && t[g.id]>0.05).map(g=>g.id).sort((a,b)=>t[b]-t[a]);
+  const storeTechs = Object.keys(TECHS).filter(k=>TECHS[k].store);
+  const days = R.foodDays, dcol = days<3 ? 'No' : days<10 ? '' : 'Yes';
+  const D = C.dist || {}, DT = C.distTot || {};
+  const anim = Object.entries(R.dom).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<span class="chip">${esc(ANIMAL_KINDS[k]?ANIMAL_KINDS[k].label:k)} ×${v}</span>`).join('') || '<span class="muted">none kept yet</span>';
+  const E = R.eco, pct = (a,b) => b ? Math.round(a/b*100) : 0;
+  $('p-res').innerHTML = `<h2>Resources</h2>
+    <div class="card"><b>Food</b> <span class="${dcol}">${n(days)} days</span> for ${S.citizens.length} people ${sp('food')}
+      <div style="font-size:12px;margin:4px 0">Storage ${civBar(R.used, R.cap||1, R.used>R.cap?'#e06c5a':'#7fd1ae')} ${n(R.used)} / ${n(R.cap)} units · spoiled yesterday: <b>${n(C.spoiledDay||0)}</b> units · saved by storage know-how so far: ${n(C.storeSaved||0)}</div>
+      ${table(foods, 'Food', ['person-days', g=>n((t[g]||0)*CG[g].food/85)])}</div>
+    <div class="card"><b>Keeping food</b><div style="font-size:12px">${storeTechs.map(k=>{ const T0 = TECHS[k], st = C.tech[k], kn0 = st ? st.knowers : 0; const what = Object.entries(T0.store).map(([g,f])=>`${g==='all'?'all food':(CG[g]?CG[g].name.toLowerCase():g)} ×${f}`).join(', ');
+        return `<div>${kn0 ? '✅' : '🔒'} <b>${esc(T0.label)}</b> <span class="muted">· ${kn0 ? `${kn0} know it` : 'not yet worked out'} · keeps ${esc(what)} longer</span></div>`; }).join('')}
+      <div class="muted" style="margin-top:4px">A household keeps food longer for every technique one of its adults knows; the common store uses whatever anyone in the settlement knows. People discover these by cooking, gathering, farming and herding, especially when food is rotting, or by research, and pass them on by talking and teaching.</div></div></div>
+    <div class="card"><b>Sharing food</b><div style="font-size:12px">Yesterday: ${D.needy||0} households were short · ${D.helped||0} were helped · ${D.shared||0} meals shared by kin and friends · ${D.rations||0} rations from the common store · ${D.donated||0} meals of spare perishables given away before they spoiled<br><span class="muted">Since the start: ${DT.shared||0} meals shared · ${DT.rations||0} rations · ${DT.donated||0} donated. Daily ration allowance ${C.rationCap}.</span></div></div>
+    <div class="card"><b>Animals</b> <span class="muted" style="font-size:12px">${C.animals.length} kept ${sp('animals')}</span><div>${anim}</div>
+      ${E?`<div style="font-size:12px;margin-top:4px">Wild game ${civBar(E.game, E.gcap||1, '#c8a060')} ${E.game} of ~${E.gcap} ${sp('game')} · small game ~${E.small}<br>Fish ${civBar(E.fish, E.fishcap||1, '#5a9ad8')} ${pct(E.fish,E.fishcap)}% of the river's stock · Wild plants ${civBar(E.forage, E.fcap||1, '#6ab04a')} ${pct(E.forage,E.fcap)}%</div>`:''}</div>
+    <div class="card"><b>Land</b><div style="font-size:12px">Trees standing: <b>${R.trees.toLocaleString()}</b> ${sp('trees')} · felled so far: ${C.stats.trees_felled||0}</div></div>
+    <div class="card"><b>Building materials</b> ${sp('wood')}${table(byCat('material'), 'Material')}</div>
+    <div class="card"><b>Ores & minerals</b>${table(byCat('ore'), 'Ore')}
+      <div style="font-size:12px;margin-top:4px">${R.deps.length ? R.deps.map(d=>`<div>⛏️ <a ${locAttr(d.x,d.y,1,1,MIN[d.min].label)}>${esc(MIN[d.min].label)}</a> <span class="muted">· ${Math.round(d.left)} units left${d.size?` of ${Math.round(d.size)}`:''}${d.mine?' · being mined':''}</span></div>`).join('') : '<span class="muted">No deposits found yet.</span>'}
+      ${R.mined ? `<div class="muted">Dug out so far: ${n(R.mined)} units</div>` : ''}</div></div>
+    <div class="card"><b>Energy</b>${table(byCat('energy'), 'Fuel')}</div>
+    <div class="card"><b>Made goods</b>${table(byCat('crafted').concat(byCat('token')), 'Goods')}</div>
+    <div class="card"><b>Water</b> <span style="font-size:12px">${n(t.water||0)} jars stored in homes</span></div>`;
+  wireLocate($('p-res'));
 }
 // ---------- government ----------
 function civRenderGov(){
@@ -136,6 +189,7 @@ function civRenderTab(t, force){
   if (t==='people' && (force || (!$('pList').matches(':hover') && document.activeElement.id!=='pq'))) civRenderPeople();
   if (t==='market' && (force || !$('p-market').matches(':hover'))) civRenderEconomy();
   if (t==='land' && (force || !$('p-land').matches(':hover'))) civRenderLand();
+  if (t==='res' && (force || !$('p-res').matches(':hover'))) civRenderResources();
   if (t==='laws' && (force || !$('p-laws').matches(':hover'))) civRenderGov();
   if (t==='soc' && (force || !$('p-soc').matches(':hover'))) civRenderSociety();
   if (t==='justice' && (force || !$('p-justice').matches(':hover'))) civRenderJustice();

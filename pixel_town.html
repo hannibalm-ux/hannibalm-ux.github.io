@@ -71,6 +71,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .bar{height:7px;background:#0d0e16;border-radius:3px;overflow:hidden;margin:2px 0 6px}
 .bar i{display:block;height:100%}
 .needs{display:grid;grid-template-columns:70px 1fr 34px;gap:0 8px;font-size:12px;align-items:center}
+.loc{cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px}.loc:hover{color:#ffd24a}.loc::after{content:' 📍';font-size:10px;opacity:.7}
 .chip{display:inline-block;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:1px 8px;margin:2px 3px 2px 0;font-size:12px}
 .law{border:1px solid var(--line);border-left:4px solid var(--accent-2);border-radius:4px;padding:8px 10px;margin-bottom:8px;background:var(--panel-2);font-size:14px}
 .law.pending{border-left-color:var(--accent)}
@@ -129,6 +130,7 @@ a{color:var(--link)}
       <button data-p="people">People</button>
       <button data-p="market">Market</button>
       <button data-p="land">Land</button>
+      <button data-p="res">Resources</button>
       <button data-p="laws">Gov</button>
       <button data-p="soc">Society</button>
       <button data-p="justice">Justice</button>
@@ -140,6 +142,7 @@ a{color:var(--link)}
     <div class="panel" id="p-people"><div id="pAdd"></div><div id="pList"></div></div>
     <div class="panel" id="p-market"></div>
     <div class="panel" id="p-land"></div>
+    <div class="panel" id="p-res"></div>
     <div class="panel" id="p-laws"></div>
     <div class="panel" id="p-soc"></div>
     <div class="panel" id="p-justice"></div>
@@ -490,8 +493,11 @@ const SURNAMES = ['Barley','Cobb','Dunmore','Fairweather','Gale','Hartley','Iron
 const TRAITS = ['Frugal','Generous','Greedy','Ambitious','Lazy','Hardworking','Gossip','Shy','Charismatic','Stubborn','Honest','Cunning','Romantic','Cautious','Reckless'];
 const CLASH = {Frugal:'Generous',Generous:'Greedy',Lazy:'Hardworking',Hardworking:'Lazy',Shy:'Charismatic',Charismatic:'Shy',Cautious:'Reckless',Reckless:'Cautious',Honest:'Cunning',Cunning:'Honest',Greedy:'Generous'};
 const VALUES = ['Prosperity','Community','Tradition','Freedom','Order','Nature','Craftsmanship','Family'];
-const SKINS = ['#f3d2b3','#e8b890','#d8a070','#c08858','#9a6440','#74482c'];
-const HAIRS = ['#1e1618','#3a2a1a','#5a3a22','#8a5a2a','#c8702a','#e0c070','#9a9aa0','#d8d8d8','#7a2a2a','#2a2a3a'];
+// skin tones run light to dark (children can blend between their parents' tones)
+const SKINS = ['#fbe3cf','#f3d2b3','#eec3a0','#e8b890','#e0aa80','#d8a070','#c99468','#c08858','#aa7450','#9a6440','#86553a','#74482c','#5e3a24','#4a2c1c'];
+// natural hair colours first (HAIR_NATURAL of them), then grey and white
+const HAIRS = ['#1e1618','#2a2a3a','#3a2a1a','#4a3222','#5a3a22','#6e4a2a','#8a5a2a','#a06a36','#c8702a','#b8502a','#7a2a2a','#d8a860','#e0c070','#f0dca0','#9a9aa0','#d8d8d8'];
+const HAIR_NATURAL = 14;
 const STYLES = ['short','long','bun','pony','curly','spiky','bald'];
 const PROF_BIO = {
   Farmer:'Works the big wheatfields south of the square', Rancher:'Keeps the cows, sheep, pigs and chickens in the west pasture', Butcher:'Breaks the rancher\'s animals down into cuts at the Hock & Cleaver',
@@ -1444,6 +1450,17 @@ const POP_CAP = 110, BUILD_DAYS = 4;
 const isAdult = c => c.age>=16 && c.profession!=='Child';
 const alive = id => { const c=cById(id); return c && !c.dead ? c : null; };
 const surnameOf = c => c.name.split(' ').slice(1).join(' ') || c.name;
+// a woman who marries adds her spouse's surname to her own with a hyphen (Ada Reed-Cobb); divorce restores her birth name
+const birthSurnameOf = c => c.maiden || surnameOf(c);
+function marriedName(x, spouse){
+  if (genderOf(x)!=='F') return;
+  const first = x.name.split(' ')[0], own = birthSurnameOf(x), theirs = birthSurnameOf(spouse).split('-')[0];
+  if (!own || !theirs || own===theirs || own.includes('-')) return;
+  const old = x.name; x.maiden = own; x.name = `${first} ${own}-${theirs}`;
+  if (typeof ART!=='undefined' && ART.people) delete ART.people[x.id];
+  return old;
+}
+function restoreBirthName(x){ if (!x.maiden) return; x.name = `${x.name.split(' ')[0]} ${x.maiden}`; delete x.maiden; }
 
 // ---------- properties ----------
 // what can be built on a plot; homes house people, businesses make money
@@ -1865,7 +1882,7 @@ function perk(kind){ return (kind==='fish' && claimed('t_south')) ? 0.8 : (kind=
 // ---------- people: births, growing up, deaths, arrivals, departures ----------
 function uniqueId(base){ let id=base, k=2; while (CBY[id]) id = base+'_'+(k++); return id; }
 function randomTraits(r, n, lean){ const t = lean ? [lean] : []; while (t.length<n){ const x=TRAITS[Math.floor(r()*TRAITS.length)]; if (!t.includes(x) && !t.includes(CLASH[x])) t.push(x); } return t; }
-function lookForChild(r, skin, hair, style){ const shirts=['#e84a4a','#3a8ac8','#f2c14e','#6ab04a','#b06ad8','#e88a3a']; return {skin, hair, style: style==='bald'?'short':style, beard:false, shirt:shirts[Math.floor(r()*shirts.length)], pants:'#4a5a8a', hat:null, apron:null, bib:false, stains:false, coat:null, trim:r()<0.5, boots:'#6a4028'}; }
+function lookForChild(r, skin, hair, style){ const shirts=['#e84a4a','#3a8ac8','#f2c14e','#6ab04a','#b06ad8','#e88a3a','#3ab0a0','#d85a8a','#8ac83a','#5a6ad8','#c8a060','#e8e0c0']; return {skin, hair, style: style==='bald'?'short':style, beard:false, shirt:shirts[Math.floor(r()*shirts.length)], pants:'#4a5a8a', hat:null, apron:null, bib:false, stains:false, coat:null, trim:r()<0.5, boots:'#6a4028'}; }
 function births(){
   const d = dayOf(S.minute);
   S.citizens.slice().forEach(a=>{
@@ -2315,7 +2332,7 @@ function endLovers(a, b, why){
 function divorce(a, b, why){
   a.partner=null; b.partner=null; if (S.relStats) S.relStats.divorces++;
   [[a,b],[b,a]].forEach(([x,y])=>{ const r=getRel(x,y.id); r.tags=r.tags.filter(t=>t!=='Spouse'); });
-  chronicle(`${a.name} and ${b.name} have divorced${why?` (${why})`:''}.`, 8, '💔', 'romance'); S.week.rels.push(`${a.name} & ${b.name} divorced`);
+  chronicle(`${a.name} and ${b.name} have divorced${why?` (${why})`:''}.`, 8, '💔', 'romance'); [a,b].forEach(restoreBirthName); S.week.rels.push(`${a.name} & ${b.name} divorced`);
   const owns = x => propOf(x.home) && propOf(x.home).owner===x.id;
   const go = owns(a) && !owns(b) ? b : owns(b) && !owns(a) ? a : (a.id<b.id ? b : a);
   const own = propsOf(go).find(p=>p.kind==='home' && p.bid!==go.home && residentsOf(p.bid).length < capOf(LOC[p.bid].b));
@@ -4111,7 +4128,8 @@ function wedding(a,b){
   a.partner=b.id; b.partner=a.id; a.courting=b.courting=null;
   if (S.relStats){ S.relStats.marriages++; [a,b].forEach(x=>{ if (!S.relStats.married.includes(x.id)) S.relStats.married.push(x.id); }); }
   [a,b].forEach(x=>{ const o=x===a?b:a; const r=getRel(x,o.id); r.tags=r.tags.filter(t=>t!=='Crush'); r.tags.push('Spouse','Family'); });
-  chronicle(`Wedding bells! ${a.name} and ${b.name} were married on the town square.`, 10, '💍', 'romance');
+  const was = {}; [a,b].forEach(x=>{ const o = x===a?b:a, old = marriedName(x, o); if (old) was[x.id] = old; });
+  chronicle(`Wedding bells! ${was[a.id]||a.name} and ${was[b.id]||b.name} were married on the town square.${[a,b].filter(x=>was[x.id]).map(x=>` She is now ${x.name}.`).join('')}`, 10, '💍', 'romance');
   S.week.rels.push(`${a.name} & ${b.name} got married`);
   S.citizens.forEach(c=>remember(c, `${a.name} and ${b.name} got married today.`, c===a||c===b?10:4, [a.id,b.id]));
   S.festival = true;
@@ -4942,6 +4960,18 @@ const cam = {x: 26*TILE, y: 22*TILE, z: 2, follow:false, init:false};
 let DPR = Math.min(2, window.devicePixelRatio||1);
 function fitZ(){ return Math.min(cv.width/WW, cv.height/WH); }
 function clampZ(z){ return clamp(z, fitZ(), 8*DPR); }
+// find a building on the map: centre the view on it (tile coordinates) and pulse an outline around it for a few seconds
+function locateOnMap(x, y, w, h, label){
+  if (x==null || y==null) return;
+  w = w||1; h = h||1; cam.follow = false; const f = $('zFollow'); if (f) f.classList.remove('on');
+  cam.x = (x + w/2)*TILE; cam.y = (y + h/2)*TILE;
+  if (typeof R3!=='undefined' && R3.on) R3.dist = clamp(Math.min(R3.dist, 18 + Math.max(w,h)*1.5), 6, 140); else cam.z = clampZ(Math.max(cam.z, 3*DPR));
+  ui.hl = {x, y, w, h, label: label||'', until: performance.now() + 7000};
+  const vw = $('viewWrap'); if (vw && vw.getBoundingClientRect().top < 0 && vw.scrollIntoView) vw.scrollIntoView({behavior:'smooth', block:'start'});
+}
+// clickable names in the side panels: any element with data-loc="x,y,w,h" locates that spot
+function wireLocate(root){ root.querySelectorAll('[data-loc]').forEach(el=>el.onclick = e=>{ e.preventDefault(); const [x,y,w,h] = el.dataset.loc.split(',').map(Number); locateOnMap(x, y, w, h, el.dataset.label || el.textContent); }); }
+const locAttr = (x, y, w, h, label) => `class="loc" data-loc="${x},${y},${w||1},${h||1}" data-label="${esc(label||'')}" title="Show on the map"`;
 function resizeCanvas(){
   DPR = Math.min(2, window.devicePixelRatio||1);
   const r = cv.getBoundingClientRect(); const w=Math.max(200,Math.round(r.width*DPR)), h=Math.max(150,Math.round(r.height*DPR));
@@ -5167,6 +5197,9 @@ function render(frac, ts){
   const fogA = (S.weather==='Fog'?0.4:0) + (h>=4.5&&h<8 ? 0.2*(1-Math.abs(h-6)/2) : 0) + (S.weather==='Rain'?0.06:0);
   if (fogA>0.02){ for (let i=0;i<10;i++){ const fx2=vx+((ts/70 + i*97)%(vw+200))-100, fy2=vy+(i+0.5)*vh/10; const g=ctx.createRadialGradient(fx2,fy2,0,fx2,fy2,90); g.addColorStop(0,`rgba(215,222,235,${fogA})`); g.addColorStop(1,'rgba(215,222,235,0)'); ctx.fillStyle=g; ctx.fillRect(fx2-90,fy2-90,180,180); } }
   if (S.weather==='Storm'){ const k=Math.floor(ts/90); if (k%131===0 || k%131===2){ ctx.fillStyle='rgba(235,240,255,0.45)'; ctx.fillRect(vx,vy,vw,vh); } }
+  if (ui.hl && ui.hl.until > performance.now()){ const H = ui.hl, k = 0.5 + 0.5*Math.sin(ts/180), X = H.x*TILE, Y = H.y*TILE, W = H.w*TILE, Hh = H.h*TILE;
+    ctx.fillStyle = `rgba(255,214,90,${0.12+0.14*k})`; ctx.fillRect(X, Y, W, Hh); ctx.strokeStyle = `rgba(255,220,80,${0.65+0.35*k})`; ctx.lineWidth = Math.max(1, 2.5/z*DPR); ctx.strokeRect(X-2-k*3, Y-2-k*3, W+4+k*6, Hh+4+k*6);
+    ctx.beginPath(); ctx.moveTo(X+W/2, Y-10-k*6); ctx.lineTo(X+W/2-5, Y-18-k*6); ctx.lineTo(X+W/2+5, Y-18-k*6); ctx.closePath(); ctx.fillStyle = '#ffd24a'; ctx.fill(); }
   // screen-space overlays (crisp text)
   ctx.setTransform(1,0,0,1,0,0);
   const now = performance.now();
@@ -5619,6 +5652,23 @@ function frontierPanel(plotsIn){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0">${btns}</div>
     ${exps}${regs?`<h2>Discovered regions</h2>${regs}`:''}${up?`<p class="muted" style="font-size:12px">Frontier upkeep: ${up}¢ a day from the treasury.</p>`:''}`;
 }
+// the classic town's resources: what villagers hold in their pantries and workshops, the herd, the land
+function renderResources(){
+  const tot = {}, holders = {};
+  S.citizens.forEach(c=>{ for (const g in (c.inventory||{})){ if (!GD[g]) continue; tot[g] = (tot[g]||0) + c.inventory[g]; if (c.inventory[g]>0) holders[g] = (holders[g]||0)+1; } });
+  const goods = GOOD_DEFS.filter(g=>g.kind==='Resource');
+  const row = g => `<tr><td>${esc(g.name)}</td><td class="num">${tot[g.id]||0}</td><td class="num muted">${holders[g.id]||0}</td><td class="num muted">${g.perish?g.perish+'d':'keeps'}</td><td class="num">${S.goods[g.id]?S.goods[g.id].price+'¢':''}</td></tr>`;
+  const grp = (title, list) => `<div class="card"><b>${title}</b><table style="width:100%;font-size:12px"><tr><th>Good</th><th class="num">stock</th><th class="num">held by</th><th class="num">keeps</th><th class="num">price</th></tr>${list.map(row).join('')}</table></div>`;
+  const foodUnits = FOODS.reduce((a,g)=>a+(tot[g]||0),0), eaters = S.citizens.length || 1;
+  let trees = 0; for (let y=Y0; y<Y0+MH; y++) for (let x=X0; x<X0+MW; x++) if (tileAt(x,y)===T.TREE) trees++;
+  $('p-res').innerHTML = `<h2>Resources</h2>
+    <div class="card"><b>Food in pantries</b> <span class="${foodUnits/eaters<2?'No':'Yes'}">${foodUnits} portions · about ${(foodUnits/eaters).toFixed(1)} per villager</span><br><span class="muted" style="font-size:12px">${S.citizens.filter(c=>pantrySize(c)===0).length} villagers have an empty pantry.</span></div>
+    ${grp('Food & drink', goods.filter(g=>['Crop','Food','Drink'].includes(g.cat)))}
+    <div class="card"><b>Animals</b> ${Object.entries(S.herd).map(([k,v])=>`<span class="chip">${esc(k[0].toUpperCase()+k.slice(1))} ×${v}</span>`).join('')}</div>
+    ${grp('Timber, ore & livestock', goods.filter(g=>['Timber','Ore','Livestock'].includes(g.cat)))}
+    ${grp('Crafted goods', goods.filter(g=>!['Crop','Food','Drink','Timber','Ore','Livestock'].includes(g.cat)))}
+    <div class="card"><b>Land</b><div style="font-size:12px">Trees standing: <b>${trees.toLocaleString()}</b> · treasury ${S.treasury}¢</div></div>`;
+}
 function renderLand(){
   const plotsIn = t => Object.values(S.props).filter(p=>(p.terr===t.id));
   const terr = TERRITORIES.filter(t=>!t.region).map(t=>{ const ps=plotsIn(t); const own=claimed(t.id); const next = !own && nextTerritory() && nextTerritory().id===t.id;
@@ -5633,7 +5683,8 @@ function renderLand(){
     const canList = p.status!=='construction' && p.status!=='rubble' && (p.kind!=='plot' || claimed(p.terr));
     const canDemo = p.bid && p.status!=='construction' && !PROTECTED.has(p.bid) && LOC[p.bid];
     const kind = p.type && BUILD_TYPES[p.type] ? BUILD_TYPES[p.type].label : p.kind;
-    return `<tr><td>${esc(propName(p))}</td><td>${esc(kind)}</td><td>${esc(ownerName(p.owner))}</td><td class="num">${p.kind==='plot'?'–':res}</td><td class="num">${p.value}¢</td><td>${status}</td><td style="white-space:nowrap">${canList?`<button class="btn" style="padding:1px 6px;font-size:12px" data-sale="${p.id}">${p.forSale?'Unlist':'Sell'}</button>`:''}${canDemo?` <button class="btn" style="padding:1px 6px;font-size:12px" data-demo="${p.id}" title="Tear this building down">🧱</button>`:''}</td></tr>`; }).join('');
+    const g = p.bid && LOC[p.bid] && LOC[p.bid].b ? LOC[p.bid].b : plotOf(p);
+    return `<tr><td>${g ? `<a ${locAttr(g.x, g.y, g.w, g.h, propName(p))}>${esc(propName(p))}</a>` : esc(propName(p))}</td><td>${esc(kind)}</td><td>${esc(ownerName(p.owner))}</td><td class="num">${p.kind==='plot'?'–':res}</td><td class="num">${p.value}¢</td><td>${status}</td><td style="white-space:nowrap">${canList?`<button class="btn" style="padding:1px 6px;font-size:12px" data-sale="${p.id}">${p.forSale?'Unlist':'Sell'}</button>`:''}${canDemo?` <button class="btn" style="padding:1px 6px;font-size:12px" data-demo="${p.id}" title="Tear this building down">🧱</button>`:''}</td></tr>`; }).join('');
   const buildable = Object.values(S.props).filter(p=>p.kind==='plot' && claimed(p.terr) && !p.status || p.kind==='plot' && claimed(p.terr) && p.status==='plot').filter(p=>p.owner==='town').sort((a,b)=>propName(a).localeCompare(propName(b)));
   const bsel = ui.buildType || 'house';
   const builder = `<div class="card"><b>Town builder</b><p class="muted" style="font-size:12px;margin:4px 0">Commission a building on a town-owned plot. The treasury pays, the carpenters build it, and the town owns it: homes are rented to villagers, businesses hire staff and pay the treasury.</p>
@@ -5656,6 +5707,7 @@ function renderLand(){
     demolish(p, 'by order of the town'); saveGame(true); renderLand(); });
   $('p-land').querySelectorAll('[data-sale]').forEach(b=>b.onclick=()=>{ const p=S.props[b.dataset.sale]; if (p.forSale){ p.forSale=false; p.ask=0; } else listProp(p, p.value, 'put up by the town clerk'); renderLand(); });
   $('p-land').querySelectorAll('[data-explore]').forEach(b=>b.onclick=()=>{ const r = launchExpedition(b.dataset.explore, 'player'); if (r.err) alert(r.err); saveGame(true); renderLand(); });
+  wireLocate($('p-land'));
   $('p-land').querySelectorAll('[data-annex]').forEach(b=>b.onclick=()=>{ S.gov.forceAnnex = b.dataset.annex; chronicle(`A petition to annex ${TERRITORIES.find(t=>t.id===b.dataset.annex).name} was filed with the council.`, 5, '📜', 'gov'); renderLand(); });
 }
 function govHeader(){
@@ -5795,6 +5847,7 @@ function renderPanels(force){
   if (t==='weeks' && (force || !ui.weekTs || now-ui.weekTs>5000)) { ui.weekTs=now; if (!$('p-weeks').contains(document.activeElement)) renderWeeks(); }
   if (t==='people' && (force || (!$('pList').matches(':hover') && document.activeElement.id!=='pq'))) renderPeople();
   if (t==='land' && (force || !$('p-land').matches(':hover'))) renderLand();
+  if (t==='res' && (force || !$('p-res').matches(':hover'))) renderResources();
   if (t==='market') renderMarket();
   if (t==='laws' && !$('p-laws').matches(':hover')) renderLaws();
   if (t==='soc' && (force || !$('p-soc').matches(':hover'))) renderSociety();
@@ -6317,8 +6370,21 @@ function r3VolInit(){
   const vs = new THREE.Scene(); vs.add(quad);
   Object.assign(R, {vol:true, volRT:rt, volMat:mat, volScene:vs, volCam:new THREE.OrthographicCamera(-1,1,1,-1,0,1), volSize:new THREE.Vector2()});
 }
+// the locate marker in 3D: a glowing outline on the ground and a beam of light above the building
+function r3Marker(ts){
+  const H = ui.hl, on = H && H.until > performance.now();
+  if (!on){ if (R3.marker) R3.marker.visible = false; return; }
+  if (!R3.marker){ const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({color:'#ffd24a', transparent:true, opacity:0.35, depthWrite:false});
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 14, 8, 1, true), m); beam.position.y = 7; g.add(beam);
+    const ring = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 0.1, 1)), new THREE.LineBasicMaterial({color:'#ffd24a'})); g.add(ring);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.2, 4), new THREE.MeshBasicMaterial({color:'#ffd24a'})); tip.rotation.x = Math.PI; g.add(tip);
+    g.userData = {beam, ring, tip}; R3.scene.add(g); R3.marker = g; }
+  const g = R3.marker, U = g.userData, k = 0.5 + 0.5*Math.sin(ts/180);
+  g.visible = true; g.position.set(H.x + H.w/2, 0.05, H.y + H.h/2);
+  U.ring.scale.set(H.w + 0.4 + k*0.4, 1, H.h + 0.4 + k*0.4); U.tip.position.y = 5 + k*0.8; U.beam.material.opacity = 0.2 + 0.25*k;
+}
 function r3Draw(dark){
-  const R = R3;
+  const R = R3; r3Marker(performance.now());
   if (!R.vol){ R.renderer.render(R.scene, R.camera); return; }
   R.renderer.getDrawingBufferSize(R.volSize);
   if (R.volRT.width!==R.volSize.x || R.volRT.height!==R.volSize.y) R.volRT.setSize(R.volSize.x, R.volSize.y);
