@@ -434,7 +434,7 @@ function spotFor(c,locId){ const L=LOC[locId]; if (!L) return spotFor(c,'loc_tow
 
 // ---------- goods ----------
 const GOOD_DEFS = [
-  {id:'good_wheat',     name:'Wheat',     kind:'Resource', cat:'Crop',    base:3,  floor:1,  ceil:9,   e:0.6, a:0.25, perish:14, by:['Farmer']},
+  {id:'good_wheat',     name:'Wheat',     kind:'Resource', cat:'Crop',    base:3,  floor:1,  ceil:9,   e:0.6, a:0.25, perish:45, by:['Farmer']},
   {id:'good_vegetables',name:'Vegetables',kind:'Resource', cat:'Crop',    base:4,  floor:1,  ceil:12,  e:0.6, a:0.25, perish:5,  by:['Farmer'], need:{hunger:35}},
   {id:'good_timber',    name:'Timber',    kind:'Resource', cat:'Timber',  base:12, floor:4,  ceil:40,  e:0.7, a:0.25, by:['Woodcutter']},
   {id:'good_ore',       name:'Iron Ore',  kind:'Resource', cat:'Ore',     base:10, floor:3,  ceil:35,  e:0.6, a:0.25, by:['Miner']},
@@ -1069,7 +1069,7 @@ function work(c){
   const make = c.profession==='Farmer' ? (hash(c.id+S.minute)%100<60?'good_wheat':'good_vegetables') : P.make;
   const def = GD[make];
   if (P.cap && listed(make) >= P.cap*S.citizens.filter(o=>o.profession===c.profession).length) return;
-  if (listed(make, c.id) >= 24) return;
+  if (listed(make, c.id) >= (make==='good_wheat' && season===2 ? 45 : 24)) return; // at harvest, farmers fill the stores for winter
   if (def.recipe){
     for (const g in def.recipe){
       if ((c.inventory[g]||0) < def.recipe[g]){
@@ -1122,7 +1122,7 @@ function placeName(loc){ const n = LOC[loc] ? LOC[loc].name : 'town'; return n.s
 function romance(a,b){
   const ra=getRel(a,b.id), rb=getRel(b,a.id);
   if (a.partner || b.partner) return;
-  if (ra.tags.includes('Family') || a.age<18 || b.age<18) return;
+  if (ra.tags.includes('Family') || a.age<18 || b.age<18 || !mutual(a, b)) return;
   const romantic = a.traits.includes('Romantic') || b.traits.includes('Romantic');
   const seeking = romantic || a.agenda==='love' || b.agenda==='love' || a.agenda==='family' || b.agenda==='family' || (a.age>=20 && a.age<=50 && hash(a.id+b.id)%5===0);
   if (seeking && ra.affinity>72 && !ra.tags.includes('Crush') && Math.abs(a.age-b.age)<=12){ ra.tags.push('Crush'); chronicle(`${a.name} has a crush on ${b.name}.`, 4, '💘', 'romance'); remember(a,`I think I'm falling for ${b.name}.`,7,[b.id]); }
@@ -1866,7 +1866,7 @@ function births(){
   const d = dayOf(S.minute);
   S.citizens.slice().forEach(a=>{
     const b = a.partner && alive(a.partner); if (!b || a.id>b.id || a.home!==b.home) return;
-    if (a.age<20 || b.age<20 || a.age>45 || b.age>45) return;
+    if (a.age<20 || b.age<20 || !canConceive(a, b)) return;
     const kids = S.citizens.filter(k=>k.parents.includes(a.id) && k.profession==='Child').length;
     if (kids>=3 || residentsOf(a.home).length>=6 || S.citizens.length>=POP_CAP) return;
     const chance = 0.02 * ((a.agenda==='family'||b.agenda==='family') ? 2.5 : 1) * birthDamp() * (a.wallet+b.wallet<60 ? 0.4 : 1);
@@ -1983,7 +1983,7 @@ function arriveNewcomers(){
   const roll = r();
   const group = [];
   const lead = makeCitizen(newcomerDef(r, sur, {})); group.push(lead);
-  if (roll>0.65){ const sp = makeCitizen(newcomerDef(r, sur, {agenda: r()<0.5?lead.agenda:null, age: clamp(lead.age+Math.floor(r()*10)-5,19,70)})); sp.partner=lead.id; lead.partner=sp.id; group.push(sp);
+  if (roll>0.65){ const sp = makeCitizen(newcomerDef(r, sur, {agenda: r()<0.5?lead.agenda:null, age: clamp(lead.age+Math.floor(r()*10)-5,19,70)})); matchSpouse(lead, sp, r); sp.partner=lead.id; lead.partner=sp.id; group.push(sp);
     [[lead,sp],[sp,lead]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=85; R.trust=.9; R.tags=['Spouse','Family']; });
     if (roll>0.85 && lead.age<45){ const kr=mapRand(hash(lead.id+'kid')); const kd=newcomerDef(kr, sur, {age:4+Math.floor(kr()*10), prof:'Child'}); kd.prof='Child'; kd.agenda=null; kd.wallet=0; kd.look=lookForChild(kr, lead.look.skin, sp.look.hair, 'short'); kd.parents=[lead.id,sp.id]; kd.bio=`Moved to Pixel Town with ${lead.name} and ${sp.name}.`; const kid=makeCitizen(kd); group.push(kid);
       [lead,sp].forEach(p=>{ p.kids.push(kid.id); const R=getRel(p,kid.id); R.affinity=90; R.tags=['Family']; const R2=getRel(kid,p.id); R2.affinity=90; R2.tags=['Family']; }); } }
@@ -2211,13 +2211,91 @@ function teamsOf(c, kind){ return S.teams.filter(t=>t.active && t.members.includ
 function teamById(ownerId){ return S.teams.find(t=>'team:'+t.id===ownerId); }
 function disband(t, why){ t.active=false; if (why) chronicle(`The ${t.name} ${why}.`, 4, '🫂', 'society'); }
 
+
+// ---------- gender, orientation and adoption ----------
+// Gender follows the name (unisex names are settled once, by chance). Most villagers are drawn to the other
+// sex, some to their own, a few to both. Only a woman and a man can conceive; anyone can adopt.
+const NAME_GENDER = {
+  F:['Bea','Elsie','Gwen','Ivy','Nell','Posy','Rosa','Tamsin','Vera','Yara','Briar','Cora','Edda','Isla','Mabel','Orla','Una','Juniper','Hazel','Clover','Fern','Sorrel','Agnes','Delphine','Florence','Lila','Mara','Ada','Wren','Greta','Iris'],
+  M:['Alden','Dorian','Fenn','Hal','Jory','Milo','Otto','Silas','Ulric','Zeke','Arlo','Dell','Flint','Jasper','Nico','Perrin','Tobin','Moss','Basil','Rook','Barnaby','Cedric','Emmett','Oren','Finn','Tobias','Hugo','Bram','Pell']};
+function nameGender(first){ return NAME_GENDER.F.includes(first) ? 'F' : NAME_GENDER.M.includes(first) ? 'M' : null; }
+function genderOf(c){ if (!c.gender){ c.gender = nameGender(c.name.split(' ')[0]) || (c.look && c.look.beard ? 'M' : hash(c.id+'g')%2 ? 'F' : 'M'); if (c.gender==='F' && c.look) c.look.beard = false; } return c.gender; }
+function orientationOf(c){ if (!c.orient){ const h = hash(c.id+'o')%100; c.orient = h<88 ? 'straight' : h<94 ? 'gay' : 'bi'; } return c.orient; }
+function drawnTo(a, b){ const o = orientationOf(a), same = genderOf(a)===genderOf(b); return o==='bi' || (o==='gay' ? same : !same); }
+// about one villager in seven is the kind who would ever stray; everyone else stays faithful however tempted
+function prone(c){ if (c.prone==null){ let p = hash(c.id+'fid')%100 - (c.traits.includes('Romantic')?8:0) - (c.traits.includes('Reckless')?8:0) + (c.traits.includes('Honest')?20:0) + (c.values.includes('Family')?10:0); c.prone = p < 22; } return c.prone; }
+// someone who has strayed before waits a long while, and is less and less likely to do it again
+function strayOk(c){ return !c.strayDay || dayOf(S.minute)-c.strayDay > 120; }
+function strained(a, b){ return hash([a.id,b.id].sort().join('~')+'strain')%100 < 34; }
+function mutual(a, b){ return drawnTo(a, b) && drawnTo(b, a); }
+function canConceive(a, b){ if (genderOf(a)===genderOf(b)) return false; const w = genderOf(a)==='F' ? a : b, m = w===a ? b : a; return w.age>=18 && w.age<=45 && m.age>=18 && m.age<=62; }
+function firstNameFor(g, r){ const pool = FIRST_NAMES.filter(n=>{ const x = nameGender(n); return !x || x===g; }); return pool[Math.floor(r()*pool.length)]; }
+const GENDER_WORD = {F:'woman', M:'man'}, ORIENT_WORD = {straight:{F:'drawn to men', M:'drawn to women'}, gay:{F:'drawn to women', M:'drawn to men'}, bi:{F:'drawn to women and men', M:'drawn to women and men'}};
+// give everyone a gender and orientation that fits the couples already in town (old saves included)
+// a partner who arrives with someone is someone they are drawn to (and who is drawn to them)
+function matchSpouse(a, sp, r){
+  const g = genderOf(a), o = orientationOf(a), other = g==='F' ? 'M' : 'F';
+  const want = o==='gay' ? g : o==='straight' ? other : (r()<0.7 ? other : g);
+  if (genderOf(sp)!==want){ sp.name = `${firstNameFor(want, r)} ${sp.name.split(' ').slice(1).join(' ')}`; sp.gender = want; if (want==='F' && sp.look) sp.look.beard = false; }
+  sp.orient = orientationOf(sp)==='bi' ? 'bi' : want===g ? 'gay' : 'straight';
+}
+function genderInit(fresh){
+  indexCitizens();
+  if (fresh){ // a brand-new town: most of the founding couples are a woman and a man
+    const used = new Set(S.citizens.map(c=>c.name.split(' ')[0]));
+    S.citizens.forEach(a=>{ const b = a.partner && alive(a.partner); if (!b || a.id>b.id || CIT_DEFS.some(d=>d.id===b.id)) return; genderOf(a); genderOf(b);
+      if (genderOf(a)===genderOf(b) && hash(a.id+b.id)%100 < 85){ const g = genderOf(a)==='F' ? 'M' : 'F', pool = FIRST_NAMES.filter(n=>nameGender(n)===g && !used.has(n)); if (!pool.length) return;
+        const n = pool[hash(b.id)%pool.length]; used.add(n); b.name = `${n} ${b.name.split(' ').slice(1).join(' ')}`; b.gender = g; if (g==='F') b.look.beard = false; } }); }
+  S.relStats = S.relStats || {marriages:0, divorces:0, affairs:0, cheaters:[], married:[], adoptions:0};
+  S.citizens.forEach(c=>{ genderOf(c); orientationOf(c); });
+  // spouses are fitted first; someone who also has a lover of the other sex is bisexual
+  const fixed = new Set();
+  const fit = (a, b)=>{ if (!b || mutual(a,b)) { fixed.add(a.id); if (b) fixed.add(b.id); return; } const same = genderOf(a)===genderOf(b); [a,b].forEach(x=>{ if (!drawnTo(x, x===a?b:a)) x.orient = fixed.has(x.id) ? 'bi' : same ? 'gay' : 'straight'; fixed.add(x.id); }); };
+  S.citizens.forEach(a=>{ const b = a.partner && alive(a.partner); if (b) fit(a, b); });
+  S.citizens.forEach(a=>{ loversOf(a).forEach(id=>fit(a, alive(id))); if (a.courting && alive(a.courting)) fit(a, alive(a.courting)); });
+  S.citizens.forEach(c=>{ if (c.partner && !S.relStats.married.includes(c.id)){ S.relStats.married.push(c.id); if (c.id < c.partner) S.relStats.marriages++; } });
+}
+function adoptionDaily(){
+  if (S.citizens.length >= POP_CAP) return;
+  const orphans = S.citizens.filter(k=>k.profession==='Child' && !k.parents.some(id=>alive(id)));
+  S.citizens.slice().forEach(a=>{
+    const b = a.partner && alive(a.partner); if (!b || a.id>b.id || a.home!==b.home) return;
+    const kids = S.citizens.filter(k=>k.profession==='Child' && (k.parents.includes(a.id)||k.parents.includes(b.id))).length;
+    if (kids>=2 || a.age<24 || b.age<24 || a.age>54 || b.age>54) return;
+    const fertile = canConceive(a,b);
+    if (fertile && (kids>0 || Math.max(a.age,b.age)<38)) return; // couples who can have their own usually do
+    const want = (a.agenda==='family'||b.agenda==='family' ? 2 : 0) + (a.values.includes('Family')?1:0) + (b.values.includes('Family')?1:0) + (fertile?0:1) + (kids?0:0.5);
+    if (want<1.5 || residentsOf(a.home).length>=6 || a.wallet+b.wallet<60) return;
+    if (rnd() >= 0.003*want*birthDamp()*(orphans.length?2:1)) return;
+    adopt(a, b, orphans.shift() || null);
+  });
+}
+function adopt(a, b, kid){
+  const d = dayOf(S.minute);
+  if (kid){ kid.parents = [a.id, b.id]; kid.home = a.home; kid.bio += ` Adopted by ${a.name} and ${b.name} on ${fmtDate(d)}.`; }
+  else { const r = mapRand(hash(a.id+b.id+'adopt'+d)), g = r()<0.5 ? 'F' : 'M';
+    const kd = newcomerDef(r, surnameOf(a), {age:1+Math.floor(r()*9), prof:'Child'}); kd.prof = 'Child'; kd.agenda = null; kd.wallet = 0;
+    kd.name = `${firstNameFor(g, r)} ${surnameOf(a)}`; kd.id = uniqueId('cit_'+kd.name.toLowerCase().replace(/[^a-z]+/g,'_')); kd.home = a.home; kd.parents = [a.id, b.id];
+    kd.look = lookForChild(r, SKINS[Math.floor(r()*SKINS.length)], HAIRS[Math.floor(r()*HAIRS.length)], STYLES[Math.floor(r()*STYLES.length)]); kd.bio = `Adopted from the orphanage in the capital by ${a.name} and ${b.name} on ${fmtDate(d)}.`;
+    kid = makeCitizen(kd); kid.gender = g; kid.rt.x=kid.rt.ox=LOC[a.home].door[0]; kid.rt.y=kid.rt.oy=LOC[a.home].door[1];
+    S.citizens.push(kid); kid.plan = buildPlan(kid, d); const fee = Math.min(40, a.wallet); a.wallet -= fee; }
+  [a,b].forEach(p=>{ const R=getRel(p,kid.id); R.affinity=85; R.trust=.9; R.tags=['Family']; const R2=getRel(kid,p.id); R2.affinity=75; R2.trust=.8; R2.tags=['Family']; if (!p.kids.includes(kid.id)) p.kids.push(kid.id);
+    remember(p, `We adopted ${kid.name.split(' ')[0]} today.`, 10, [kid.id]); setEmotion(p,'Joyful',DAY); feel(p,'love',0.3); });
+  S.citizens.filter(k=>k!==kid && k.profession==='Child' && k.parents.some(x=>kid.parents.includes(x))).forEach(sib=>{ getRel(sib,kid.id).tags=['Family']; getRel(sib,kid.id).affinity=55; getRel(kid,sib.id).tags=['Family']; getRel(kid,sib.id).affinity=55; });
+  indexCitizens(); S.relStats.adoptions++;
+  chronicle(`${a.name} and ${b.name} adopted ${kid.name.split(' ')[0]}, ${kid.age<2?'a baby':`a ${kid.age}-year-old`}${kid.bio.includes('orphanage')?' from the orphanage in the capital':' who had lost their parents'}.`, 8, '🏡', 'family');
+  S.week.births.push(`${kid.name} (adopted by ${a.name} & ${b.name})`);
+}
+
 // ---------- romance: lovers, affairs, divorce and children ----------
 function loversOf(c){ const out=[]; for (const id in c.rel) if (c.rel[id].tags.includes('Lover') && alive(id)) out.push(id); return out; }
 function attraction(a, b){ return ((hash([a.id,b.id].sort().join('~'))%100)/100)*0.6 + (a.values.some(v=>b.values.includes(v))?0.15:0) + Math.max(0, 0.25 - Math.abs(a.age-b.age)/60); }
-function canRomance(a, b){ return a.age>=18 && b.age>=18 && isAdult(a) && isAdult(b) && Math.abs(a.age-b.age)<=15 && !peekRel(a,b.id).tags.includes('Family') && !a.parents.includes(b.id) && !b.parents.includes(a.id); }
+function canRomance(a, b){ return a.age>=18 && b.age>=18 && isAdult(a) && isAdult(b) && mutual(a, b) && Math.abs(a.age-b.age)<=15 && !peekRel(a,b.id).tags.includes('Family') && !a.parents.includes(b.id) && !b.parents.includes(a.id); }
 function becomeLovers(a, b, secret){
   [[a,b],[b,a]].forEach(([x,y])=>{ const r=getRel(x,y.id); if (!r.tags.includes('Lover')) r.tags.push('Lover'); if (secret && !r.tags.includes('Secret')) r.tags.push('Secret'); r.tags=r.tags.filter(t=>t!=='Rival'); feel(x,'love',0.4); });
   if (secret){
+    [a,b].forEach(x=>{ if (x.partner){ x.strayed = (x.strayed||0)+1; x.strayDay = dayOf(S.minute); } });
+    if (S.relStats){ S.relStats.affairs++; [a,b].forEach(x=>{ if (x.partner && !S.relStats.cheaters.includes(x.id)) S.relStats.cheaters.push(x.id); }); }
     S.secrets.push({id:'sec_'+(++S.secretSeq), kind:'affair', who:[a.id,b.id], day:dayOf(S.minute), heat:0, exposed:false, text:`${a.name} and ${b.name} are having an affair`});
     [a,b].forEach(x=>{ const o=x===a?b:a; remember(x, `${o.name} and I have been seeing each other in secret.`, 8, [o.id]); think(x, x.partner ? `Nobody can find out about ${lead(o)}.` : `I hope ${lead(o)} leaves them for me.`); });
   } else {
@@ -2230,7 +2308,7 @@ function endLovers(a, b, why){
   if (why) { chronicle(`${a.name} and ${b.name} split up (${why}).`, 4, '💔', 'romance'); [a,b].forEach(x=>feel(x,'sadness',0.3,`It is over with ${lead(x===a?b:a)}.`)); }
 }
 function divorce(a, b, why){
-  a.partner=null; b.partner=null;
+  a.partner=null; b.partner=null; if (S.relStats) S.relStats.divorces++;
   [[a,b],[b,a]].forEach(([x,y])=>{ const r=getRel(x,y.id); r.tags=r.tags.filter(t=>t!=='Spouse'); });
   chronicle(`${a.name} and ${b.name} have divorced${why?` (${why})`:''}.`, 8, '💔', 'romance'); S.week.rels.push(`${a.name} & ${b.name} divorced`);
   const owns = x => propOf(x.home) && propOf(x.home).owner===x.id;
@@ -2272,7 +2350,7 @@ function romanceDaily(){
       const secret = ra.tags.includes('Secret');
       // unmarried lovers may have a child together
       const kids = S.citizens.filter(k=>k.profession==='Child' && (k.parents.includes(a.id)||k.parents.includes(b.id))).length;
-      if (a.age<=45 && b.age<=45 && kids<4 && S.citizens.length<POP_CAP && rnd() < (secret?0.003:0.005)*birthDamp()){
+      if (canConceive(a, b) && kids<4 && S.citizens.length<POP_CAP && rnd() < (secret?0.003:0.005)*birthDamp()){
         const home = residentsOf(a.home).length<=residentsOf(b.home).length ? a.home : b.home;
         makeBaby(a, b, home, 'lovers');
         if (secret){ const s = S.secrets.find(x=>x.kind==='affair' && !x.exposed && x.who.includes(a.id) && x.who.includes(b.id)); if (s) expose(s, null, 'the baby gave them away'); }
@@ -2288,6 +2366,12 @@ function romanceDaily(){
     const sharp = spouses.reduce((m,sp)=>Math.max(m, mindOf(sp).wit), 0);
     if (spouses.length && rnd() < 0.01 + s.heat*0.01 + sharp*0.02) expose(s, spouses[0], 'a spouse found out');
   });
+  // some marriages are a poor match and slowly sour; the rest settle and recover from bad patches
+  S.citizens.forEach(a=>{ const b = a.partner && alive(a.partner); if (!b || a.id>b.id) return;
+    const ra = getRel(a,b.id), rb = getRel(b,a.id);
+    if (strained(a,b)){ const d0 = ra.strainFrom ?? (ra.strainFrom = dayOf(S.minute) + 15 + hash(a.id+b.id+'onset')%100), cap = 85 - (dayOf(S.minute)-d0)*2; ra.affinity = Math.max(-20, Math.min(ra.affinity, cap)); rb.affinity = Math.max(-20, Math.min(rb.affinity, cap+8));
+      if (ra.affinity<45 && !ra.tags.includes('Strained')){ ra.tags.push('Strained'); rb.tags.push('Strained'); chronicle(`${a.name} and ${b.name} have been quarrelling a lot lately.`, 4, '💢', 'romance'); [a,b].forEach(x=>remember(x, `${(x===a?b:a).name} and I can't seem to stop arguing.`, 7, [(x===a?b:a).id])); } }
+    else { if (ra.affinity<70) ra.affinity = Math.min(70, ra.affinity + 0.3); if (rb.affinity<70) rb.affinity = Math.min(70, rb.affinity + 0.3); } });
   // unhappy marriages end
   S.citizens.forEach(a=>{ const b = a.partner && alive(a.partner); if (!b || a.id>b.id) return;
     if (peekRel(a,b.id).affinity<5 && peekRel(b,a.id).affinity<15 && rnd()<0.08) divorce(a,b,'they could not stand each other any longer'); });
@@ -2890,7 +2974,7 @@ function socialize(c){
   if (cogOf(c).mems.some(x=>x.imp>=5 && S.minute-x.t<5*DAY)) opts.push(['news', 1.2 + (ra.affinity>40?0.6:0)]);
   if (m.griev.length && c.politics.civicEngagement>0.3) opts.push(['politics', 0.6 + c.politics.civicEngagement + m.emo.anger]);
   const sch = schemeOf(c); if (sch && !sch.members.includes(o.id) && !ILLEGAL.has(sch.kind)) opts.push(['recruit', 2.5]);
-  if (canRomance(c,o) && (!c.partner || c.partner===o.id || loversOf(c).includes(o.id) || peekRel(c,c.partner).affinity<45 || c.traits.includes('Romantic')) && attraction(c,o)>0.45) opts.push(['flirt', 0.6 + attraction(c,o)*2 + (m.goal&&m.goal.key==='love'?1.5:0) + m.emo.love]);
+  if (canRomance(c,o) && (!c.partner || c.partner===o.id || loversOf(c).includes(o.id) || peekRel(c,c.partner).affinity<45 || prone(c)) && attraction(c,o)>0.45) opts.push(['flirt', 0.6 + attraction(c,o)*2 + (m.goal&&m.goal.key==='love'?1.5:0) + m.emo.love]);
   if (c.wallet<25 && ra.affinity>40 && o.wallet>150 && !m.debts[o.id] && isAdult(c)) opts.push(['borrow', 2]);
   if (m.debts[o.id] && c.wallet>m.debts[o.id]+60) opts.push(['repay', 4]);
   if (rival && c.personality.agreeableness>0.55 && m.emo.anger<0.25) opts.push(['apologize', 1.5]);
@@ -2915,10 +2999,10 @@ function socialize(c){
       const both = peekRel(c,o.id).affinity>72 && peekRel(o,c.id).affinity>68 && back>0.6 && att>0.5;
       if (both && !loversOf(c).includes(o.id) && c.partner!==o.id){
         const married = (c.partner && c.partner!==o.id) || (o.partner && o.partner!==c.id);
-        if (!married && !loversOf(c).length && !loversOf(o).length && (c.courting===o.id || rnd()<0.15)) becomeLovers(c,o,false);
-        else if (married && !loversOf(c).length && !loversOf(o).length){ const weak = x => !x.partner || peekRel(x,x.partner).affinity<40 || x.traits.includes('Romantic') || x.traits.includes('Reckless');
+        if (!married && !loversOf(c).length && !loversOf(o).length && (c.courting===o.id || rnd()<0.06)) becomeLovers(c,o,false);
+        else if (married && !loversOf(c).length && !loversOf(o).length){ const weak = x => !x.partner || prone(x) || peekRel(x,x.partner).affinity<40;
           const restraint = (c.traits.includes('Honest')?0.5:0) + c.personality.conscientiousness*0.5 + (c.values.includes('Family')?0.3:0);
-          if (weak(c) && weak(o) && rnd() < 0.05*(1.2-restraint)) becomeLovers(c,o,true); } }
+          if ((!c.partner || prone(c)) && (!o.partner || prone(o)) && weak(c) && weak(o) && strayOk(c) && strayOk(o) && rnd() < 0.25*(1.2-restraint)*Math.pow(0.35, (c.strayed||0)+(o.strayed||0))) becomeLovers(c,o,true); } }
       break; }
     case 'borrow': { const amt = 20 + Math.floor(mindOf(o).wit*0) + (hash(c.id+o.id)%3)*10; if (o.traits.includes('Frugal') && rnd()<0.6 || o.traits.includes('Greedy')){ remember(c, `${o.name} refused to lend me money.`, 5, [o.id]); delta-=3; feel(c,'shame',0.1); break; }
       o.wallet-=amt; c.wallet+=amt; m.debts[o.id]=amt; remember(c, `${o.name} lent me ${amt}¢. I have to pay it back.`, 6, [o.id]); remember(o, `I lent ${c.name} ${amt}¢.`, 4, [c.id]); delta+=2; bub('¢'); break; }
@@ -2963,6 +3047,25 @@ function pursueGoals(){
 }
 
 // ---------- the daily society step ----------
+// the town granary: the council buys up cheap surplus grain at harvest and hands out rations when food runs short
+function granaryBuy(){
+  const G = S.granary = S.granary || {grain:0, bought:0, given:0, open:false};
+  const st = S.goods.good_wheat, n = S.citizens.length;
+  if (G.grain >= n*10 || S.treasury < 250 || st.price > GD.good_wheat.base+1 || listed('good_wheat') < n*0.8) return;
+  let want = Math.min(60, Math.round(listed('good_wheat') - n*0.5), n*10 - G.grain), got = 0, paid = 0;
+  S.listings.filter(l=>l.g==='good_wheat' && l.qty>0).sort((a,b)=>a.at-b.at).forEach(l=>{ if (want<=0 || S.treasury < st.price+200) return; const q = Math.min(l.qty, want); const seller = alive(l.seller);
+    l.qty -= q; want -= q; got += q; const cost = q*st.price; S.treasury -= cost; paid += cost; if (seller){ seller.wallet += cost; today(seller).inc += cost; } });
+  if (got){ G.grain += got; G.bought += got; if (!G.lastNote || dayOf(S.minute)-G.lastNote > 10){ G.lastNote = dayOf(S.minute); S.week.society.push(`the town granary bought ${got} sacks of surplus wheat (${paid}¢); it now holds ${G.grain}`); } }
+}
+function granaryRations(){
+  const G = S.granary; if (!G || G.grain<=0) return;
+  const hungry = S.citizens.filter(c=>c.needs.hunger<40 && !c.away && !c.jail).sort((a,b)=>(a.profession==='Child'?-1:0)-(b.profession==='Child'?-1:0) || a.needs.hunger-b.needs.hunger);
+  if (hungry.length < Math.max(3, S.citizens.length*0.04)){ if (G.open && !hungry.length) G.open = false; return; }
+  let given = 0; for (const c of hungry){ if (G.grain<=0) break; G.grain--; given++; applyNeeds(c, {hunger:40}); }
+  G.given += given;
+  if (!G.open){ G.open = true; chronicle(`Food is running short, so the council opened the town granary and is handing out rations of porridge and bread (${G.grain} sacks left).`, 7, '🌾', 'gov');
+    publicEvent({type:'granary', text:'The council opened the granary to feed the hungry.', topics:{council:0.3, relief:0.3}, imp:5, kind:'gov', at:'loc_town_square', r:10}); }
+}
 // in a food crisis a merchant sends for a caravan of grain and bread down the King's Road, at a price
 function foodCaravan(){
   const n = S.citizens.length, d = dayOf(S.minute);
@@ -3003,7 +3106,7 @@ function societyDaily(){
   institutionsDaily();
   teamsDaily();
   policeDaily();
-  justiceDaily(); theftDaily(); foodCaravan(); frontierDaily();
+  justiceDaily(); theftDaily(); foodCaravan(); frontierDaily(); adoptionDaily(); granaryBuy();
   // keep saves small: only the latest laws keep their full roll-call of votes
   if (d%7===1) S.gov.proposals.slice(0,-12).forEach(p=>{ if (p.votes && p.votes.length) p.votes=[]; });
 }
@@ -3980,7 +4083,7 @@ function dayStarted(){
     if (c.sick) c.sick++;
     if (c.sick>4){ c.sick=0; remember(c,'I finally shook off that illness on my own.',4); }
     if (!c.sick && rnd() < (season===3?0.03:0.015)){ c.sick=1; chronicle(`${c.name} woke up sick.`, 3, '🤒', 'health'); remember(c,'I woke up feeling awful.',5); }
-    if (c.courting && cById(c.courting) && !cById(c.courting).dead && peekRel(c,c.courting).affinity>=85 && S.minute-c.courtingSince > 10*DAY && c.id<c.courting && cById(c.courting).courting===c.id) wedding(c, cById(c.courting));
+    if (c.courting && cById(c.courting) && !cById(c.courting).dead && peekRel(c,c.courting).affinity>=85 && S.minute-c.courtingSince > 21*DAY && c.id<c.courting && cById(c.courting).courting===c.id) wedding(c, cById(c.courting));
   });
   lifeDaily();
   landDaily();
@@ -4000,6 +4103,7 @@ function repairBridge(){
 }
 function wedding(a,b){
   a.partner=b.id; b.partner=a.id; a.courting=b.courting=null;
+  if (S.relStats){ S.relStats.marriages++; [a,b].forEach(x=>{ if (!S.relStats.married.includes(x.id)) S.relStats.married.push(x.id); }); }
   [a,b].forEach(x=>{ const o=x===a?b:a; const r=getRel(x,o.id); r.tags=r.tags.filter(t=>t!=='Crush'); r.tags.push('Spouse','Family'); });
   chronicle(`Wedding bells! ${a.name} and ${b.name} were married on the town square.`, 10, '💍', 'romance');
   S.week.rels.push(`${a.name} & ${b.name} got married`);
@@ -4055,6 +4159,7 @@ function simTick(){
   if (mod===16*60+55) resolveMatch(); if (mod===17*60+50) resolveProtests();
   if (S.justice){ if (mod===14*60) startTrials(); if (mod===16*60) verdicts(); }
   if (mod===10*60) frontierReturns();
+  if (mod===7*60+30 || mod===12*60 || mod===18*60+30) granaryRations();
 }
 
 // ---------- weekly log ----------
@@ -5264,6 +5369,7 @@ function inspector(c){
   const plan = c.plan ? c.plan.blocks.map((b,i)=>`<tr style="${i===c.rt.blockIdx?'color:var(--accent)':''}"><td>${fmtClock(b.s)}</td><td>${esc(b.act)}</td><td>${esc(b.note)}</td></tr>`).join('') : '';
   const inc=weekSum(c,'inc'), exp=weekSum(c,'exp');
   return `<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">${esc(c.name)}, ${c.age}</h2><button class="btn ${cam.follow?'on':''}" id="followBtn">${cam.follow?'Following':'Follow on map'}</button></div>
+    <p style="margin:6px 0">${genderOf(c)==='F'?'♀':'♂'} ${isAdult(c) ? `${GENDER_WORD[genderOf(c)]}, ${ORIENT_WORD[orientationOf(c)][genderOf(c)]}` : (genderOf(c)==='F'?'girl':'boy')}${c.parents.length && (c.bio||'').includes('Adopted') ? ' · adopted' : ''}</p>
     <p style="margin:6px 0"><b>${esc(profLabel(c.profession))}</b> · ${esc(LOC[c.home]?LOC[c.home].name:'no fixed home')}${c.work&&LOC[c.work]&&c.work!==WORKPLACE[c.profession]?` · works at ${esc(LOC[c.work].name)}`:''}. ${esc(c.bio)}</p>
     ${c.cls&&isAdult(c)?`<p style="margin:4px 0;font-size:13px">💎 Class: <b style="color:${CLASS_COL[c.cls]}">${c.cls==='Upper'?'Upper class':c.cls==='Middle'?'Middle class':c.cls}</b> · net worth ${c.worth!=null?c.worth:netWorth(c)}¢ (cash plus property)</p>`:''}
     <p class="muted" style="font-size:13px;margin:4px 0">Now: ${esc(doingText(c))}</p>
@@ -5398,7 +5504,11 @@ function parseTemplates(text){
     const rivals = parseList(o.rivals).map(n=>{ const c=findC(n); if (!c) warnings.push(`No villager called "${n}" (rivals).`); return c; }).filter(Boolean);
     let partner = o.partner ? findC(o.partner) : null; if (o.partner && !partner) warnings.push(`No villager called "${o.partner}" (partner).`); if (partner && partner.partner){ warnings.push(`${partner.name} is already married.`); partner=null; }
     let wit = null; if (o.intelligence){ const w = String(o.intelligence).toLowerCase(); wit = {genius:0.95, brilliant:0.9, clever:0.75, smart:0.75, sharp:0.7, average:0.5, simple:0.3, slow:0.2}[w.trim()] ?? parseFloat(w); if (isNaN(wit)){ warnings.push(`Intelligence "${o.intelligence}" not understood; using the default.`); wit=null; } else wit = clamp(wit>1?wit/100:wit, 0.05, 0.97); }
-    const def = {name, age, prof, traits, values, agenda, p, pol, wallet, wit, bio: o.bio || `Arrived in Pixel Town with a story still untold.`, look: lookFor(prof, mapRand(hash(name)), skin, hair, style, beard), friends, rivals, partner};
+    const gw = String(o.gender||o.sex||'').trim().toLowerCase(), gender = /^(f|female|woman|girl)$/.test(gw) ? 'F' : /^(m|male|man|boy)$/.test(gw) ? 'M' : null;
+    if (gw && !gender) warnings.push(`Gender "${o.gender||o.sex}" not recognised; it will follow the name.`);
+    const ow = String(o.orientation||'').trim().toLowerCase(), orient = /^(straight|hetero)/.test(ow) ? 'straight' : /^(gay|lesbian|homo)/.test(ow) ? 'gay' : /^(bi|pan)/.test(ow) ? 'bi' : null;
+    if (ow && !orient) warnings.push(`Orientation "${o.orientation}" not recognised (use straight, gay or bi).`);
+    const def = {name, age, prof, traits, values, agenda, p, pol, wallet, wit, gender, orient, bio: o.bio || `Arrived in Pixel Town with a story still untold.`, look: lookFor(prof, mapRand(hash(name)), skin, hair, style, beard), friends, rivals, partner};
     return {def, errors, warnings};
   });
 }
@@ -5406,6 +5516,8 @@ function addTemplateCitizen(def){
   const d = Object.assign({}, def, {id: uniqueId('cit_'+def.name.toLowerCase().replace(/[^a-z]+/g,'_'))});
   const c = makeCitizen(d);
   if (def.wit!=null) mindOf(c).wit = +def.wit.toFixed(2);
+  if (def.gender){ c.gender = def.gender; if (c.gender==='F') c.look.beard = false; } else genderOf(c); if (def.orient) c.orient = def.orient; else orientationOf(c);
+  if (def.partner && !def.partner.partner && !mutual(c, def.partner) && !def.orient){ c.orient = genderOf(c)===genderOf(def.partner) ? 'gay' : 'straight'; }
   if (def.partner && !def.partner.partner){ c.partner=def.partner.id; def.partner.partner=c.id; [[c,def.partner],[def.partner,c]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=85; R.trust=.9; R.tags=['Spouse','Family']; }); }
   def.friends.forEach(f=>{ [[c,f],[f,c]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=55; R.trust=.65; R.tags=['Friend']; }); });
   def.rivals.forEach(f=>{ [[c,f],[f,c]].forEach(([x,y])=>{ const R=getRel(x,y.id); R.affinity=-50; R.trust=.2; R.tags=['Rival']; }); });
@@ -5419,7 +5531,7 @@ function citizenToTemplate(c){
   const agenda = c.agenda ? AGENDAS[c.agenda].label : '';
   const P = c.personality, Q = c.politics;
   const tagged = t => Object.entries(c.rel).filter(([id,r])=>r.tags.includes(t) && alive(id)).map(([id])=>cById(id).name).join(', ');
-  return [`name: ${c.name}`, `age: ${c.age}`, `profession: ${c.profession}`, `traits: ${c.traits.join(', ')}`, `values: ${c.values.join(', ')}`, `agenda: ${agenda}`, `wallet: ${c.wallet}`, `intelligence: ${mindOf(c).wit}`,
+  return [`name: ${c.name}`, `age: ${c.age}`, `gender: ${genderOf(c)==='F'?'female':'male'}`, `orientation: ${orientationOf(c)}`, `profession: ${c.profession}`, `traits: ${c.traits.join(', ')}`, `values: ${c.values.join(', ')}`, `agenda: ${agenda}`, `wallet: ${c.wallet}`, `intelligence: ${mindOf(c).wit}`,
     `personality: openness ${P.openness}, conscientiousness ${P.conscientiousness}, extraversion ${P.extraversion}, agreeableness ${P.agreeableness}, neuroticism ${P.neuroticism}`,
     `politics: economic ${Q.economicLeaning}, order ${Q.orderLeaning}, civic ${Q.civicEngagement}`,
     `skin: ${c.look.skin}`, `hair: ${c.look.hair}`, `hairstyle: ${c.look.style}`, `beard: ${c.look.beard?'yes':'no'}`,
@@ -5558,7 +5670,13 @@ function renderSociety(){
   const hearts = `<p style="font-size:13px">💍 ${couples.length} married couples · 💗 ${lovers.filter(x=>!x.secret).length} open lovers · 🔒 ${lovers.filter(x=>x.secret).length} secret affairs</p>
     ${lovers.map(x=>`<div class="vote">${x.secret?'🔒':'💗'} ${nm(x.a)} & ${nm(x.b)}${x.secret?' <span class="muted">(secret: only you know)</span>':''}</div>`).join('')}`;
   const crimes = S.crimes.length ? S.crimes.slice(0,10).map(x=>`<div class="vote"><span class="muted">Day ${x.day+1}</span> ${x.caught?'🚨':'❓'} ${esc(x.text)} <span class="muted">· ${x.caught?`caught: ${x.who.map(nm).join(', ')}`:'unsolved'}</span></div>`).join('') : '<p class="muted">No crimes so far.</p>';
-  $('p-soc').innerHTML = `<h2>The newspapers</h2>${news}
+  const RS = S.relStats || {marriages:0, divorces:0, cheaters:[], married:[], adoptions:0};
+  const mcouples = S.citizens.filter(c=>c.partner && c.id<c.partner && alive(c.partner)), sameSex = mcouples.filter(c=>genderOf(c)===genderOf(alive(c.partner))).length;
+  const adults = S.citizens.filter(isAdult), women = adults.filter(c=>genderOf(c)==='F').length;
+  const rel = `<h2>Love &amp; family</h2><div class="law" style="font-size:14px">💍 ${mcouples.length} married couples now${sameSex?` (${sameSex} same-sex)`:''} · ${RS.marriages} marriages recorded<br>
+    💔 ${RS.divorces} divorces: <b>${Math.round(RS.divorces/Math.max(1,RS.marriages)*100)}%</b> of marriages · 🤫 <b>${Math.round(RS.cheaters.length/Math.max(1,RS.married.length)*100)}%</b> of married villagers have strayed<br>
+    🏡 ${RS.adoptions} adoptions · ♀ ${women} women and ♂ ${adults.length-women} men among the adults</div>`;
+  $('p-soc').innerHTML = `${rel}<h2>The newspapers</h2>${news}
     <h2>What the town needs</h2><p class="muted" style="font-size:12px">Villagers notice gaps from their own lives (bored people see the need for music, parents see the need for a teacher) and clever ones see the whole town. Unhappy or poorly paid villagers switch careers to fill them.</p>${needHtml}
     <h2>Movements &amp; schemes</h2><p class="muted" style="font-size:12px">When the council won't fix what angers them, villagers act on their own: protests, strikes, boycotts, recall petitions, citizens' initiatives, new institutions, and, for the less scrupulous, bribes, black markets, squatting and sabotage. 🔒 marks what is still secret.</p>
     ${act.map(schRow).join('')||'<p class="muted">Nothing brewing right now.</p>'}${done.length?`<details><summary class="muted" style="cursor:pointer">Recent outcomes (${done.length})</summary>${done.map(schRow).join('')}</details>`:''}
@@ -6336,7 +6454,7 @@ function boot(){
   const sv = loadGame();
   let upgraded = false;
   if (sv){
-    S = sv.state; RNG.s = S.rng || 1; S.bubbles = []; upgradeV3(S); frontierInit(); fixPropTypes(); applyWorldChanges(); fixPropTypes(); indexCitizens();
+    S = sv.state; RNG.s = S.rng || 1; S.bubbles = []; upgradeV3(S); frontierInit(); genderInit(); fixPropTypes(); applyWorldChanges(); fixPropTypes(); indexCitizens();
     clock.speed = sv.clock.speed||1; clock.paused = !!sv.clock.paused;
     clock.gameAnchor = S.minute; clock.realAnchor = Date.now();
     if (!clock.paused){
@@ -6346,7 +6464,7 @@ function boot(){
     } else if (!S.world.seen){ S.world.seen = 1; whatsNew(); }
   } else {
     upgraded = !!store.get(OLD_SAVE_KEY); store.del(OLD_SAVE_KEY);
-    S = newState(); S.bubbles = []; frontierInit(); S.world.seen = 1; indexCitizens();
+    S = newState(); S.bubbles = []; frontierInit(); genderInit(true); S.world.seen = 1; indexCitizens();
     openWeek(); S.weather='Clear';
     S.citizens.forEach(c=>{ c.plan = buildPlan(c, 0); });
     chronicle('Pixel Town is founded. Fifty villagers wake up to their first spring morning.', 7, '🏡', 'founding');

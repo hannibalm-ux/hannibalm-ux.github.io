@@ -5,7 +5,7 @@ Use this format to add new villagers to Pixel Town. Open the town page, go to **
 - One villager per block. Separate villagers with a line containing only `---`.
 - Only `name` is required. Anything you leave out gets a sensible default.
 - Lines starting with `#` are comments.
-- `friends`, `rivals` and `partner` must name villagers who already live in town. A partner must be unmarried; the two become spouses and share a home.
+- `friends`, `rivals` and `partner` must name villagers who already live in town. A partner must be unmarried; the two become spouses and share a home (if you give no orientation, it is set to fit the marriage).
 - Every villager's page in the People tab has a **Character sheet** in this same format, so you can copy an existing villager as a starting point.
 
 ## Fields
@@ -14,6 +14,8 @@ Use this format to add new villagers to Pixel Town. Open the town page, go to **
 |---|---|
 | `name` | First and last name (must be unique in town) |
 | `age` | 16 to 95 (default 30) |
+| `gender` | female or male (default: follows the first name) |
+| `orientation` | straight, gay or bi: who they can fall for (default: most villagers are straight, some gay, a few bi). Only a woman and a man can have a baby together; any couple can adopt. |
 | `profession` | Farmer, Rancher, Butcher, Fisher, Baker, Woodcutter, Miner, Blacksmith, Carpenter, TavernKeeper, Doctor, Merchant, Musician, Athlete, Journalist, Teacher, Constable, Unemployed |
 | `traits` | 2 to 4 of: Frugal, Generous, Greedy, Ambitious, Lazy, Hardworking, Gossip, Shy, Charismatic, Stubborn, Honest, Cunning, Romantic, Cautious, Reckless |
 | `values` | 1 to 3 of: Prosperity, Community, Tradition, Freedom, Order, Nature, Craftsmanship, Family |
@@ -67,6 +69,8 @@ traits: Generous, Ambitious
 # 2-4 of: Frugal, Generous, Greedy, Ambitious, Lazy, Hardworking, Gossip, Shy, Charismatic, Stubborn, Honest, Cunning, Romantic, Cautious, Reckless
 values: Community, Craftsmanship
 # 1-3 of: Prosperity, Community, Tradition, Freedom, Order, Nature, Craftsmanship, Family
+gender: female
+orientation: straight
 agenda: Open a business
 # Make a fortune, Win public office, Open a business, Find love, Raise a family, Protect the land, Stir up trouble, Bring order, Start over quietly
 wallet: 250

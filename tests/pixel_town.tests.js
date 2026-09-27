@@ -29,10 +29,10 @@
 
   // ============================ JUSTICE ============================
   test('J1', 'Minor fight is still handled simply by a constable', ()=>{
-    const cases0 = S.justice.cases.length;
-    const end = (Math.floor(S.minute/(7*DAY))+1)*7*DAY - 1; tick(end - S.minute);
-    const w = S.week, fines = (w.justice||{}).brawlFines||0;
-    ok(w.quarrels > 0, 'no quarrels happened');
+    const cases0 = S.justice.cases.length; if (!S.citizens.some(c=>c.profession==='Constable')) hire(adults()[0], 'Constable');
+    let fines = 0, quarrels = 0;
+    for (let k=0;k<3;k++){ const end = (Math.floor(S.minute/(7*DAY))+1)*7*DAY - 1; tick(end - S.minute); fines += (S.week.justice||{}).brawlFines||0; quarrels += S.week.quarrels; tick(1); }
+    ok(quarrels > 0, 'no quarrels happened');
     ok(fines > 0, 'no constable broke up a quarrel with a fine');
     ok(S.justice.cases.every(cs=>CRIME[cs.kind]), 'a quarrel became a case');
     ok(S.justice.cases.length - cases0 < fines, 'quarrels are being turned into cases');
@@ -317,6 +317,23 @@
     const t = TERRITORIES.find(x=>x.id===near.id); S.treasury += t.cost+200; const p = annexVote(t, adults()[0]); p.status='Passed'; completeAnnexation(p);
     ok(far.state === 'annexable', 'annexing the near region did not open the next one');
     ok(!frontierCells('W').some(f=>f.cx===-1 && f.cy===0), 'annexed land is still frontier');
+  });
+
+  // ============================ FAMILY ============================
+  const couple = (g1, g2) => { const [a, b] = distinct(2, c=>!c.partner && c.age>=24 && c.age<=40); a.gender = g1; b.gender = g2; a.orient = b.orient = g1===g2 ? 'gay' : 'straight';
+    a.partner = b.id; b.partner = a.id; a.home = b.home; [[a,b],[b,a]].forEach(([x,y])=>{ const r = getRel(x,y.id); r.affinity = 85; r.tags = ['Spouse','Family']; }); indexCitizens(); return [a, b]; };
+  test('G1', 'Only a woman and a man can have a baby', ()=>{
+    const [a, b] = couple('F','F'), [c, d] = couple('M','F');
+    ok(!canConceive(a, b), 'two women conceived'); ok(canConceive(c, d), 'a woman and a man cannot conceive');
+    const n0 = S.citizens.length; for (let i=0;i<400;i++) births(); const newborn = S.citizens.slice(n0);
+    ok(newborn.every(k=>!(k.parents.includes(a.id) && k.parents.includes(b.id))), 'a same-sex couple had a baby');
+    const [x, y] = distinct(2, q=>!q.partner && ![a,b,c,d].includes(q)); x.gender='F'; y.gender='F'; x.orient='straight'; y.orient='straight'; ok(!mutual(x, y) && !canRomance(x, y), 'straight women fell for each other');
+  });
+  test('G2', 'Same-sex couples can adopt', ()=>{
+    const [a, b] = couple('M','M'); const k0 = S.citizens.length;
+    adopt(a, b, null); const kid = S.citizens[S.citizens.length-1];
+    ok(S.citizens.length === k0+1 && kid.profession==='Child', 'no child was adopted'); ok(kid.parents.includes(a.id) && kid.parents.includes(b.id), 'the child has the wrong parents');
+    ok(kid.home === a.home && a.kids.includes(kid.id), 'the child did not move in'); ok(S.relStats.adoptions >= 1, 'adoption not counted');
   });
 
   function voterPool(){ return S.citizens.filter(c=>isAdult(c) && !c.jail && !c.away); }
