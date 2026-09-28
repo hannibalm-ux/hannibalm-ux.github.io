@@ -303,7 +303,8 @@ function civWorkplaceXY(c, j){
   return {loc:'loc_town_square', xy:null};
 }
 // the task an employee actually does: the company's mine, field, building site or workshop
-function civJobTask(c, j){ const o = S.civ.orgs[j.org]; const B = o && BUSINESS_TYPES[o.biz]; if (!B) return 'job'; if (civProjects().some(p=>p.owner.k==='org' && p.owner.id===o.id && civProjectMatFrac(p)>0.3)) return 'build'; if (B.mine && civStructsOf(s=>s.org===o.id && STRUCTURES[s.def].mine).length) return 'mine'; if (B.land && civStructsOf(s=>s.org===o.id && STRUCTURES[s.def].farm).length) return 'farm'; if (B.land && civStructsOf(s=>s.org===o.id && STRUCTURES[s.def].ranch).length) return 'herd'; if (B.contractor && civProjects().some(p=>p.contractor===o.id || (p.owner.k==='org' && p.owner.id===o.id))) return 'build'; if (B.wild==='tree') return 'chop'; if (B.svc==='care') return 'heal'; return 'job'; }
+function civFoodBiz(B){ return !!B && (B.industry==='food' || B.land || (B.out && Object.keys(B.out).some(g=>CG[g] && CG[g].cat==='food'))); }
+function civJobTask(c, j){ const o = S.civ.orgs[j.org]; const B = o && BUSINESS_TYPES[o.biz]; if (!B) return 'job'; if (B.contractor && civProjects().some(p=>p.contractor===o.id && civProjectMatFrac(p)>0.3 && p.done < p.labor)) return 'build'; if (B.contractor && !civProjects().some(p=>p.owner.k==='org' && p.owner.id===o.id)) return civCommunityProjects().some(p=>civProjectMatFrac(p)>0.4 && p.done < p.labor) ? 'build' : 'chop'; /* between contracts: public works, or timber for the next job */ if (civProjects().some(p=>p.owner.k==='org' && p.owner.id===o.id && civProjectMatFrac(p)>0.3)) return 'build'; if (B.mine && civStructsOf(s=>s.org===o.id && STRUCTURES[s.def].mine).length) return 'mine'; if (B.land && civStructsOf(s=>s.org===o.id && STRUCTURES[s.def].farm).length) return 'farm'; if (B.land && civStructsOf(s=>s.org===o.id && STRUCTURES[s.def].ranch).length) return 'herd'; if (B.contractor && civProjects().some(p=>p.contractor===o.id || (p.owner.k==='org' && p.owner.id===o.id))) return 'build'; if (B.wild==='tree') return 'chop'; if (B.svc==='care') return 'heal'; return 'job'; }
 
 // ---------- the labour market ----------
 function civJobFor(o, c, role, wage){ const j = {id:'job_'+(++S.civ.jSeq), org:o.id, role, wage, skill: o.biz ? Object.keys(BUSINESS_TYPES[o.biz].skills||{})[0] : null, open:false, since:civDay(), filled:c.id}; S.civ.jobs.push(j); return j; }
@@ -494,10 +495,17 @@ function civOrgsWeekly(){
     if (profit > 0 && (o.type==='corporation'||o.type==='public_corp')){ const div = profit*0.35; o.divs = +(div/o.shares).toFixed(4); Object.entries(o.owners).forEach(([id,n])=>{ civMoveMoney(civOrgPurse(o), {k:'person', id}, div*n/o.shares, 'dividend'); }); o.retained += profit - div; }
     else if (profit > 0 && ['partnership','family','sole'].includes(o.type)){ const take = profit*0.5; Object.entries(o.owners).forEach(([id,sh])=>civMoveMoney(civOrgPurse(o), {k:'person', id}, take*sh, 'profit share')); }
     // hiring when demand outstrips staff; layoffs when losing money
-    const openJobs = S.civ.jobs.filter(j=>j.org===o.id && j.open).length, cap = B.workers ? B.workers[1] : 4;
+    let openJobs = S.civ.jobs.filter(j=>j.org===o.id && j.open).length, cap = B.workers ? B.workers[1] : 4;
+    // a construction company only needs hands for the work it has contracted; idle hands are let go
+    if (B.contractor){ const work = civProjects().filter(p=>p.contractor===o.id || (p.owner.k==='org' && p.owner.id===o.id)).length; cap = Math.min(cap, 2 + work*3);
+      if (o.staff.length > cap + 1){ const idle = o.staff.map(cById).filter(x=>x && x.id!==o.mgr).sort((a,b)=>civStaffScore(a,o)-civStaffScore(b,o))[0]; if (idle){ civQuit(idle, 'fired'); chronicle(`${o.name} let ${idle.name} go: there is not enough building work.`, 3, '📉', 'business'); } }
+      S.civ.jobs.filter(j=>j.org===o.id && j.open).forEach(j=>{ if (o.staff.length >= cap){ j.open = false; openJobs--; } }); }
     const demand = civBizDemand(B), growing = o.profitAvg > 2 || (o.svcCap||0) < demand*2;
     const avgW = civAvgWage();
-    if (growing && o.staff.length + openJobs < cap && o.cash > avgW*10 && openJobs===0) civPostJob(o, civRoleName(o), +(avgW*(o.memory.lessons.includes('pay more')?1.15:1)).toFixed(1));
+    // when the settlement is short of food, only businesses that produce food take on hands; below a day and a half, others let people go back to feeding their families
+    const foodBiz = civFoodBiz(B), fdAll = civFoodDaysAll();
+    if (!foodBiz && fdAll < 1.5 && o.staff.length > 1 && civDay()%7===3){ const w = o.staff.map(cById).filter(x=>x && x.id!==o.mgr).sort((a,b)=>civStaffScore(a,o)-civStaffScore(b,o))[0]; if (w){ civQuit(w, 'fired'); chronicle(`${o.name} let ${w.name} go so they could help feed their family.`, 3, '📉', 'business'); } }
+    if (growing && (foodBiz || fdAll >= 3) && o.staff.length + openJobs < cap && o.cash > avgW*10 && openJobs===0) civPostJob(o, civRoleName(o), +(avgW*(o.memory.lessons.includes('pay more')?1.15:1)).toFixed(1));
     if (o.profitAvg < -3 && o.staff.length > 1 && o.cash < avgW*5){ const worst = o.staff.map(cById).filter(x=>x && x.id!==o.mgr).sort((a,b)=>civStaffScore(a,o)-civStaffScore(b,o))[0]; if (worst){ civQuit(worst, 'fired'); chronicle(`${o.name} let ${worst.name} go.`, 4, '📉', 'business'); o.memory.lessons.push('cut costs'); } }
     // competition: prices, quality, advertising
     const rivals = civOrgs(x=>x!==o && x.biz===o.biz);
@@ -579,7 +587,7 @@ function civHelpTheHungry(){
   if (storeFood(S.civ.commons) < 40) civProblem('food', hungry.length);
 }
 function civTryRentOrBuy(h){
-  const s = civStructsOf(x=>STRUCTURES[x.def].home && !x.occ && x.status==='active' && (x.forSale || x.owner.k!=='hh'))[0]; if (!s) return false;
+  const s = civStructsOf(x=>STRUCTURES[x.def].home && !x.occ && !x.shelter && x.status==='active' && (x.forSale || x.owner.k!=='hh'))[0]; if (!s) return false;
   if (s.forSale && civHHMoney(h) >= s.price){ const payer = hhAdults(h).sort((a,b)=>b.wallet-a.wallet)[0]; civSellStruct(s, {k:'hh', id:h.id}, {k:'person', id:payer.id}); h.home = s.id; s.occ = h.id; hhMembers(h).forEach(m=>m.home = s.id); indexCitizens(); return true; }
   civLandlordOffer(s); return h.home===s.id;
 }

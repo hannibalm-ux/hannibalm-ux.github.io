@@ -370,6 +370,9 @@ function civDaily(d){
   civSafe('spoilage', civSpoilage);
   civSafe('distribution', civDistributeFood);
   civSafe('structures', civStructsDaily);
+  civSafe('reclaim', civReclaimDaily);      // ownerless and unwanted property returns to the settlement; homes shelter the needy
+  civSafe('materials', civMaterialsDaily);  // buy missing materials, draw on the common store, make do when nothing can be had
+  civSafe('contracts-build', civBuildContractsDaily);
   civSafe('health', civHealthDaily);
   civSafe('life', civLifeDaily);
   civSafe('minds', civMindsDaily);

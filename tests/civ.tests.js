@@ -517,6 +517,69 @@
     $('zMax').click(); ok(document.body.classList.contains('maxed'), 'not maximised'); $('zPanel').click(); ok(document.body.classList.contains('drawer'), 'panel drawer did not open'); $('zMax').click(); ok(!document.body.classList.contains('maxed') && !document.body.classList.contains('drawer'), 'did not restore');
   });
 
+  // ======================= CONSTRUCTION AND HOUSING =======================
+  const homeProject = (h, done) => { const site = civFindSite('crude_hut', C().center, {margin:1}); const p = civStartProject('crude_hut', site, {k:'hh', id:h.id}, {purpose:'home', forHH:h.id}); if (done!==false) for (const g in p.need) p.have[g] = p.need[g]; return p; };
+  const homeless = h => { const s = h.home && C().structs[h.home]; if (s) s.occ = null; h.home = null; hhMembers(h).forEach(m=>m.home = 'loc_town_square'); };
+  test('CH1', 'Construction companies take on stalled projects and are paid for the work', ()=>{
+    money(500); const [boss, hand, owner] = adults().slice(0,3); const o = civNewOrg('sole', 'Test Builders', [boss], {biz:'builder_co'}); o.cash = 50; civHire(o, civPostJob(o, 'builder', 5), hand);
+    const h = hhOf(owner), p = homeProject(h); p.lastProg = civDay() - 10; p.started = civDay() - 10; owner.wallet = 400;
+    civBuildContractsDaily(); ok(p.contractor===o.id, 'no contractor took the job');
+    const cash = o.cash, done = p.done; CIV_WORK.build(hand, {proj:p.id, acc:120}, 2); ok(p.done > done, 'no work done'); ok(o.cash > cash, 'the company was not paid');
+    ok(civJobTask(hand, civJobOf(hand))==='build', 'the builder was not sent to the site');
+  });
+  test('CH2', 'People build their own home in the evening after work', ()=>{
+    const c = adults(x=>x.age<50)[0], h = hhOf(c); h.store.grain = 2000; const p = homeProject(h);
+    const plan = civPlanDay(c, civDay()); ok(plan.blocks.some(b=>b.task==='build' && b.proj===p.id && b.s >= 17*60), 'no evening building');
+  });
+  test('CH3', 'Neighbours hold a building bee for a family with no roof', ()=>{
+    const [needy] = Object.values(C().hh).filter(h=>hhAdults(h).length); homeless(needy); const p = homeProject(needy);
+    const helper = adults(x=>hhOf(x)!==needy)[0]; helper.personality.agreeableness = 0.9; hhOf(helper).store.grain = 3000; C().commons.grain = 5000; S.minute = Math.floor(S.minute/DAY)*DAY + 60*DAY; // spring, plenty of food
+    Object.values(C().projects).forEach(q=>{ if (q!==p && civProjectsFor(helper).includes(q)) delete C().projects[q.id]; });
+    ok(civWillHelp(helper, p) > 5, 'the neighbour is not willing'); ok(civBuildChoice(helper)===p, 'the neighbour did not choose to help');
+  });
+  test('CH4', 'Builders make do when a material cannot be had', ()=>{
+    const h = Object.values(C().hh)[0], p = homeProject(h); p.need.metal = 6; p.wait = {metal: civDay() - 20};
+    civMaterialsDaily(); ok(!p.need.metal, 'still waiting for metal nobody makes'); ok(p.need.wood > STRUCTURES.crude_hut.mat.wood, 'no substitute taken');
+  });
+  test('CH5', 'A household with money buys the materials it lacks', ()=>{
+    money(0); const c = adults()[0], h = hhOf(c); h.store.grain = 3000; c.wallet = 500; const p = homeProject(h, false); p.wait = {thatch: civDay() - 5, wood: civDay() - 5};
+    const seller = adults()[5]; C().econ.listings.push({id:'l1', g:'thatch', q:20, price:1, seller:{k:'person', id:seller.id}, day:civDay()});
+    civMaterialsDaily(); ok((p.have.thatch||0) > 0, 'nothing bought');
+  });
+  test('CH6', 'A stalled home for a family with no roof is taken over by the settlement', ()=>{
+    const h = Object.values(C().hh)[0]; homeless(h); const p = homeProject(h); p.started = civDay() - 90; p.lastProg = civDay() - 60;
+    civStalledMonthly(); ok(C().projects[p.id] && ['community','gov'].includes(p.owner.k), 'not taken over');
+    const up = homeProject(Object.values(C().hh)[1]); up.upgradeOf = 'x'; up.started = civDay()-90; up.lastProg = civDay()-60; civStalledMonthly(); ok(!C().projects[up.id], 'a stalled upgrade was not given up');
+  });
+  test('CH7', 'Property whose owner is gone returns to the settlement', ()=>{
+    const h = Object.values(C().hh).find(x=>x.home && C().structs[x.home]), s = C().structs[h.home];
+    hhMembers(h).slice().forEach(m=>civRemovePerson(m, 'left', 'moved away'));
+    civReclaimDaily(); ok(['community','gov'].includes(s.owner.k), `owner ${JSON.stringify(s.owner)}`);
+  });
+  test('CH8', 'A home left empty and unsold returns to the settlement', ()=>{
+    money(0); const h = Object.values(C().hh).find(x=>x.home && C().structs[x.home]), s = C().structs[h.home]; s.owner = {k:'person', id:hhAdults(h)[0].id};
+    const other = Object.values(C().hh).find(x=>x!==h); hhMembers(h).forEach(m=>civJoinHH(m, other)); s.occ = null; s.forSale = true; s.emptySince = civDay() - 25;
+    civReclaimDaily(); ok(['community','gov'].includes(s.owner.k) && !s.forSale, 'still for sale');
+  });
+  test('CH9', 'Town-owned homes shelter families with no roof, children first, rent-free', ()=>{
+    const hs = Object.values(C().hh).filter(x=>x.home && C().structs[x.home] && x.members.length >= 3); const [a, b] = hs; const s = C().structs[a.home];
+    homeless(a); homeless(b); s.owner = {k:'community'}; s.occ = null; const kids = h => hhMembers(h).filter(m=>!isAdult(m)).length;
+    civShelterNeedy(); const housed = [a, b].filter(h=>h.home===s.id);
+    ok(housed.length >= 1, 'nobody was housed'); ok(housed.includes(kids(a) >= kids(b) ? a : b), 'the family with more children was not first'); ok(s.shelter && !s.rentK, 'they pay rent');
+  });
+  test('CH10', 'A single person with no roof is taken in by friends with room', ()=>{
+    const host = Object.values(C().hh).find(h=>h.home && C().structs[h.home] && STRUCTURES[C().structs[h.home].def].home.cap - S.citizens.filter(c=>c.home===h.home).length >= 1);
+    ok(host, 'no household with room'); const lone = adults(x=>hhOf(x)!==host)[0]; const nh = civNewHH('Lone', null); civJoinHH(lone, nh); nh.homelessSince = civDay() - 3;
+    hhAdults(host).forEach(m=>{ getRel(m, lone.id).affinity = 60; });
+    civShelterNeedy(); ok(hhOf(lone)!==nh && lone.home && C().structs[lone.home], 'nobody took them in'); // family first, else the friends
+  });
+  test('CH11', 'Food comes first: no hiring away from food when stores are low, and less building on an empty stomach', ()=>{
+    money(0); const [a] = adults(); const o = civNewOrg('sole', 'Test Tailor', [a], {biz:'tailor'}); o.cash = 5000; o.profitAvg = 20;
+    Object.values(C().hh).forEach(h=>{ for (const g of CIV_FOODS) delete h.store[g]; }); C().commons = {};
+    const before = C().jobs.length; civEconWeekly(); ok(!C().jobs.some(j=>j.org===o.id && j.open), 'a tailor hired while people went hungry');
+    const c = adults(x=>x!==a)[0], h = hhOf(c); const p = homeProject(h); const low = CIV_TASK_VALUE.build(c, h, 4); h.store.grain = 4000; const high = CIV_TASK_VALUE.build(c, h, 4); ok(low < high, 'building did not give way to hunger');
+  });
+
   async function run(which){
     const out = [];
     for (const t of TESTS){ if (which && !(Array.isArray(which) ? which.includes(t.id) : t.id===which)) continue;
