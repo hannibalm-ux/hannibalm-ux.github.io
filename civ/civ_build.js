@@ -323,7 +323,7 @@ function civRoadsMonthly(){
   if (!payer && C.gov.stage<2) return;
   const lvl = civTechKnown('paving') ? 2 : 1, stone = busiest.length*(lvl+1);
   const got = storeTake(C.commons, 'stone', stone); if (got < stone*0.5) { civProblem('infrastructure', 1); return; }
-  busiest.forEach(k=>{ C.roads[k] = lvl; const x = k%4096, y = Math.floor(k/4096); civSetTile(x,y,T.PATH); });
+  busiest.forEach(k=>{ C.roads[k] = lvl; const [x, y] = tdec(k); civSetTile(x,y,T.PATH); });
   if (payer) C.gov.treasury -= busiest.length*2;
   chronicle(`${busiest.length} stretches of the busiest trails were ${lvl===2?'paved':'made into proper roads'}.`, 6, '🛣️', 'infrastructure'); ev('road_tiles', busiest.length);
 }

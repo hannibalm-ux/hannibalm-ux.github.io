@@ -28,7 +28,8 @@ function civRenderPeople(){
   $('pAdd').innerHTML = `<div class="row" style="margin-bottom:8px"><input id="pq" placeholder="Search name or occupation" value="${esc(ui.q||'')}" style="flex:1"></div>`;
   $('pq').oninput = e=>{ ui.q = e.target.value; civRenderPeople(); $('pq').focus(); };
   $('pList').innerHTML = (sel ? civPersonCard(sel) : '') + list.slice(0,160).map(c=>{ const h = hhOf(c); const top = Object.entries(c.civ.skill).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,v])=>`${SK[k]?SK[k].label:k} ${Math.round(v)}`).join(', ');
-    return `<div class="cit ${ui.sel===c.id?'sel':''}" data-id="${c.id}"><div class="row" style="justify-content:space-between"><b>${esc(c.name)}</b><span class="muted" style="font-size:12px">${c.age} · ${esc(c.profession)}</span></div><div class="muted" style="font-size:12px">${esc(doingText(c))} · ${esc(top)}${h?` · ${esc(h.name)} household`:''}</div></div>`; }).join('');
+    return `<div class="cit ${ui.sel===c.id?'sel':''}" data-id="${c.id}"><div class="row" style="justify-content:space-between"><b>${esc(c.name)}</b><span class="muted" style="font-size:12px">${c.age} · ${esc(c.profession)}</span></div><div class="muted" style="font-size:12px">${c.jail?'🔒 ':''}${c.away?'🧭 ':''}${esc(doingText(c))} · ${esc(top)}${h?` · ${esc(h.name)} household`:''}${civDistrictOf(c)?` · 🏘️ ${esc(civDistrictOf(c))}`:''}</div></div>`; }).join('');
+  $('pList').querySelectorAll('.rawMind').forEach(x=>x.onchange=()=>{ ui.rawMind = x.checked; civRenderPeople(); });
   $('pList').querySelectorAll('.cit').forEach(el=>el.onclick=()=>{ ui.sel = el.dataset.id; cam.follow = true; $('zFollow').classList.add('on'); civRenderPeople(); });
 }
 function civPersonCard(c){
@@ -46,11 +47,12 @@ function civPersonCard(c){
     <p class="muted" style="font-size:12px;margin:2px 0">Home: ${home?esc(home.name):'none'}${h?` · ${esc(h.name)} household of ${h.members.length} · food ${hhFoodDays(h).toFixed(1)} days`:''} · health ${Math.round(X.health)} · ${civMoneyOn()?`purse ${Math.round(c.wallet)} · `:''}credit ${Math.round(X.credit.score)} · respect ${Math.round(X.respect)}</p>
     <p class="muted" style="font-size:12px;margin:2px 0">Traits: ${esc(c.traits.join(', '))} · values ${esc(c.values.join(', '))} · investor: ${esc(X.style||'')}${mentor?` · learning from ${esc(mentor.name)}`:''}${(X.prot||[]).length?` · teaching ${X.prot.map(id=>cById(id)).filter(Boolean).map(p=>esc(p.name.split(' ')[0])).join(', ')}`:''}</p>
     <p class="muted" style="font-size:12px;margin:2px 0">Appearance genes: height ${Math.round((G.height||0)*100)}, build ${Math.round((G.build||0)*100)}, jaw ${Math.round((G.jaw||0)*100)}, nose ${Math.round((G.nose||0)*100)} · <span style="display:inline-block;width:10px;height:10px;background:${G.skin}"></span> <span style="display:inline-block;width:10px;height:10px;background:${G.hair}"></span> <span style="display:inline-block;width:10px;height:10px;background:${G.eye}"></span></p>
-    <details><summary>Mind: how they think</summary>${cogs}</details>
+    ${civMindHtml(c)}
+    <details><summary>Thinking style</summary>${cogs}</details>
     <details open><summary>Knowledge</summary>${knows}</details><details><summary>Skills</summary>${skills}</details>
     <details><summary>Techniques (${X.techs.length})</summary><div style="font-size:12px">${X.techs.map(t=>TECHS[t]?TECHS[t].label:t).join(', ')||'none'}</div></details>
     <details open><summary>Goals</summary>${goals}</details>
-    <details open><summary>Decisions: situation → objective → action → expected / actual → reason</summary><table style="font-size:11px"><tr><th>Day</th><th>Situation</th><th>Objective</th><th>Action</th><th>Exp.</th><th>Actual</th><th>Why</th></tr>${decs}</table></details>
+    <details><summary>Decisions: situation → objective → action → expected / actual → reason</summary><table style="font-size:11px"><tr><th>Day</th><th>Situation</th><th>Objective</th><th>Action</th><th>Exp.</th><th>Actual</th><th>Why</th></tr>${decs}</table></details>
     ${bel?`<details><summary>Beliefs</summary>${bel}</details>`:''}
     <details><summary>Recent memories</summary>${mems}</details></div>`;
 }
@@ -79,13 +81,15 @@ function civRenderLand(){
   const projs = Object.values(C.projects).map(p=>`<div style="font-size:12px">🏗️ <b><a ${locAttr(p.x,p.y,p.w,p.h,STRUCTURES[p.def].label)}>${esc(STRUCTURES[p.def].label)}</a></b> for ${esc(civOwnerLabel(p.owner))} · materials ${civBar(civProjectMatFrac(p)*100)} · work ${civBar(p.done/p.labor*100,100,'#f2c14e')} ${Object.entries(p.need).map(([g,q])=>`${CG[g]?CG[g].name.toLowerCase():g} ${Math.floor(p.have[g]||0)}/${q}`).join(', ')}</div>`).join('') || '<span class="muted">Nothing under construction</span>';
   const deps = C.deposits.filter(d=>d.known || d.suspected).map(d=>`<div style="font-size:12px">${d.known?'⛏️':'❓'} <a ${locAttr(d.x,d.y,1,1,MIN[d.min].label)}>${esc(MIN[d.min].label)}</a>${d.known?` · ${Math.round(d.left)} units · depth ${d.depth} · purity ${Math.round(d.purity*100)}%`:' (a seep; nobody knows its use)'} · ${d.claim?`claimed by ${esc(civOwnerLabel(d.claim.who))}${d.claim.registered?' (registered)':''}`:'unclaimed'}${d.mine?' · mined':''}</div>`).join('') || '<span class="muted">Nothing found yet. The ground keeps its secrets.</span>';
   const an = {}; C.animals.forEach(a=>{ an[a.kind] = (an[a.kind]||0)+1; });
-  $('p-land').innerHTML = `<h2>Land & building</h2>
+  $('p-land').innerHTML = `${civFrontierHtml()}<h2>Land & building</h2>
     <p class="muted" style="font-size:12px;margin:2px 0 6px">Click any building, site or find to show it on the map.</p>
     <div class="card"><b>Under construction</b>${projs}</div>
     ${Object.entries(cats).map(([cat, list])=>`<div class="card"><b>${esc(cat[0].toUpperCase()+cat.slice(1))} (${list.length})</b>${list.slice(0,60).map(s=>`<div style="font-size:12px"><a ${locAttr(s.x,s.y,s.w,s.h,s.name)}>${esc(s.name)}</a> <span class="muted">· ${esc(STRUCTURES[s.def].label)} · ${esc(civOwnerLabel(s.owner))} · ${civBar(s.cond)}${civMoneyOn()?` · ${s.value}¢`:''}${s.forSale?' · for sale':''}${s.status!=='active'?' · '+s.status:''}${STRUCTURES[s.def].farm&&s.meta?` · ${s.meta.stage}${s.meta.crop?' '+s.meta.crop:''}`:''}</span></div>`).join('')}</div>`).join('')}
     <div class="card"><b>Resources found</b>${deps}</div>
     <div class="card"><b>Animals kept</b> ${Object.entries(an).map(([k,v])=>`<span class="chip">${esc(ANIMAL_KINDS[k]?ANIMAL_KINDS[k].label:k)} ×${v}</span>`).join('')||'<span class="muted">none</span>'}<br><span class="muted" style="font-size:12px">Wild game left: ${C.eco.cells.reduce((a,e)=>a+e.g,0)} · trees felled: ${C.stats.trees_felled||0} · trail tiles worn: ${Object.keys(C.trail).length} · road tiles: ${Object.keys(C.roads).length}</span></div>`;
   wireLocate($('p-land'));
+  $('p-land').querySelectorAll('[data-explore]').forEach(b=>b.onclick=()=>{ const r = civLaunchExpedition(b.dataset.explore, {k:'player'}); if (r.err) alert(r.err); civRenderLand(); });
+  $('p-land').querySelectorAll('[data-annex]').forEach(b=>b.onclick=()=>{ const cell = cellOf(b.dataset.annex); const G = S.civ.gov, lead = G.leader && alive(G.leader); civProposeAnnex(cell, null, civAnnexWhy(cell)); civRenderLand(); });
 }
 // ---------- resources: everything the settlement has, where it is kept, and how it is changing ----------
 function civResourceTotals(){
@@ -171,9 +175,89 @@ function civRenderSociety(){
 }
 // ---------- justice ----------
 function civRenderJustice(){
-  const J = S.civ.justice;
-  const cases = J.cases.slice(-40).reverse().map(k=>`<div class="card" style="font-size:12px"><b>${esc(k.kind==='civil'?'Civil':'Criminal')}: ${esc(k.type)}</b> · ${esc(civCaseParty(k.plaintiff))} v. ${esc(civCaseParty(k.defendant))} · <span class="chip">${esc(k.status)}</span><br>Claim: ${esc(k.claim)}${k.damages?` · damages sought ${k.damages}`:''}${k.evidence.length?`<br>Evidence: ${esc(k.evidence.join(', '))}`:''}${k.witnesses.length?` · witnesses: ${k.witnesses.map(id=>cById(id)?cById(id).name:'?').map(esc).join(', ')}`:''}${k.settlement?`<br>Settled${k.settlement.by&&cById(k.settlement.by)?` by ${esc(cById(k.settlement.by).name)}`:''}${k.settlement.amount?`: ${k.settlement.amount} paid`:''}`:''}${k.judgment?`<br>Judgment by ${esc(cById(k.judgment.by)?cById(k.judgment.by).name:'?')}: ${k.judgment.result?esc(k.judgment.result):k.judgment.found?'for the plaintiff':'for the defendant'}${k.judgment.amount?`, ${k.judgment.amount} awarded`:''}${k.judgment.jail?`, ${k.judgment.jail} days jail`:''}${k.judgment.fine?`, fine ${k.judgment.fine}`:''}`:''}${k.lawyers&&(k.lawyers.p||k.lawyers.d)?`<br>Advocates: ${esc(cById(k.lawyers.p)?cById(k.lawyers.p).name:'—')} / ${esc(cById(k.lawyers.d)?cById(k.lawyers.d).name:'—')}`:''}</div>`).join('');
-  $('p-justice').innerHTML = `<h2>Justice</h2><div class="card"><b>${esc(JUSTICE_STAGES[J.stage])}</b><div style="margin-top:4px">${civStageLine(JUSTICE_STAGES, J.stageHist)}</div></div>${cases || '<p class="muted">No disputes have come to anything yet.</p>'}`;
+  const J = S.civ.justice, G = S.civ.gov, d = civDay(), nm = id => { const c = cById(id); return c ? esc(c.name) : '?'; };
+  const off = Object.entries(G.offices).filter(([k,id])=>/constable|watch|investigator|magistrate|prosecutor/.test(k) && alive(id)).map(([k,id])=>`<span class="chip">${esc(k.replace(/_r_.*/,'').replace(/_\d+$/,'').replace('_',' ').replace(/\b\w/g,m=>m.toUpperCase()))}${k.includes('_r_')?` (${esc((Object.values(S.world?S.world.cells:{}).find(c=>'constable_'+c.id===k)||{}).name||'district')})`:''}: ${nm(id)}</span>`).join('');
+  const lawyers = J.stage>=8 ? S.citizens.filter(c=>kn(c,'law')>=40 && !c.office).slice(0,6).map(c=>`<span class="chip">Advocate: ${esc(c.name)}</span>`).join('') : '';
+  const jailed = S.citizens.filter(c=>c.jail).map(c=>`<div style="font-size:12px">🔒 ${esc(c.name)} <span class="muted">· released day ${c.jail+1}</span></div>`).join('');
+  const hasJail = civHas(['jail','prison']).length;
+  const truth = !!ui.truth;
+  const stTxt = s => ({saw:'saw', near:'saw them nearby', alibi:'alibi', self:'victim', hall:'heard'}[s]||s);
+  const caseCard = k => {
+    const crim = k.kind==='criminal', named = k.defendant && k.defendant.k==='person' ? k.defendant.id : k.named;
+    const sts = (k.statements||[]).slice(0,10).map(s=>`<div style="font-size:12px">${s.clears?'🛡️':'👁'} ${s.by?nm(s.by):'?'} — ${s.clears?`says ${nm(s.acc)} was elsewhere`:s.src==='near'?`saw ${nm(s.acc)} nearby`:`${stTxt(s.src)} ${nm(s.acc)}`} <span class="muted">(${Math.round(s.conf*100)}% sure${s.broken?' · fell apart':''}${truth && s.lie?' · a lie':''}${truth && !s.clears && k.actual && s.acc!==k.actual?' · wrong':''})</span></div>`).join('');
+    const ev = (k.proof||[]).map(p=>`<div style="font-size:12px">🧾 ${esc(p.text)}</div>`).join('') || (k.evidence||[]).filter(e=>typeof e==='string').map(e=>`<div style="font-size:12px">🧾 ${esc(e)}</div>`).join('');
+    const sc = crim && k.actual ? Object.entries(civCaseScores(k)).filter(([id,v])=>v>=0.15).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([id,v])=>`<span class="chip">${nm(id)} ${Math.round(v*100)}%</span>`).join('') : '';
+    const J2 = k.judgment, phase = k.status==='open' ? (k.phase || 'open') : k.status;
+    return `<div class="card" style="font-size:12px"><div class="row" style="justify-content:space-between"><b>${crim?'Criminal':'Civil'}: ${esc(k.type)}</b><span class="chip">${esc(phase)}</span></div>
+      <div>${esc(k.claim)} · ${crim ? `victim ${esc(civCaseParty(k.plaintiff))}` : `${esc(civCaseParty(k.plaintiff))} v. ${esc(civCaseParty(k.defendant))}`} · day ${k.day+1}${k.damages?` · ${k.damages} sought`:''}</div>
+      ${crim && named ? `<div>Accused: <b>${nm(named)}</b>${k.inv?` · investigated by ${nm(k.inv)}`:''}</div>` : k.inv ? `<div>Investigated by ${nm(k.inv)}</div>` : ''}
+      ${sc?`<div>Suspects: ${sc}</div>`:''}${sts}${ev}
+      ${k.recused?`<div class="muted">⚖️ ${nm(k.recused)} stepped aside</div>`:''}${k.biasNoted?`<div class="No">⚠️ judged despite a conflict of interest</div>`:''}
+      ${k.lawyers&&(k.lawyers.p||k.lawyers.d)?`<div class="muted">Advocates: ${k.lawyers.p?nm(k.lawyers.p):'—'} for ${crim?'the settlement':'the claim'}, ${k.lawyers.d?nm(k.lawyers.d):'none'} for the defence</div>`:''}
+      ${k.settlement?`<div>🤝 Settled${k.settlement.by?` by ${nm(k.settlement.by)}`:''}${k.settlement.amount?`: ${k.settlement.amount} paid`:''}</div>`:''}
+      ${J2?`<div><b class="${J2.found?'No':'Yes'}">${J2.rough?'Punished by '+nm(J2.by)+' without a hearing':J2.found?(crim?'Convicted':'Claim upheld'):(crim?'Acquitted':'Claim dismissed')}</b>${J2.by&&!J2.rough?` · ${nm(J2.by)}`:''}${J2.sentence?` · ${esc(J2.sentence)}`:''}${J2.strength!=null?` · case strength ${Math.round(J2.strength*100)}%`:''}</div>`:''}
+      ${truth && k.actual?`<div class="muted">👁‍🗨 Truth: ${nm(k.actual)} did it${k.wrong?' — <b class="No">the verdict was wrong</b>':''}${k.bribe?` · bribe from ${nm(k.bribe.from)} to ${nm(k.bribe.to)}${k.bribe.hidden?' (still secret)':''}`:''}</div>`:''}</div>`; };
+  const open = J.cases.filter(k=>k.status==='open').slice().reverse(), closed = J.cases.filter(k=>k.status!=='open').slice(-25).reverse();
+  const f = ui.jfilter || 'open';
+  $('p-justice').innerHTML = `<h2>Justice</h2>
+    <div class="card"><b>${esc(JUSTICE_STAGES[J.stage])}</b><div style="margin-top:4px">${civStageLine(JUSTICE_STAGES, J.stageHist)}</div>
+      <div style="margin-top:6px">${off || '<span class="muted">No one keeps order yet: quarrels are settled by family or a respected neighbour.</span>'}${lawyers}</div></div>
+    <div class="card"><b>Jail</b> ${hasJail ? (jailed || '<span class="muted">empty</span>') : `<span class="muted">${J.stage>=5?'Not built yet: the settlement builds one when the same people keep offending.':'None: there is no one to sentence anybody yet.'}</span>`}</div>
+    <div class="row" style="margin:6px 0"><button class="btn ${f==='open'?'on':''}" data-jf="open">Open cases (${open.length})</button><button class="btn ${f==='closed'?'on':''}" data-jf="closed">Closed</button>
+      <label class="muted" style="font-size:12px;margin-left:auto" title="Show what really happened — nobody in the settlement can see this"><input type="checkbox" id="jTruth" ${truth?'checked':''}> reveal the truth</label></div>
+    ${(f==='open' ? open : closed).slice(0,25).map(caseCard).join('') || '<p class="muted">Nothing here.</p>'}`;
+  $('p-justice').querySelectorAll('[data-jf]').forEach(b=>b.onclick=()=>{ ui.jfilter = b.dataset.jf; civRenderJustice(); });
+  const t = $('jTruth'); if (t) t.onchange = ()=>{ ui.truth = t.checked; civRenderJustice(); };
+}
+// ---------- a person's mind: memories, beliefs, opinions, trust, reputation, legal history ----------
+function civOpinionLine(t, v){ const w = Math.abs(v) >= 60 ? 'Strongly' : Math.abs(v) >= 30 ? 'Generally' : 'Somewhat', lbl = topicLabel(t);
+  const inst = ['constables','courts','council','justice'].includes(t) || t.startsWith('press:');
+  return `${w} ${v>0 ? (inst ? 'trusts' : 'supports') : (inst ? 'distrusts' : 'opposes')} ${lbl}.`; }
+function civMindHtml(c){
+  if (!isAdult(c) && c.age < 12) return '';
+  const m = cogOf(c), dist = civDistrictOf(c), raw = !!ui.rawMind;
+  const mems = m.mems.slice().sort((a,b)=>b.imp*b.str-a.imp*a.str).slice(0,7).map(x=>`<div class="vote"><span class="muted">${SRC_ICON[x.src]||''} ${esc(fmtStamp(x.t))}${x.imp>=8?' · ★':''}${x.str<0.5?' · fading':''}${(x.src==='told'||x.src==='rumor')&&x.from?` · from ${esc((cById(x.from)||{name:'someone'}).name)}`:x.src==='paper'&&x.from?` · ${esc(S.papers[x.from]||'a paper')}`:''}</span><br>${esc(x.text)}</div>`).join('') || '<p class="muted">Nothing that stands out yet.</p>';
+  const bel = m.bel.slice().sort((a,b)=>b.str-a.str).map(b=>`<div class="vote">💡 ${esc(beliefText(b.topic, b.pos))} <span class="muted">(${b.str>0.7?'firmly':b.str>0.4?'fairly sure':'starting to think so'})</span></div>`).join('');
+  const ops = Object.entries(m.op).filter(([k,v])=>Math.abs(v)>=15 && !k.startsWith('p:') && topicLabel(k)).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,6)
+    .map(([k,v])=>`<div style="font-size:12px">${esc(civOpinionLine(k, v))}${raw?` <span class="muted">(${v>0?'+':''}${v})</span>`:''}</div>`).join('');
+  const trustN = {council:'the leaders', constables:'the constables', courts:'the courts', rumor:'gossip'};
+  const tr = Object.entries(m.tr).map(([k,v])=>`<span class="chip" title="${Math.round(v*100)}%">${esc(k.startsWith('press:') ? (S.papers[k.slice(6)]||'a newspaper') : trustN[k]||k)} ${v<0.35?'✗':v<0.6?'~':'✓'}${raw?` ${Math.round(v*100)}%`:''}</span>`).join('');
+  const kn0 = Object.entries(m.kn).filter(([id,k])=>k.who && alive(k.who) && k.conf>=0.35).sort((a,b)=>b[1].conf-a[1].conf).slice(0,4).map(([id,k])=>`<div class="vote">🔎 Thinks <b>${esc(cById(k.who).name)}</b> was behind the ${esc(k.kind||'crime')} <span class="muted">(${Math.round(k.conf*100)}% sure · ${SRC_ICON[k.src]||''} ${esc(k.src)})</span></div>`).join('');
+  const believers = S.citizens.filter(o=>o!==c && Object.values(cogOf(o).kn).some(k=>k.who===c.id && k.conf>=0.4)).length;
+  const rep = m.rep||0, repTxt = rep>30 ? 'well respected' : rep>10 ? 'liked' : rep<-30 ? 'distrusted' : rep<-10 ? 'talked about' : 'unremarkable';
+  const legal = (c.civ.legal||[]).slice().reverse().map(e=>`<div class="vote">${['guilty','fined','rough'].includes(e.v)?'⚖️':'✔️'} Day ${e.day+1}: ${esc(e.type)} — <b class="${['guilty','fined','rough'].includes(e.v)?'No':'Yes'}">${esc({guilty:'convicted',fined:'fined on the spot',rough:'punished without a hearing',acquitted:'acquitted',cleared:'cleared',dismissed:'case dismissed',noted:'noted'}[e.v]||e.v)}</b>${e.s?` · ${esc(e.s)}`:''}</div>`).join('');
+  const pl = civPlatform(c).map(([t,dir])=>`${dir>0?'':'against '}${topicLabel(t)}`).join(' and ');
+  return `<details open><summary>Mind: memories, beliefs, opinions, trust</summary>
+    ${dist?`<p style="font-size:13px;margin:2px 0">🏘️ Lives in <b>${esc(dist)}</b></p>`:''}${c.away?`<p style="font-size:13px;margin:2px 0">🧭 On an expedition to the ${esc(DIRS[c.away.dir].label.toLowerCase())}, due back day ${c.away.until+1}.</p>`:''}
+    <b style="display:block;margin-top:6px">Important memories</b>${mems}
+    ${bel?`<b style="display:block;margin-top:6px">Beliefs</b>${bel}`:''}
+    ${ops?`<b style="display:block;margin-top:6px">Opinions</b>${ops}`:''}${pl?`<p style="font-size:12px;margin:4px 0">📣 Would stand for ${esc(pl)}.</p>`:''}
+    <b style="display:block;margin-top:6px">Trust</b><div>${tr}</div>
+    ${kn0?`<b style="display:block;margin-top:6px">Suspicions</b>${kn0}`:''}
+    <b style="display:block;margin-top:6px">Reputation</b><p style="margin:2px 0;font-size:13px">${repTxt}${raw?` (${rep>0?'+':''}${Math.round(rep)})`:''}${believers?` · ${believers} ${believers>1?'people believe':'person believes'} they broke the law`:''}${c.jail?` · <b class="No">in jail until day ${c.jail+1}</b>`:''}${c.civ.service>civDay()?` · doing community service`:''}</p>
+    ${legal?`<b style="display:block;margin-top:6px">Legal history</b>${legal}<p class="muted" style="font-size:12px;margin:2px 0">Record weight ${civLegalScore(c).toFixed(2)} (serious and recent offences weigh most)</p>`:''}
+    <label class="muted" style="font-size:11px"><input type="checkbox" class="rawMind" ${raw?'checked':''}> show the numbers</label></details>`;
+}
+// ---------- the frontier: explore, map, annex ----------
+function civFrontierHtml(){
+  const W = S.world; if (!W) return '';
+  const exps = W.exp.filter(e=>e.status==='out').map(e=>`<div style="font-size:12px">🧭 ${esc(DIRS[e.dir].label)}: ${e.members.map(id=>esc((cById(id)||{name:'?'}).name)).join(', ')} · back around day ${e.back+1}</div>`).join('');
+  const dirBtn = dir => { const chk = civExpCheck(dir, {k:'player'}); if (chk.err) return `<div class="card" style="font-size:12px;margin:0"><b>${DIRS[dir].label}</b><br><span class="muted">${esc(chk.err)}</span></div>`;
+    const P = chk.plan; return `<div class="card" style="font-size:12px;margin:0"><b>${DIRS[dir].label}</b> <span class="muted">· ring ${P.ring}</span><br>${P.days} days · ${P.food} food (${chk.sup.food} spare) · ${P.tools} tools (${chk.sup.tools})${P.coin?` · ${P.coin} coin`:''}<br>risk ${Math.round(P.risk*100)}% · crew ${chk.crew.map(c=>esc(c.name.split(' ')[0])).join(', ')||'none'}
+      <div style="margin-top:4px"><button class="btn ${chk.ok?'primary':''}" data-explore="${dir}" ${chk.ok?'':'disabled'} title="${esc(chk.miss.join('; ')||'Send the expedition')}">Explore ${DIRS[dir].label.toLowerCase()}</button></div>${chk.ok?'':`<div class="No" style="margin-top:3px">Needs ${esc(chk.miss.join(', '))}</div>`}</div>`; };
+  const bar = (v, col) => civBar(v*100, 100, col);
+  const regs = Object.values(W.cells).sort((a,b)=>a.n-b.n).map(c=>{ const A = c.attrs, [x0,y0,x1,y1] = cellRect(c.cx, c.cy), votes = W.votes.filter(v=>v.cell===c.key);
+    return `<div class="card" style="font-size:12px"><div class="row" style="justify-content:space-between"><b><a ${locAttr(x0,y0,x1-x0+1,y1-y0+1,c.name)}>${esc(c.name)}</a></b><span class="chip">${esc(c.state)}</span></div>
+      <div class="muted">${esc(BIOMES[c.biome].label)} to the ${esc((DIRS[c.dir]||{label:'?'}).label.toLowerCase())} · found day ${c.found+1} · room for ~${c.sites} homes${CIV_CLAIMED.includes(c.state)?` · ${c.homes||0} built, ${c.people||0} living there · upkeep ${c.upkeep||civAnnexUpkeep(c)}/day${c.neglect?' · <b class="No">neglected</b>':''}`:''}</div>
+      <div style="display:grid;grid-template-columns:52px 76px 52px 76px;gap:2px 6px;margin-top:4px;align-items:center">${[['Fertile',A.fert,'#6ab04a'],['Timber',A.timber,'#8a6a3a'],['Fish',A.fish,'#5a9ad8'],['Ore',A.ore,'#9a9aa8'],['Danger',A.danger,'#e06c5a'],['Beauty',A.beauty,'#d8a8e8']].map(([l,v,c])=>`<span>${l}</span><span>${bar(v,c)}</span>`).join('')}</div>
+      ${votes.length?`<div class="muted" style="margin-top:3px">Votes: ${votes.map(v=>`day ${v.day+1} ${v.passed?'✅':'❌'} ${v.yes}–${v.no}`).join(' · ')}</div>`:''}
+      ${c.state==='annexable' ? (W.proposal && W.proposal.cell===c.key ? `<div style="margin-top:4px">📜 Proposed: "${esc(W.proposal.why)}" — to be voted on at the next gathering${S.civ.gov.stage<1?' (once the settlement starts meeting)':''}.</div>` : `<div style="margin-top:4px"><button class="btn" data-annex="${c.key}" ${W.proposal?'disabled':''}>Propose annexation${civAnnexCost(c)?` (${civAnnexCost(c)} from the treasury)`:''}</button></div>`) : c.state==='discovered' ? '<div class="muted" style="margin-top:3px">Too far out to claim until the land between is annexed.</div>' : ''}</div>`; }).join('');
+  const N = S.civ.frontierNeed;
+  return `<h2>Frontier</h2>
+    <p class="muted" style="font-size:12px;margin:2px 0 6px">Beyond the valley is unmapped. An expedition takes food, tools and people away for days; what it finds is not ours until the settlement votes to annex it.${N?` Pressure: ${N.homeless} households without a home · forage ${Math.round(N.forage*100)}% · game ${Math.round(N.game*100)}% · fish ${Math.round(N.fish*100)}%.`:''}</p>
+    ${exps?`<div class="card"><b>Expeditions out</b>${exps}</div>`:''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">${['N','S','E','W'].map(dirBtn).join('')}</div>
+    ${regs || '<p class="muted">No regions mapped yet.</p>'}`;
 }
 // ---------- science ----------
 function civRenderScience(){

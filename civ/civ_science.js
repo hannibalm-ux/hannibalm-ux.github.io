@@ -34,7 +34,7 @@ CIV_TARGETS.prospect = c => {
   // a geologist reads the land: outcrops, hills and streams; a novice wanders
   const g = kn(c,'geology'), belief = (c.civ.beliefs.th_ore_veins||0) > 0.5, dowse = (c.civ.beliefs.th_dowsing||0) > 0.5;
   let best = null, bs = -1;
-  for (let k=0;k<40;k++){ const x = clamp(Math.round(c.rt.x + (r()-0.5)*60), 1, OW-2), y = clamp(Math.round(c.rt.y + (r()-0.5)*40), 1, OH-2); if (!walkable(x,y)) continue;
+  for (let k=0;k<40;k++){ const x = clamp(Math.round(c.rt.x + (r()-0.5)*60), X0+1, X0+MW-2), y = clamp(Math.round(c.rt.y + (r()-0.5)*40), Y0+1, Y0+MH-2); if (!civClaimedTile(x,y)) continue; if (!walkable(x,y)) continue;
     let s = r()*(dowse ? 1 : 0.4); let rock = 0, water = 0; for (let j=-3;j<=3;j++) for (let i=-3;i<=3;i++){ const t = tileAt(x+i,y+j); if (t===T.ROCK) rock++; if (t===T.WATER) water++; }
     s += (rock*0.06 + water*0.03) * (g/30 + (belief?0.5:0)); if (S.civ.prospected && S.civ.prospected[Math.floor(x/5)+','+Math.floor(y/5)]) s -= 0.6;
     if (s>bs){ bs = s; best = [x,y]; } }

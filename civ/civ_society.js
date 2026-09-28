@@ -17,18 +17,18 @@ function civGathering(reason){
   const convener = G.leader && alive(G.leader) ? alive(G.leader) : civRespected(1)[0]; if (!convener) return;
   const topics = Object.entries(P).filter(([k,v])=>v>=2).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k])=>k);
   if (!topics.length) return;
-  const att = S.citizens.filter(c=>isAdult(c) && (c.politics.civicEngagement + c.personality.extraversion*0.3 + (topics.includes(c.civ.worry)?0.5:0)) > 0.55);
+  const att = S.citizens.filter(c=>isAdult(c) && !c.jail && (c.politics.civicEngagement + c.personality.extraversion*0.3 + (topics.includes(c.civ.worry)?0.5:0)) > 0.55);
   const decisions = [];
   topics.forEach(t=>{ const d = civDecide(t, att, convener); if (d) decisions.push(d); P[t] = Math.floor(P[t]*0.35); });
   const m = {day:civDay(), convener:convener.id, by: G.stage>=2 ? 'council' : 'gathering', n:att.length, topics, decisions}; G.meetings.push(m); if (G.meetings.length>60) G.meetings.shift();
   convener.civ.respect += 1;
   const who = G.stage>=2 ? 'The council' : `${convener.name} called the settlement together`;
   chronicle(`${who}${G.stage>=2?' met':''} about ${topics.map(civProblemLabel).join(', ')} (${att.length} came). ${decisions.length ? 'Agreed: '+decisions.join('; ')+'.' : 'Nothing was agreed.'}`, decisions.length?7:5, '🔥', 'gov');
-  ev('gatherings'); S.civ.gatherToday = 1;
+  ev('gatherings'); S.civ.gatherToday = 1; civGatheringHeard(att, topics, decisions, convener);
   if (G.stage<1) civGovStage(1, `${convener.name} called the first gathering around the fire. The settlement has started to decide things together.`);
   att.forEach(c=>{ c.needs.social = clamp(c.needs.social+10,0,100); });
 }
-function civProblemLabel(k){ return {food:'food', dispute:'quarrels', crime:'theft', infrastructure:'getting across the river', health:'sickness', housing:'shelter', storage:'spoiling food', injury:'injuries', finance:'money troubles', neglect:'neglected land', growth:'newcomers', education:'the children\'s schooling', water:'water'}[k] || k; }
+function civProblemLabel(k){ return {food:'food', dispute:'quarrels', crime:'theft', infrastructure:'getting across the river', health:'sickness', housing:'shelter', storage:'spoiling food', injury:'injuries', finance:'money troubles', neglect:'neglected land', growth:'newcomers', education:'the children\'s schooling', water:'water', land:'running out of land', justice:'how guilt is decided'}[k] || k; }
 // a decision is a proposal the room supports; what gets proposed depends on what people know how to do
 function civDecide(topic, att, convener){
   const C = S.civ, G = C.gov, support = pred => att.filter(pred).length / Math.max(1, att.length);
@@ -47,10 +47,11 @@ function civDecide(topic, att, convener){
     case 'infrastructure': { const cr = Object.values(C.crossing||{}).reduce((a,b)=>a+b,0); if (cr>5){ C.crossing = C.crossing || {}; const y = Object.entries(C.crossing).sort((a,b)=>b[1]-a[1])[0]; if (y) C.crossing[y[0]] += 20; return 'find a way across the river'; } return null; }
     case 'water': return proj('well', 'the walk to the river is too long');
     case 'health': { const out = []; if (!civHas('latrine').length && builders.length>30){ const r = proj('latrine', 'sickness is spreading'); if (r) out.push('dig latrines'); } const h = S.citizens.filter(c=>c.civ.occ==='healer')[0]; if (h && !civHas(['healer_hut','clinic']).length){ const site = civFindSite('healer_hut', C.center, {margin:1}); if (site){ civStartProject('healer_hut', site, {k:'person', id:h.id}, {why:`for ${h.name} to tend the sick`}); out.push(`give ${h.name.split(' ')[0]} a healer's hut`); } } if (civHas('healer_hut').length && civTechKnown('masonry') && !civHas('clinic').length && S.citizens.some(c=>kn(c,'medicine')>=35)){ const r = proj('clinic', 'the healer\'s hut is overflowing'); if (r) out.push(r); } return out.join(', ') || null; }
-    case 'housing': { const homeless = Object.values(C.hh).filter(h=>!h.home || !C.structs[h.home]); if (!homeless.length) return null; const h = homeless[0]; if (civProjects().some(p=>p.forHH===h.id)) return null; const site = civFindSite('crude_hut', C.center, {margin:1}); if (!site) return null; civStartProject('crude_hut', site, {k:'hh', id:h.id}, {purpose:'home', forHH:h.id, why:'neighbours are helping'}); return `help the ${h.name} household build a hut`; }
+    case 'housing': { const homeless = Object.values(C.hh).filter(h=>!h.home || !C.structs[h.home]); if (!homeless.length) return null; const h = homeless[0]; if (civProjects().some(p=>p.forHH===h.id)) return null; const site = civFindSite('crude_hut', C.center, {margin:1}); if (!site){ civProblem('land', 3); C.landShort = civDay(); return null; } civStartProject('crude_hut', site, {k:'hh', id:h.id}, {purpose:'home', forHH:h.id, why:'neighbours are helping'}); return `help the ${h.name} household build a hut`; }
     case 'dispute': case 'crime': { const open = C.justice.cases.filter(k=>k.status==='open'); open.slice(0,3).forEach(k=>civMediate(k, convener)); if (topic==='crime' && C.justice.stage<2 && support(c=>c.values.includes('Order')||c.personality.conscientiousness>0.6) > 0.25) { civJusticeStage(2, 'The settlement agreed to keep a night watch.'); civRaiseWatch(); return 'keep a night watch'; } if (G.stage>=2 && !G.laws.theft && topic==='crime'){ civPassLaw('theft', 'Theft must be repaid twice over', convener); return 'a rule against theft'; } return open.length ? `settle ${Math.min(3,open.length)} quarrel${open.length>1?'s':''}` : null; }
     case 'education': return civSchoolDecision(convener);
     case 'growth': return null;
+    case 'land': return civDecideLand(convener);
   }
   return null;
 }
@@ -110,14 +111,16 @@ function civElectionsWeekly(){
   if (G.stage>=5 && G.elections.length && d - G.elections[G.elections.length-1].day >= 56) civElection('the term was up');
 }
 function civElection(why){
-  const G = S.civ.gov, voters = S.citizens.filter(c=>isAdult(c) && c.age>=18);
+  const G = S.civ.gov, voters = S.citizens.filter(c=>isAdult(c) && c.age>=18 && !c.jail && !c.away);
   const cands = voters.filter(c=>c.politics.civicEngagement + (c.traits.includes('Ambitious')?0.3:0) + (c.office?0.3:0) + civInfluence(c)/60 > 0.9).sort((a,b)=>civInfluence(b)-civInfluence(a)).slice(0,4);
   if (cands.length<1) return;
-  const tally = {}; voters.forEach(v=>{ const best = cands.map(c=>[c, peekRel(v,c.id).affinity + civInfluence(c)*0.4 + (c.values.some(x=>v.values.includes(x))?15:0) + (v.id===c.id?100:0)]).sort((a,b)=>b[1]-a[1])[0][0]; tally[best.id] = (tally[best.id]||0)+1; });
+  // candidates stand for what they care about most; voters weigh that, the candidate's record as they know it, their own lives, and family talk
+  cands.forEach(c=>{ const pl = civPlatform(c); if (pl.length && rnd()<0.7) chronicle(`${c.name} is standing on ${pl.map(([t,d])=>(d>0?'':'no ')+topicLabel(t)).join(' and ')}.`, 4, '📣', 'gov'); });
+  const tally = civVote(voters, cands);
   const win = cands.sort((a,b)=>(tally[b.id]||0)-(tally[a.id]||0))[0];
   const was = G.leader && alive(G.leader); if (was && was!==win) was.office = null;
   G.leader = win.id; win.office = 'Leader';
-  G.elections.push({day:civDay(), winner:win.id, votes:tally[win.id]||0, turnout:voters.length, cands:cands.map(c=>({id:c.id, v:tally[c.id]||0})), why});
+  G.elections.push({day:civDay(), winner:win.id, votes:tally[win.id]||0, turnout:voters.length, cands:cands.map(c=>({id:c.id, v:tally[c.id]||0, pl:civPlatform(c)})), why});
   chronicle(`Election: ${win.name} won with ${tally[win.id]||0} of ${voters.length} votes (${why}).`, 8, '🗳️', 'gov'); S.week.election = {leader:{name:win.name, votes:tally[win.id]||0}, turnout:voters.length}; ev('elections');
 }
 // laws answer problems the settlement has actually had
@@ -147,8 +150,8 @@ function civTaxDaily(){
   }
   if (G.taxes.rate && civDay()%7===0){
     let got = 0;
-    if (G.taxes.form==='hearth') Object.values(C.hh).forEach(h=>{ const p = civOwnerPurse({k:'hh', id:h.id}); if (civMoveMoney(p, {k:'gov'}, G.taxes.rate*(C.econ.level||1), 'tax')) got += G.taxes.rate; });
-    else S.citizens.filter(c=>isAdult(c) && c.wallet > 20).forEach(c=>{ const w = weekSum(c,'inc'), t = Math.round(w*G.taxes.rate*100)/100; if (t>0 && civMoveMoney({k:'person',id:c.id}, {k:'gov'}, t, 'tax')) got += t; });
+    if (G.taxes.form==='hearth') Object.values(C.hh).forEach(h=>{ const p = civOwnerPurse({k:'hh', id:h.id}); if (civMoveMoney(p, {k:'gov'}, G.taxes.rate*(C.econ.level||1), 'tax')){ got += G.taxes.rate; hhAdults(h).forEach(a=>{ const w = cogOf(a).week = cogOf(a).week || {}; w.tax = (w.tax||0) + G.taxes.rate*(C.econ.level||1)/Math.max(1, hhAdults(h).length); }); } });
+    else S.citizens.filter(c=>isAdult(c) && c.wallet > 20).forEach(c=>{ const w = weekSum(c,'inc'), t = Math.round(w*G.taxes.rate*100)/100; if (t>0 && civMoveMoney({k:'person',id:c.id}, {k:'gov'}, t, 'tax')){ got += t; const w = cogOf(c).week = cogOf(c).week || {}; w.tax = (w.tax||0) + t; } });
     civOrgs(o=>o.biz && o.profitAvg>0).forEach(o=>{ const t = +(o.profitAvg*0.05).toFixed(2); if (civMoveMoney(civOrgPurse(o), {k:'gov'}, t, 'tax')) got += t; });
     G.taxWk = Math.round(got); if (S.week) S.week.taxes += Math.round(got);
     // pay the office holders
@@ -176,37 +179,12 @@ function civCaseFile(kind, type, plaintiff, defendant, claim, damages, contract)
 function civTrueCase(k){ if (k) k.truth = true; return k; }
 function civCaseParty(p){ if (!p) return 'nobody'; if (p.k==='estate') return `the estate of ${p.name}`; return civOwnerLabel(p); }
 // resolving cases with whatever the settlement has: family, a mediator, a magistrate, a court, lawyers
-function civJusticeDaily(){
-  const J = S.civ.justice, d = civDay();
-  J.cases.filter(k=>k.status==='open').forEach(k=>{
-    const age = d - k.day;
-    if (J.stage>=6 && age>=3) return civTrial(k);
-    if (J.stage>=5 && age>=2) return civMagistrate(k);
-    if (J.stage>=1 && age>=1 && rnd()<0.4){ const m = civMediator(k); if (m) return civMediate(k, m); }
-    // no institutions: family steps in, the wronged party retaliates, or it festers
-    if (age>=2 && J.stage<1){ civInformal(k); }
-    if (age>40){ k.status = k.kind==='criminal' ? 'unsolved' : 'dropped'; civProblem(k.kind==='criminal'?'crime':'dispute', 1); }
-  });
-  // institutions grow from the caseload, not the calendar
-  const recent = J.cases.filter(k=>d-k.day<=28), crimes = recent.filter(k=>k.kind==='criminal').length, civil = recent.filter(k=>k.kind==='civil').length, unsolved = J.cases.filter(k=>k.status==='unsolved' && d-k.day<=56).length;
-  if (J.stage<1 && recent.length>=3 && civMediator(null)) civJusticeStage(1, `${civMediator(null).name} has become the person everyone asks to settle quarrels.`);
-  if (J.stage>=2 && J.stage<3 && crimes>=4 && S.civ.gov.stage>=3){ const c = civWatch()[0]; if (c){ civJusticeStage(3, `${c.name} was made the settlement's constable.`); c.office = 'Constable'; S.civ.gov.offices.constable = c.id; } }
-  if (J.stage===3 && unsolved>=4){ const inv = S.citizens.filter(c=>isAdult(c) && c.civ.cog.reasoning>0.6 && c.civ.cog.attention>0.55 && !c.office).sort((a,b)=>sk(b,'investigation')-sk(a,'investigation'))[0]; if (inv){ inv.office = 'Investigator'; S.civ.gov.offices.investigator = inv.id; civJusticeStage(4, `Too many thefts went unsolved: ${inv.name} was asked to investigate crimes properly.`); } }
-  if (J.stage===5 && J.cases.filter(k=>k.status==='open').length>=5 && !civProjects().some(p=>p.def==='courthouse') && !civHas('courthouse').length && civCanBuild('courthouse', S.citizens)){ const site = civFindSite('courthouse', S.civ.center, {margin:1}); if (site) civStartProject('courthouse', site, {k:'gov'}, {purpose:'civic', why:'the magistrate cannot keep up'}); }
-  if (J.stage===5 && civHas('courthouse').length) civJusticeStage(6, 'The courthouse is open: trials now have witnesses, evidence and verdicts.');
-  const repeat = S.citizens.filter(c=>(c.civ.convictions||0)>=2).length;
-  if (J.stage>=5 && repeat>=1 && !civHas(['jail','prison']).length && !civProjects().some(p=>p.def==='jail')){ const site = civFindSite('jail', S.civ.center, {margin:1}); if (site) civStartProject('jail', site, {k:'gov'}, {purpose:'civic', why:'the same people keep breaking the law'}); }
-  if (J.stage===6 && civHas(['jail','prison']).length) civJusticeStage(7, 'A jail stands. Convicts can now be locked up.');
-  if (J.stage===7 && (civOrgs(o=>o.biz==='law_office').length || S.citizens.some(c=>kn(c,'law')>=45 && sk(c,'law')>=35 && !c.office))) civJusticeStage(8, 'Professional advocates now argue cases in court.');
-  // jail terms
-  S.citizens.forEach(c=>{ if (c.jail && d >= c.jail){ c.jail = 0; remember(c, 'I have served my time.', 6); } });
-}
 function civWatch(){ return S.citizens.filter(c=>c.civ.watch && isAdult(c)).sort((a,b)=>civInfluence(b)-civInfluence(a)); }
 function civRaiseWatch(){ civRespected(6, c=>c.age<55 && (c.values.includes('Order') || c.personality.conscientiousness>0.55)).forEach(c=>{ c.civ.watch = 1; }); }
 function civMediator(k){ const involved = k ? [k.plaintiff, k.defendant].filter(p=>p && p.k==='person').map(p=>p.id) : []; return S.citizens.filter(c=>isAdult(c) && !involved.includes(c.id) && c.civ.cog.emotional > 0.5 && civInfluence(c) > 12).sort((a,b)=>civInfluence(b)+b.civ.cog.emotional*10 - civInfluence(a)-a.civ.cog.emotional*10)[0] || null; }
-function civEvidence(k){ let e = k.evidence.length*0.25 + k.witnesses.length*0.2 + (k.weak ? -0.2 : 0); if (k.contract){ const K = S.civ.contracts[k.contract]; if (K && K.written) e += 0.4; } return clamp(0.2 + e, 0, 1); }
 function civMediate(k, m){
-  if (!k || k.status!=='open') return;
+  if (!k || k.status!=='open' || !m || !k.defendant) return; // nobody to reconcile with until someone is accused
+  if (k.kind==='criminal' && S.civ.justice.stage>=5) return; // with a magistrate, crimes go to a hearing, not a friendly word
   const skill = m.civ.cog.emotional*0.5 + m.civ.cog.social*0.3 + kn(m,'law')/200;
   if (rnd() < 0.35 + skill*0.5){
     const pay = Math.round((k.damages||0)*(0.4 + civEvidence(k)*0.5));
@@ -223,66 +201,6 @@ function civInformal(k){
   if (kin && rnd()<0.5){ k.status = 'settled'; k.settlement = {by:kin.id, family:true}; chronicle(`${kin.name} smoothed things over between ${p.name} and ${d.name}.`, 3, '👪', 'justice'); return; }
   if (p.personality.agreeableness < 0.35 && rnd()<0.4){ adjustRel(p, d, -20); adjustRel(d, p, -20); d.civ.hurt = rnd()<0.3 ? 1 : 0; k.status = 'retaliation'; chronicle(`${p.name} took matters into their own hands against ${d.name}.`, 5, '👊', 'justice'); civProblem('crime', 1); ev('retaliations'); return; }
   if (k.damages && rnd()<0.3){ const pay = Math.round(k.damages*0.5); const st = hhOf(d) && hhOf(p); if (civMoneyOn()) civMoveMoney({k:'person', id:d.id}, {k:'person', id:p.id}, Math.min(pay, d.wallet), 'compensation'); k.status = 'settled'; k.settlement = {amount:pay, informal:true}; }
-}
-function civMagistrate(k){
-  const G = S.civ.gov, m = alive(G.offices.magistrate); if (!m){ return; }
-  civJudge(k, m, 0);
-}
-function civTrial(k){
-  const judge = alive(S.civ.gov.offices.magistrate) || civRespected(1, c=>kn(c,'law')>=20)[0]; if (!judge) return;
-  // advocates: a good lawyer tips the balance; the richer side can afford a better one
-  let tilt = 0;
-  if (S.civ.justice.stage>=8){ const lawyers = S.citizens.filter(c=>kn(c,'law')>=40 && c!==judge).sort((a,b)=>sk(b,'law')-sk(a,'law'));
-    const pl = lawyers[0], dl = lawyers[1]; const fee = 8*(S.civ.econ.level||1);
-    const hire = (party, L) => { if (!L || !party) return 0; const pp = civOwnerPurse(party); if (civPurse(pp) < fee) return 0; civMoveMoney(pp, {k:'person', id:L.id}, fee, 'legal'); L.civ.log.lawyer = (L.civ.log.lawyer||0)+2; ev('lawyer_fees'); return sk(L,'law')/200; };
-    tilt = hire(k.plaintiff, pl) - hire(k.defendant, dl); k.lawyers = {p: pl ? pl.id : null, d: dl ? dl.id : null}; }
-  // witnesses who saw something
-  S.citizens.filter(c=>c.civ.saw && c.civ.saw.case===k.id).forEach(c=>{ if (!k.witnesses.includes(c.id)) k.witnesses.push(c.id); });
-  civJudge(k, judge, tilt);
-}
-function civJudge(k, judge, tilt){
-  if (k.type==='bankruptcy'){ const r = civBankrupt(k.plaintiff, 'court'); k.status = 'judged'; k.judgment = {by:judge.id, result:r}; chronicle(`${judge.name} ruled on the insolvency of ${civCaseParty(k.plaintiff)}: ${r}.`, 7, '⚖️', 'justice'); return; }
-  const skill = kn(judge,'law')/100*0.4 + judge.civ.cog.reasoning*0.3;
-  const guilty = k.truth!==false;
-  const p = clamp(civEvidence(k) + tilt + (guilty ? skill*0.3 : -skill*0.4), 0.02, 0.98);
-  const found = rnd() < p;
-  k.status = 'judged'; k.judgment = {by:judge.id, found, day:civDay()};
-  const dfd = k.defendant && k.defendant.k==='person' && alive(k.defendant.id);
-  if (found){
-    if (k.kind==='civil'){ const pay = Math.min(k.damages||0, civPurse(civOwnerPurse(k.defendant))); if (pay>0) civMoveMoney(civOwnerPurse(k.defendant), civOwnerPurse(k.plaintiff), pay, 'judgment'); k.judgment.amount = pay; if (pay < (k.damages||0)*0.5 && k.defendant.k!=='estate') civCheckInsolvent(k.defendant); }
-    else if (dfd){ dfd.civ.convictions = (dfd.civ.convictions||0)+1; if (civHas(['jail','prison']).length && (dfd.civ.convictions>=2 || k.type==='assault' || k.type==='insider trading')) { dfd.jail = civDay() + 7*dfd.civ.convictions; k.judgment.jail = 7*dfd.civ.convictions; ev('jailed'); } else if (civMoneyOn()){ const fine = Math.min(dfd.wallet, 10*(S.civ.econ.level||1)); civMoveMoney({k:'person', id:dfd.id}, {k:'gov'}, fine, 'fine'); k.judgment.fine = fine; } }
-  }
-  if (!guilty && found && dfd) remember(dfd, 'I was found guilty of something I did not do.', 9);
-  chronicle(`${judge.name} ${S.civ.justice.stage>=6?'heard the case':'ruled'}: ${civCaseParty(k.plaintiff)} v. ${civCaseParty(k.defendant)} (${k.type}) — ${found ? (k.kind==='civil' ? `claim upheld${k.judgment.amount?`, ${k.judgment.amount}¢ awarded`:''}` : `guilty${k.judgment.jail?`, ${k.judgment.jail} days in jail`:k.judgment.fine?`, fined ${k.judgment.fine}¢`:''}`) : (k.kind==='civil'?'claim dismissed':'not guilty')}.`, 6, '⚖️', 'justice');
-  ev(found ? 'judgments_for' : 'judgments_against');
-}
-// theft, fraud and fights: need, temptation, and who might be watching
-function civCrimeDaily(){
-  const C = S.civ, d = civDay(), watch = civWatch().length;
-  S.citizens.forEach(c=>{
-    if (!isAdult(c) || c.jail) return;
-    const h = hhOf(c), desperate = h && hhFoodDays(h) < 0.4 && c.needs.hunger < 25, greedy = c.traits.includes('Greedy') || c.traits.includes('Cunning');
-    const honest = c.traits.includes('Honest') ? 0.2 : 1, deter = 1/(1 + watch*0.25 + (C.justice.stage>=3?0.6:0) + (C.gov.laws.theft?0.4:0));
-    const p = (desperate ? 0.05 : greedy ? 0.004 : 0.0008) * (1.3 - c.personality.agreeableness) * honest * deter;
-    if (rnd() >= p) return;
-    const victims = Object.values(C.hh).filter(x=>x!==h && storeFood(x.store) > 150); if (!victims.length) return;
-    const v = victims[Math.floor(rnd()*victims.length)], g = CIV_FOODS.filter(x=>v.store[x]>=3).sort((a,b)=>v.store[b]-v.store[a])[0]; if (!g) return;
-    const q = Math.min(8, Math.floor(v.store[g]*0.3)); storeTake(v.store, g, q); storeAdd(h.store, g, q);
-    const owner = hhAdults(v)[0]; if (!owner) return;
-    const seen = rnd() < 0.2 + watch*0.05; const witness = seen ? S.citizens.find(o=>o!==c && hhOf(o)!==h && isAdult(o)) : null;
-    const k = civCaseFile('criminal', 'theft', {k:'person', id:owner.id}, seen ? {k:'person', id:c.id} : null, `${q} ${CG[g].name.toLowerCase()} stolen`, q*CG[g].v);
-    ev('thefts');
-    if (!k) return; k.truth = true; k.suspect = c.id;
-    if (witness){ k.witnesses.push(witness.id); witness.civ.saw = {case:k.id}; }
-    // an investigator can still find the thief when nobody saw
-    if (!seen && C.justice.stage>=3){ const inv = alive(C.gov.offices.investigator) || alive(C.gov.offices.constable); const skill = inv ? (sk(inv,'investigation')+inv.civ.cog.reasoning*40+inv.civ.cog.attention*20)/150 : 0; if (inv && rnd() < 0.2 + skill*0.5){ k.defendant = {k:'person', id:c.id}; k.evidence.push('traced by '+inv.name); inv.civ.skill.investigation = Math.min(100, sk(inv,'investigation')+2); ev('crimes_solved'); } else if (inv && rnd()<0.15){ const wrong = S.citizens.filter(x=>isAdult(x) && x!==c && x!==owner)[Math.floor(rnd()*20)]; if (wrong){ k.defendant = {k:'person', id:wrong.id}; k.truth = false; k.evidence.push('a mistaken lead'); } } }
-    chronicle(`Food was stolen from the ${v.name} household${seen?` — ${witness?witness.name+' saw ':'someone saw '}${c.name}`:''}.`, 5, '🕵️', 'crime');
-    remember(owner, `Someone stole our ${CG[g].name.toLowerCase()}.`, 7);
-  });
-}
-function civQuarrel(a, b){
-  S.week.quarrels++; adjustRel(a, b, -15); adjustRel(b, a, -15); civProblem('dispute', 1);
-  if (rnd()<0.2){ const hurt = rnd()<0.5 ? b : a; hurt.civ.hurt = 1; civTrueCase(civCaseFile('criminal', 'assault', {k:'person', id:hurt.id}, {k:'person', id:(hurt===a?b:a).id}, 'a fight at the fire', 0)); chronicle(`A quarrel between ${a.name} and ${b.name} came to blows.`, 5, '👊', 'social'); ev('fights'); }
 }
 // civil disputes that grow out of the economy
 function civCivilWeekly(){
@@ -547,10 +465,10 @@ function civMigrationMonthly(){
   Object.values(C.hh).slice().sort(()=>rnd()-0.5).forEach(h=>{
     if (left >= 2) return;
     const ad = hhAdults(h); if (!ad.length) return; const head = ad[0];
-    const hard = hhFoodDays(h) < 1 || !h.home || !C.structs[h.home] || head.mood.valence < -0.35 || ad.some(a=>a.civ.hungryDays>3);
+    const hard = hhFoodDays(h) < 1 || !h.home || !C.structs[h.home] || head.mood.valence < -0.35 || ad.some(a=>a.civ.hungryDays>3) || civDiscontent(head) > 0.5;
     if (!hard || head.office) return;
     const kin = S.citizens.filter(o=>hhOf(o)!==h && ad.some(a=>peekRel(a,o.id).tags.includes('Family'))).length;
-    const mine = hhFoodDays(h)/6 + (h.home && C.structs[h.home] ? 0.4 : -0.4) + (ad.some(a=>a.civ.job||a.civ.occ) ? 0.4 : 0) + kin*0.2 + head.mood.valence*0.8 + A.score*0.3 + (civDay()<56 ? 0.5 : 0);
+    const mine = -civDiscontent(head) + hhFoodDays(h)/6 + (h.home && C.structs[h.home] ? 0.4 : -0.4) + (ad.some(a=>a.civ.job||a.civ.occ) ? 0.4 : 0) + kin*0.2 + head.mood.valence*0.8 + A.score*0.3 + (civDay()<56 ? 0.5 : 0);
     const best = C.neighbors.map(n=>({n, s:(n.shortage?-0.5:0.6) + n.wealth/n.pop/10 - n.dist*0.08 + (n.rel/200) - 0.6})).sort((a,b)=>b.s-a.s)[0];
     if (!best || mine > best.s || rnd() > 0.3) return;
     const size = h.members.length, names = hhMembers(h);

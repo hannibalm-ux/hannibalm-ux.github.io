@@ -250,7 +250,7 @@
     a.civ.genes.height = 0.95; b.civ.genes.height = 0.9; a.civ.genes.hair = '#c8702a'; b.civ.genes.hair = '#c8702a';
     const kids = []; for (let i=0;i<6;i++){ civBirth(a, b); kids.push(S.citizens[S.citizens.length-1]); }
     ok(kids.every(k=>k.civ.genes.hair==='#c8702a'), 'hair colour not inherited'); ok(kids.reduce((s,k)=>s+k.civ.genes.height,0)/kids.length > 0.7, 'height not inherited');
-    saveGame(true); const sv = JSON.parse(localStorage.getItem('pixeltown.save.v2')); const k0 = sv.state.citizens.find(x=>x.id===kids[0].id);
+    saveGame(true); const sv = store.get(SAVE_KEY); const k0 = sv.state.citizens.find(x=>x.id===kids[0].id);
     ok(JSON.stringify(k0.civ.genes)===JSON.stringify(kids[0].civ.genes) && k0.look.hair, 'appearance was not saved');
     // grown bodies and old age show in the 3D figure
     const kid = kids[0]; kid.age = 3; const g1 = lpBuild(kid); kid.age = 30; kid.profession = 'Settler'; const g2 = lpBuild(kid); kid.age = 75; const g3 = lpBuild(kid);
@@ -318,6 +318,203 @@
     ok(sz.y > sz.x*2.2 && sz.y > 1.2 && sz.y < 2.2, 'unrealistic proportions '+sz.x.toFixed(2)+'x'+sz.y.toFixed(2));
     ['cow','horse','sheep','deer','dog'].forEach(k=>{ const a = an3Build(k, 0); ok(a.userData.head && a.userData.head.isGroup, k+' has no posable head'); ok(tris(a) > 250, k+' is too simple'); });
     ok(SKINS.length >= 12 && HAIRS.length >= 14 && EYES.length >= 10 && CLOTH.dyed.length >= 16 && CLOTH.pants.length >= 6, 'palette is still narrow');
+  });
+
+  // ======================= JUSTICE (civilization mode) =======================
+  // fix(v): make the settlement's dice return v (a number or a function) until the returned undo is called
+  const fix = v => { const o = RNG.next; RNG.next = typeof v==='function' ? v : () => v; return () => { RNG.next = o; }; };
+  const put = (c, x, y) => { c.rt.x = x; c.rt.y = y; c.rt.state = 'Working'; c.away = null; c.jail = 0; };
+  const cleanSlate = () => S.citizens.forEach(c=>{ c.rt.x = 5; c.rt.y = 5; c.rt.state = 'Sleeping'; });
+  const theftCase = (offender, victim, statements) => { const k = civCaseFile('criminal', 'theft', {k:'person', id:victim.id}, null, 'food stolen', 5); k.actual = offender.id; k.truth = true; k.sev = 4; k.statements = []; k.proof = []; k.pending = []; k.phase = 'reported'; k.at = [40, 20]; (statements||[]).forEach(([by, acc, conf, clears])=>civStatement(k, by, acc.id, conf, clears ? 'alibi' : 'saw', 'test', clears)); return k; };
+  const officials = () => { const [cop, inv, mag] = adults(c=>c.age<55).slice(20, 23); const G = C().gov; G.stage = Math.max(G.stage, 4); G.offices.constable = cop.id; cop.office = 'Constable'; G.offices.investigator = inv.id; inv.office = 'Investigator'; inv.civ.cog.reasoning = 0.9; inv.civ.cog.attention = 0.9; G.offices.magistrate = mag.id; mag.office = 'Magistrate'; mag.civ.know.law = 60; mag.civ.cog.reasoning = 0.9; mag.traits = ['Honest']; return {cop, inv, mag}; };
+  test('CJ1', 'A minor fight is still settled on the spot by a constable', ()=>{
+    money(10); cleanSlate(); const {cop} = officials(); C().justice.stage = 3; const [a, b] = adults(c=>c.age<50 && !c.office).slice(0,2); a.personality.agreeableness = 0.1; b.personality.agreeableness = 0.9;
+    [a, b, cop].forEach((c,i)=>put(c, 40+i, 20)); const n = C().justice.cases.length;
+    let n0 = 0; const undo = fix(()=>n0++===0 ? 0.1 : 0.9); try { civQuarrel(a, b); } finally { undo(); } // the fight happens; nobody is hurt
+    ok(C().justice.cases.length===n, 'a simple brawl became a case'); ok((a.civ.legal||[]).some(e=>e.v==='fined' && e.type==='brawling'), 'the constable did not deal with it');
+    ok(S.chronicle.slice(-3).some(e=>/broke up a fight/.test(e.text)), 'nothing in the chronicle');
+  });
+  test('CJ2', 'Serious vandalism creates a case, without anyone knowing who did it', ()=>{
+    cleanSlate(); const [v, foe] = adults(c=>c.civ.hh && S.civ.hh[c.civ.hh].home).slice(0,2); const s = S.civ.structs[hhOf(foe).home]; const cond = s.cond;
+    civVandalism(v, foe); const k = C().justice.cases[C().justice.cases.length-1];
+    ok(k && k.type==='vandalism' && k.kind==='criminal' && k.status==='open', 'no vandalism case'); ok(k.actual===v.id && !k.defendant, 'the offender should be known only to the world'); ok(s.cond < cond, 'nothing was damaged');
+  });
+  test('CJ3', 'A crime nobody saw can go unsolved', ()=>{
+    cleanSlate(); const [o, v] = adults().slice(0,2); const k = theftCase(o, v, []); k.day = civDay() - 41;
+    civJusticeDaily(); ok(k.status==='unsolved', `status ${k.status}`);
+  });
+  test('CJ4', 'An investigator identifies a suspect from what witnesses say', ()=>{
+    cleanSlate(); const {inv} = officials(); C().justice.stage = 4; const [o, v, w1, w2] = adults(c=>!c.office).slice(0,4);
+    const k = theftCase(o, v, []); k.pending = [{by:w1.id, acc:o.id, conf:0.85}, {by:w2.id, acc:o.id, conf:0.8}];
+    const undo = fix(0.05); try { for (let i=0;i<3;i++) civInvestigate(k); } finally { undo(); }
+    ok(k.inv===inv.id, 'the investigator did not take the case'); ok(k.named===o.id, `named ${k.named}`); ok(k.statements.length>=2, 'witnesses were not interviewed');
+  });
+  test('CJ5', 'Witnesses can disagree, and that weakens the case', ()=>{
+    const [o, x, v, w1, w2] = adults().slice(0,5);
+    const one = theftCase(o, v, [[w1, o, 0.8]]), two = theftCase(o, v, [[w1, o, 0.8], [w2, x, 0.8]]);
+    const sc = civCaseScores(two); ok(sc[o.id] > 0 && sc[x.id] > 0, 'both accounts should count'); ok(civCaseStrength(two, o.id) < civCaseStrength(one, o.id), 'contradiction did not weaken the case');
+  });
+  test('CJ6', 'An innocent suspect can be cleared by an alibi', ()=>{
+    cleanSlate(); officials(); C().justice.stage = 4; const [o, inno, v, w1, w2] = adults(c=>!c.office && !c.traits.includes('Cunning')).slice(0,5);
+    const k = theftCase(o, inno, []); k.plaintiff = {k:'person', id:v.id}; civStatement(k, w1, inno.id, 0.7, 'saw', 't'); civStatement(k, w2, inno.id, 0.7, 'saw', 't'); k.named = inno.id;
+    const undo = fix(0.05); try { civInvestigate(k); civInvestigate(k); } finally { undo(); }
+    ok(k.statements.some(s=>s.clears && s.acc===inno.id), 'no alibi was found'); ok((inno.civ.legal||[]).some(e=>e.v==='cleared'), 'the innocent suspect was not cleared'); ok(k.named!==inno.id, 'still named');
+  });
+  test('CJ7', 'A court can convict on strong evidence', ()=>{
+    const {mag} = officials(); C().justice.stage = 6; const [o, v, w1, w2] = adults(c=>!c.office).slice(0,4);
+    const k = theftCase(o, v, [[w1, o, 0.9], [w2, o, 0.9]]); civProof(k, {kind:'goods', who:o.id, str:0.7, text:'stolen food found'}); k.defendant = {k:'person', id:o.id};
+    const undo = fix(0.5); try { civJudge(k, mag, 0); } finally { undo(); }
+    ok(k.status==='judged' && k.judgment.found, 'not convicted'); ok((o.civ.legal||[]).some(e=>e.v==='guilty'), 'no record of the conviction');
+  });
+  test('CJ8', 'A court can acquit when the case is weak', ()=>{
+    const {mag} = officials(); const [o, x, v, w1, w2] = adults(c=>!c.office).slice(0,5);
+    const k = theftCase(x, v, [[w1, o, 0.35], [w2, o, 0.7, true]]); k.defendant = {k:'person', id:o.id};
+    const undo = fix(0.5); try { civJudge(k, mag, 0); } finally { undo(); }
+    ok(k.status==='judged' && !k.judgment.found, 'convicted on nothing'); ok((o.civ.legal||[]).some(e=>e.v==='acquitted'), 'no record of the acquittal');
+  });
+  test('CJ9', 'A case with too little evidence is dismissed', ()=>{
+    officials(); C().justice.stage = 5; const [o, v, w1] = adults(c=>!c.office).slice(0,3);
+    const k = theftCase(o, v, [[w1, o, 0.2]]); k.defendant = {k:'person', id:o.id}; k.day = civDay() - 5;
+    civJusticeDaily(); ok(k.status==='dismissed', `status ${k.status}`);
+  });
+  test('CJ10', 'A repeat offender is treated more harshly', ()=>{
+    money(500); const {mag} = officials(); const [o, v, w1] = adults(c=>!c.office).slice(0,3);
+    const mk = () => { const k = civCaseFile('criminal', 'vandalism', {k:'person', id:v.id}, {k:'person', id:o.id}, 'broken fence '+Math.random(), 5); k.actual = o.id; k.sev = 3; k.statements = []; k.proof = []; civStatement(k, w1, o.id, 0.95, 'saw', 't'); civProof(k, {kind:'tools', who:o.id, str:0.8, text:'axe marks'}); return k; };
+    const undo = fix(0.5); let k1, k2; try { k1 = mk(); civJudge(k1, mag, 0); o.civ.legal.push({day:civDay(), type:'theft', sev:5, v:'guilty'}); k2 = mk(); civJudge(k2, mag, 0); } finally { undo(); }
+    ok(k1.judgment.found && k2.judgment.found, 'not convicted'); ok(/warning/.test(k1.judgment.sentence), `first offence: ${k1.judgment.sentence}`); ok(!/warning/.test(k2.judgment.sentence) && k2.judgment.sentence.length, `repeat offence: ${k2.judgment.sentence}`);
+  });
+  test('CJ11', 'Jail keeps people from work, wages and the vote', ()=>{
+    const c = adults()[3]; c.jail = civDay() + 5; const p = civPlanDay(c, civDay());
+    ok(p.blocks.some(b=>/jail/.test(b.note)) && !p.blocks.some(b=>b.act==='Work'), 'a prisoner still goes to work');
+    money(0); const o = civNewOrg('sole', 'Test Works', [adults()[4]]); o.cash = 500; const j = civPostJob(o, 'hand', 50); C().jobs = [j]; S.citizens.forEach(x=>{ if (x!==c) x.civ.job = 'x'; }); civLaborDaily(); ok(!c.civ.job || c.civ.job==='x', 'a prisoner was hired');
+  });
+  test('CJ12', 'A conflict of interest makes an honest magistrate step aside', ()=>{
+    const {mag} = officials(); const [o, v] = adults(c=>!c.office).slice(0,2); getRel(mag, o.id).tags.push('Family'); getRel(o, mag.id).tags.push('Family');
+    const k = theftCase(o, v, []); k.defendant = {k:'person', id:o.id};
+    const pick = civJudgeFor(k); ok(pick && pick.judge!==mag, 'the magistrate judged their own relative'); ok(k.recused===mag.id, 'no recusal recorded');
+  });
+  test('CJ13', 'Corruption can bend justice, and can come out later', ()=>{
+    money(0); const {mag} = officials(); mag.traits = ['Greedy']; mag.personality.conscientiousness = 0.2; const [o, v] = adults(c=>!c.office).slice(0,2); o.traits = ['Cunning']; o.wallet = 5000;
+    const k = theftCase(o, v, []); k.defendant = {k:'person', id:o.id};
+    let tilt; const undo = fix(0.01); try { tilt = civTryBribe(k, mag); } finally { undo(); }
+    ok(tilt > 0 && k.bribe && k.bribe.to===mag.id, 'no bribe taken'); ok(mag.wallet > 0, 'no money changed hands');
+    const u2 = fix(0); try { civBriberyDiscovery(); } finally { u2(); }
+    ok(C().justice.cases.some(b=>b.type==='bribery' && b.actual===mag.id), 'the bribe never came out'); ok(C().gov.offices.magistrate!==mag.id, 'the corrupt magistrate kept their office');
+  });
+
+  // ======================= MEMORY, BELIEFS AND OPINIONS =======================
+  test('CC1', 'A witness sees a crime and remembers it first-hand', ()=>{
+    cleanSlate(); const [o, v, w] = adults().slice(0,3); put(w, 41, 20); w.civ.cog.attention = 0.95; const k = theftCase(o, v, []);
+    const undo = fix(0.05); try { civCrimeScene(k, o, [40,20], 4); } finally { undo(); }
+    const m = cogOf(w).mems.find(x=>x.ev==='crime_'+k.id); ok(m && m.src==='saw', 'no first-hand memory'); ok(cogOf(w).kn[k.id], 'no belief about who did it');
+  });
+  test('CC2', 'An important event is remembered', ()=>{ const c = adults()[0]; experience(c, {type:'wronged', text:'My brother was convicted of something he did not do.', imp:9, src:'self', topics:{courts:-1}}); for (let i=0;i<30;i++) cognitionDaily(); ok(cogOf(c).mems.some(x=>x.type==='wronged'), 'forgotten within a month'); });
+  test('CC3', 'People learn news from friends', ()=>{
+    const [a, b] = adults().slice(0,2); experience(a, {ev:'e1', type:'news', text:'I saw the granary burn.', pub:'The granary burned down.', imp:7, src:'saw'});
+    ok(shareNews(a, b), 'nothing was passed on'); const m = cogOf(b).mems.find(x=>x.ev==='e1'); ok(m && m.src==='told' && m.from===a.id, 'the friend did not learn it second-hand');
+  });
+  test('CC4', 'People learn from a newspaper they can read', ()=>{
+    const r = adults()[0]; r.civ.know.literacy = 40; S.citizens.forEach(c=>{ if (c!==r) c.civ.know.literacy = 0; });
+    C().orgs.org_np = {id:'org_np', type:'firm', biz:'newspaper', status:'active', name:'The Settler', staff:[], owners:{}}; C().wire = [{day:civDay(), text:'The council met about the bridge.', who:[], topics:{council:0.4}, ev:'w1'}];
+    const undo = fix(0.1); try { civNewspapersWeekly(); } finally { undo(); }
+    ok(cogOf(r).mems.some(x=>x.src==='paper' && x.from==='org_np'), 'nothing learned from the paper'); ok(!cogOf(adults()[1]).mems.some(x=>x.src==='paper'), 'someone who cannot read learned from it');
+  });
+  test('CC5', 'A rumour can pass on a false accusation', ()=>{
+    const [a, b, truth, scape] = adults(c=>!c.traits.includes('Honest')).slice(0,4); getRel(a, scape.id).affinity = -80;
+    experience(a, {ev:'e2', type:'crime', text:`I saw ${truth.name} steal.`, pub:`${truth.name} stole grain.`, who:[truth.id], imp:7, src:'saw', fact:{id:'f2', who:truth.id, conf:0.9, kind:'theft'}});
+    const undo = fix(0.01); try { shareNews(a, b); } finally { undo(); }
+    ok(cogOf(b).kn.f2 && cogOf(b).kn.f2.who===scape.id, 'the story was not garbled'); ok(cogOf(a).kn.f2.who===truth.id, 'the teller changed their own mind');
+  });
+  test('CC6', 'Contradictory information does not simply overwrite a belief', ()=>{
+    const c = adults()[0], [x, y] = adults().slice(1,3); c.traits = c.traits.filter(t=>t!=='Stubborn');
+    learnFact(c, 'f3', x.id, 0.8, 'saw'); learnFact(c, 'f3', y.id, 0.3, 'rumor');
+    ok(cogOf(c).kn.f3.who===x.id && cogOf(c).kn.f3.conf < 0.8, 'a weak rumour flipped a first-hand belief (or did not dent it)');
+    learnFact(c, 'f3', y.id, 0.9, 'court'); learnFact(c, 'f3', y.id, 0.9, 'court'); ok(cogOf(c).kn.f3.who===y.id, 'strong evidence never changed their mind');
+  });
+  test('CC7', 'Beliefs form gradually from repeated experience', ()=>{
+    const c = adults()[0]; const M = cogOf(c); M.op.landlords = 0; M.bel = [];
+    experience(c, {type:'rent', text:'Rent went up.', topics:{landlords:-1}, imp:6, src:'self'}); consolidate(c); ok(!M.bel.some(b=>b.topic==='landlords'), 'one bad week made a belief');
+    for (let i=0;i<6;i++){ S.minute += 8*DAY; experience(c, {type:'rent', text:'Rent went up again.', topics:{landlords:-1}, imp:6, src:'self'}); experience(c, {ev:'r'+i, type:'rent2', text:'A friend was evicted.', topics:{landlords:-1}, imp:5, src:'told'}); consolidate(c); }
+    ok(M.bel.some(b=>b.topic==='landlords' && b.pos<0), 'no belief after many experiences');
+  });
+  test('CC8', 'What a voter remembers about a candidate changes the vote', ()=>{
+    const [v, a] = adults().slice(0,2); const before = civVoteScore(v, a);
+    learnFact(v, 'f4', a.id, 0.9, 'court', null, {kind:'bribery', sev:6}); ok(civVoteScore(v, a) < before - 20, 'a known scandal did not cost votes');
+  });
+  test('CC9', 'A policy that hits someone\'s own purse changes their opinion of it', ()=>{ const c = adults()[0]; const M = cogOf(c); const before = M.op.taxes||0; M.week = {tax:12}; civCognitionWeekly(); ok((M.op.taxes||0) < before, 'paying heavy tax did not sour them on taxes'); });
+  test('CC10', 'Minor memories fade', ()=>{ const c = adults()[0]; experience(c, {type:'small', text:'Saw a nice sunset.', imp:4, src:'saw'}); for (let i=0;i<70;i++) cognitionDaily(); ok(!cogOf(c).mems.some(x=>x.type==='small'), 'a trivial memory lasted'); });
+  test('CC11', 'Major memories persist', ()=>{ const c = adults()[0]; experience(c, {type:'big', text:'My child was born.', imp:9, src:'self'}); for (let i=0;i<70;i++) cognitionDaily(); ok(cogOf(c).mems.some(x=>x.type==='big'), 'a life event was forgotten'); });
+  test('CC12', 'Nobody automatically knows about distant events', ()=>{
+    cleanSlate(); const [o, v, near, far] = adults().slice(0,4); put(near, 41, 20); put(far, 90, 45); near.civ.cog.attention = 0.95; const k = theftCase(o, v, []);
+    const undo = fix(0.05); try { civCrimeScene(k, o, [40,20], 4); } finally { undo(); }
+    ok(cogOf(near).kn[k.id], 'the witness did not see it'); ok(!cogOf(far).kn[k.id] && !cogOf(far).mems.some(x=>x.ev==='crime_'+k.id), 'someone far away knew anyway');
+  });
+
+  // ======================= THE FRONTIER =======================
+  const stock = () => { C().commons.grain = 2000; C().commons.tools = 40; };
+  const discover = (dir) => { const t = frontierCells(dir)[0]; return civDiscoverRegion(t.cx, t.cy, adults().slice(0,2), 'test'); };
+  test('CE1', 'Exploring needs food, tools and people to spare', ()=>{
+    C().commons = {}; Object.values(C().hh).forEach(h=>h.store = {}); const chk = civExpCheck('N', {k:'player'});
+    ok(!chk.ok && chk.miss.some(m=>/food/.test(m)), 'an expedition could leave with no food'); ok(civLaunchExpedition('N', {k:'player'}).err, 'it launched anyway');
+  });
+  ['N','S','E','W'].forEach((dir, i)=>test('CE'+(2+i), `The player can explore ${DIRS[dir].label.toLowerCase()}`, ()=>{
+    stock(); const r = civLaunchExpedition(dir, {k:'player'}); ok(r.e && r.e.dir===dir, r.err || 'no expedition'); ok(r.e.members.every(id=>cById(id).away && cById(id).away.dir===dir), 'the crew did not leave');
+    ok(C().commons.grain < 2000, 'no food was taken');
+  }));
+  test('CE6', 'Unexplored land is fog, and its resources are hidden', ()=>{
+    const t = frontierCells('W')[0], [x0,y0,x1,y1] = cellRect(t.cx, t.cy);
+    ok(!cellOf(cellKey(t.cx, t.cy)), 'already known'); ok(tileAt(Math.round((x0+x1)/2), Math.round((y0+y1)/2))===T.FOG, 'not hidden by fog');
+    ok(!C().deposits.some(d=>d.region===cellKey(t.cx,t.cy)) && !(C().eco.ext||{})[Math.floor(x0/ECO_CELL)+','+Math.floor(y0/ECO_CELL)], 'resources known before exploring');
+  });
+  test('CE7', 'Exploration takes time', ()=>{
+    stock(); const r = civLaunchExpedition('S', {k:'player'}); const e = r.e; ok(e.back - e.start >= 3, 'too quick');
+    civFrontierDaily(); ok(!cellOf(cellKey(e.cx, e.cy)) && e.status==='out', 'mapped before they got there');
+    S.minute = e.back*DAY + 60; civFrontierDaily(); ok(e.status!=='out', 'never came back'); ok(e.status==='failed' || cellOf(cellKey(e.cx, e.cy)), 'returned but mapped nothing');
+  });
+  test('CE8', 'Regions differ in what they offer', ()=>{
+    const cells = ['N','S','E','W'].map(discover); const f = k => cells.map(c=>c.attrs[k]);
+    ok(new Set(cells.map(c=>c.biome)).size >= 2 || new Set(f('fert')).size >= 3, 'all regions are alike'); ok(Math.max(...f('timber')) - Math.min(...f('timber')) > 0.1 || Math.max(...f('fert')) - Math.min(...f('fert')) > 0.1, 'no real differences');
+    ok(cells.every(c=>c.sites >= 0 && c.name), 'regions have no names or land figures');
+  });
+  test('CE9', 'Discovery is not annexation', ()=>{ const c = discover('E'), [x0,y0,x1,y1] = cellRect(c.cx, c.cy); ok(!CIV_CLAIMED.includes(c.state), `state ${c.state}`); ok(!civClaimedTile(x0+3, y0+3), 'the land is already ours'); });
+  const annexSetup = (op) => { const c = discover('W'); ok(c.state==='annexable', 'region should border home land'); C().gov.stage = 5; S.citizens.filter(isAdult).forEach(v=>{ cogOf(v).op.expansion = op; cogOf(v).op.nature = op<0 ? 80 : 0; }); civProposeAnnex(c, adults()[0], 'test'); S.world.proposal.day = civDay()-3; civAnnexVote(); return c; };
+  test('CE10', 'Annexation can pass', ()=>{ const c = annexSetup(100); ok(CIV_CLAIMED.includes(c.state), `vote failed: ${JSON.stringify(S.world.votes)}`); ok(S.world.votes[0].yes > S.world.votes[0].no, 'no majority'); });
+  test('CE11', 'Annexation can fail', ()=>{ const c = annexSetup(-100); ok(c.state==='annexable', `state ${c.state}`); ok(S.world.votes[0] && !S.world.votes[0].passed, 'no failed vote recorded'); });
+  test('CE12', 'Annexed land gives room to build', ()=>{
+    const c = annexSetup(100), [x0,y0,x1,y1] = cellRect(c.cx, c.cy), mx = Math.round((x0+x1)/2), my = Math.round((y0+y1)/2);
+    const site = civFindSite('crude_hut', [mx, my], {maxR:14, anySide:true}); ok(site, 'no site found'); ok(civRegionAt(site.x, site.y)===c, 'the site is not in the new land');
+  });
+  test('CE13', 'New land brings new resources into the economy', ()=>{
+    const c = annexSetup(100), [x0,y0,x1,y1] = cellRect(c.cx, c.cy); const e = ecoCellAt(x0+5, y0+5);
+    ok(e && e.region===c.key && (e.fcap + e.gcap + e.fishcap) > 0, 'no forage, game or fish out there');
+    const p = adults()[0]; p.rt.x = x0+5; p.rt.y = y0+5; const t = civTarget(p, 'forage'); ok(t.xy && civClaimedTile(t.xy[0], t.xy[1]), 'people cannot work the new land');
+  });
+  test('CE14', 'Annexed land costs upkeep, more the farther out it is', ()=>{
+    money(0); C().gov.treasury = 1000; const c = annexSetup(100); const before = C().gov.treasury; civFrontierDaily();
+    ok(C().gov.treasury < before && c.upkeep > 0, 'no upkeep paid'); const far = Object.assign({}, c, {cx:c.cx-2}); ok(civAnnexUpkeep(far) > civAnnexUpkeep(c), 'distance costs nothing');
+  });
+  test('CE15', 'People form opinions about expansion', ()=>{
+    stock(); cleanSlate(); const [cx, cy] = C().center, w = adults().find(c=>!c.office); put(w, cx, cy); const before = cogOf(w).op.expansion||0;
+    const r = civLaunchExpedition('N', {k:'player'}); const e = r.e; S.minute = e.back*DAY + 60; put(w, cx, cy); civFrontierDaily();
+    const M = cogOf(w); ok(e.status==='failed' || M.op['region:'+cellOf(cellKey(e.cx,e.cy)).id]!==undefined || (M.op.expansion||0)!==before, 'hearing about the frontier changed nothing');
+    const c2 = annexSetup(60); ok(S.citizens.filter(isAdult).some(v=>cogOf(v).mems.some(x=>x.type==='vote')), 'nobody remembers the annexation vote');
+  });
+  test('CE16', 'The frontier moves outward after annexation', ()=>{
+    const c = annexSetup(100); ok(CIV_CLAIMED.includes(c.state), 'not annexed');
+    const next = frontierCells('W'); ok(next.some(t=>ringOf(t.cx, t.cy) > ringOf(c.cx, c.cy)), 'nothing further out to explore');
+    const t = next.find(t=>ringOf(t.cx,t.cy) > ringOf(c.cx,c.cy) && Math.abs(t.cx-c.cx)+Math.abs(t.cy-c.cy)===1); if (t){ const far = civDiscoverRegion(t.cx, t.cy, [], 'test'); ok(far.state==='annexable', 'land beyond the new district cannot be claimed'); }
+  });
+  test('CS1', 'Older civilization saves load with the new systems added', ()=>{
+    days(2); const sv = {state: JSON.parse(JSON.stringify(S))}, m0 = S.minute; delete sv.state.world; sv.state.citizens.forEach(c=>{ delete c.mind; delete c.civ.legal; }); sv.state.civ.justice.cases.forEach(k=>{ delete k.statements; delete k.proof; });
+    const names = sv.state.citizens.map(c=>c.name).join(); S = sv.state; civBootLoad(); days(3);
+    ok(S.world && S.world.cells, 'no frontier after loading'); ok(S.citizens.map(c=>c.name).join().startsWith(names.slice(0, 40)), 'citizens changed'); ok(!(S.civ.errors||[]).length, 'errors: '+JSON.stringify((S.civ.errors||[])[0]));
+    const bad = S.citizens.map(c=>c.mind && c.mind.mems && c.mind.mems.find(m=>m.t < m0 - 5)).filter(Boolean)[0]; ok(!bad, 'memories were invented for the past: '+JSON.stringify(bad));
+  });
+  test('UI1', 'The side menu groups the tabs and the view can be maximised', ()=>{
+    document.querySelector('#groups [data-g=civic]').click(); ok(ui.group==='civic' && ['laws','justice'].includes(ui.tab), 'group did not open a civic tab');
+    ok(document.querySelector('#tabs [data-p=justice]').classList.contains('ing') && !document.querySelector('#tabs [data-p=people]').classList.contains('ing'), 'wrong tabs shown');
+    document.querySelector('#tabs [data-p=justice]').click(); ok($('p-justice').classList.contains('on') && $('phead').textContent.length > 10, 'no justice panel or help line');
+    $('zMax').click(); ok(document.body.classList.contains('maxed'), 'not maximised'); $('zPanel').click(); ok(document.body.classList.contains('drawer'), 'panel drawer did not open'); $('zMax').click(); ok(!document.body.classList.contains('maxed') && !document.body.classList.contains('drawer'), 'did not restore');
   });
 
   async function run(which){
