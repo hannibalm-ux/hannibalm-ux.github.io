@@ -52,9 +52,9 @@ function civArt(){
 // ---------- ground overlay: ford stones, oil seeps, stumps ----------
 function civGroundOverlay(g){
   g.setTransform(1,0,0,1,-WX0,-WY0);
-  FORDS.forEach(k=>{ const x = k%4096, y = Math.floor(k/4096), X = x*TILE, Y = y*TILE; for (let i=0;i<3;i++){ const sx = X+3+i*5+(hashf(x,i,3)*2|0), sy = Y+5+(hashf(y,i,4)*6|0); g.fillStyle = STONE_R[3]; g.fillRect(sx,sy,4,3); g.fillStyle = STONE_R[5]; g.fillRect(sx,sy,3,1); g.fillStyle = 'rgba(210,235,255,0.6)'; g.fillRect(sx-1,sy+3,6,1); } });
+  FORDS.forEach(k=>{ const [x, y] = tdec(k), X = x*TILE, Y = y*TILE; for (let i=0;i<3;i++){ const sx = X+3+i*5+(hashf(x,i,3)*2|0), sy = Y+5+(hashf(y,i,4)*6|0); g.fillStyle = STONE_R[3]; g.fillRect(sx,sy,4,3); g.fillStyle = STONE_R[5]; g.fillRect(sx,sy,3,1); g.fillStyle = 'rgba(210,235,255,0.6)'; g.fillRect(sx-1,sy+3,6,1); } });
   (S.civ.deposits||[]).forEach(d=>{ if (!d.seep) return; const X = d.x*TILE, Y = d.y*TILE; g.fillStyle = 'rgba(16,12,20,0.75)'; g.beginPath(); g.ellipse(X+8, Y+9, 7, 4, 0, 0, Math.PI*2); g.fill(); g.fillStyle = 'rgba(120,100,160,0.35)'; g.fillRect(X+5, Y+7, 4, 1); });
-  for (const k in S.civ.stumps){ const x = k%4096, y = Math.floor(k/4096); if (tileAt(x,y)!==T.GRASS) continue; const X = x*TILE, Y = y*TILE; g.fillStyle = WOOD_R[2]; g.fillRect(X+6,Y+8,5,4); g.fillStyle = '#c8a070'; g.fillRect(X+6,Y+8,5,1); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(X+5,Y+12,7,1); }
+  for (const k in S.civ.stumps){ const [x, y] = tdec(k); if (tileAt(x,y)!==T.GRASS) continue; const X = x*TILE, Y = y*TILE; g.fillStyle = WOOD_R[2]; g.fillRect(X+6,Y+8,5,4); g.fillStyle = '#c8a070'; g.fillRect(X+6,Y+8,5,1); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(X+5,Y+12,7,1); }
 }
 // ---------- static things on the map ----------
 function civStaticEnts(push){

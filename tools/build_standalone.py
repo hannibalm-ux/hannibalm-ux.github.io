@@ -11,7 +11,7 @@ def inline(m):
     js=open(root+m.group(1)).read(); assert '</script>' not in js, m.group(1)
     return '<script>/* '+m.group(1)+' */\n'+js+'\n</script>'
 src, n = re.subn(r'<script src="(civ/[a-z_0-9]+\.js)"></script>', inline, src)
-assert n==11, n
+assert n>=14, n  # every civ/ script must be inlined
 i=src.rindex('</body>')
 out=src[:i]+'<script type="text/plain" id="three-src">'+three+'</script>\n'+src[i:]
 open(root+'pixel_town_standalone.html','w').write(out); print(len(out), n)

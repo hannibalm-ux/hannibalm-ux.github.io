@@ -4,7 +4,7 @@ This document describes everything Pixel Town simulates and how. It covers the c
 
 Pixel Town has **two modes**:
 
-- **Civilization mode** (every new game). 100 people make camp by a river with crude shelters and about a week of food. There is no town, no jobs, no market, no government and no bridge. Everything else has to emerge from what they decide to do. It is described in **Part II** (sections 24 to 40).
+- **Civilization mode** (every new game). 100 people make camp by a river with crude shelters and about a week of food. There is no town, no jobs, no market, no government and no bridge. Everything else has to emerge from what they decide to do. It is described in **Part II** (sections 24 to 43).
 - **Classic mode** (old saves, or `pixel_town.html?mode=classic`). The established medieval town with 50 villagers, described in sections 1 to 23. Classic towns also gain the new minds, knowledge, research, prospecting and neighbouring settlements (section 39).
 
 ---
@@ -54,6 +54,9 @@ Pixel Town has **two modes**:
 38. [Neighbours, imports and migration](#38-neighbours-imports-and-migration)
 39. [Classic towns: what they gain](#39-classic-towns-what-they-gain)
 40. [Civilization mode: interface, saves and tests](#40-civilization-mode-interface-saves-and-tests)
+41. [Civilization mode: crime, investigation and the courts](#41-civilization-mode-crime-investigation-and-the-courts)
+42. [Civilization mode: memory, beliefs and opinions](#42-civilization-mode-memory-beliefs-and-opinions)
+43. [Civilization mode: the frontier](#43-civilization-mode-the-frontier)
 
 ---
 
@@ -76,6 +79,9 @@ The design goal is emergent history. The town remembers what happened, villagers
 | `civ/civ_build.js` | Projects, housing, fields, pens, animals, bridges, roads, property values, sales, rent, conversion, demolition. |
 | `civ/civ_econ.js` | Barter, money, markets, organisations, business formation, jobs, contracts, loans, banks, shares, the exchange, bankruptcy. |
 | `civ/civ_society.js` | Gatherings and government, justice, education, health care, sport, neighbours, food imports, migration. |
+| `civ/civ_justice.js` | Civilization mode's crime and justice: crimes at the time and place they happen, witnesses, statements, investigation, suspects and alibis, rough justice, magistrates and trials, recusal, bribery, sentencing, jail, legal history. |
+| `civ/civ_cognition.js` | Civilization mode's link to the memory engine: lived experiences, gossip, gatherings, newspapers, votes, protests, discontent. |
+| `civ/civ_frontier.js` | Civilization mode's frontier: fog beyond the valley, expeditions, regions, annexation votes, districts, upkeep, new ecology and minerals. |
 | `civ/civ_science.js` | Hidden deposits, prospecting, claims, mines, oil and gas, research and the scientific method. |
 | `civ/civ_render.js`, `civ/civ_3d.js`, `civ/civ_ui.js` | 2D art for the new mode; voxel people and voxel animals, props, crops, building condition and interiors (both modes); the panels. |
 | `civ/civ_overlay.js` | New systems for classic towns. |
@@ -784,6 +790,10 @@ Each annexed region costs the treasury 2¢ + 2¢ per ring of distance, plus more
 
 ## 19. The interface
 
+**The side menu** has six groups along the top, each with an icon: 📜 **Chronicle** (Log, Weekly), 👥 **People** (People, Society), 🌾 **Economy** (Market/Economy, Resources, Land & frontier), 🏛️ **Civic** (Government, Justice), 🔬 **Science** and 🎵 **Music**. Choosing a group shows only its tabs, as pills underneath, and a line under them explains what the tab is for. Each group remembers the tab last used in it, and the page reopens on the last tab. Keys **1–6** switch groups.
+
+**Maximise:** the ⛶ button on the map (or **F**) hides the panels and stats, gives the whole window to the map and asks the browser for full screen. While maximised, ☰ (or **Tab**) slides the side panel in over the map and **Esc** closes it; ⛶/**F** again, or leaving full screen, restores the normal layout.
+
 | Tab | Contents |
 |---|---|
 | Log | The town chronicle, filterable by importance |
@@ -870,7 +880,7 @@ A one-time notice explains what's new.
 - **Cognition (12):** witnessing, remembering, learning from a friend and from a newspaper, false rumours, contradictory evidence, gradual belief change, memories changing votes, policies changing opinions, fading and persisting memories, no instant knowledge of distant events.
 - **Frontier (16):** exploration cost, exploring in all four directions, fog hiding resources, exploration taking time, regions differing, discovery not being annexation, annexation succeeding and failing, new building space, new resources, rising upkeep, opinions on expansion, the frontier moving outward.
 - **Family (2):** only a woman and a man conceive; same-sex couples adopt.
-- **Civilization (39):** see section 40.
+- **Civilization (88):** see section 40, including the civilization-mode justice (CJ1–13), cognition (CC1–12) and frontier (CE1–16) tests, an old-save upgrade test (CS1) and the side-menu and maximise test (UI1).
 
 ---
 
@@ -1115,7 +1125,7 @@ Problems are counted as they happen (food, quarrels, theft, blocked crossings, s
 | Taxation | offices (paid only where order and community outweigh freedom) or public projects cost money: a hearth, income or trade tax depending on the form, adopted sooner in orderly, communal cultures and later or never in freedom-loving ones |
 | Departments | four or more kinds of public service (works, justice, education, health, treasury) and a treasury over 150 |
 
-**Justice:** informal (family smooths things over, retaliation, compensation) → mediation (a respected, emotionally intelligent person settles disputes) → a community watch (agreed at a gathering; deters theft) → a constable (continued theft and a leader) → an investigator (unsolved thefts; can trace thieves, and sometimes follows a mistaken lead) → a magistrate (a heavy caseload) → a court (a courthouse is built when the magistrate falls behind) → jail (repeat offenders) → professional lawyers (skilled advocates who tip trials). Criminal cases (theft from need or greed, fights, insider trading) and **civil lawsuits** (unpaid debts, breach of contract, property and land disputes, partnership and shareholder disputes, fraud, negligence, personal injury, landlord disputes, inheritance, damaged property) record plaintiff, defendant, claim, evidence (written or spoken contracts, investigators' findings), witnesses, damages sought, settlement and judgment. Evidence strength, the judge's knowledge and the lawyers decide outcomes; innocent people can be convicted.
+**Justice:** informal (family smooths things over, retaliation, compensation) → mediation (a respected, emotionally intelligent person settles disputes) → a community watch (agreed at a gathering; deters theft) → a constable (continued theft and a leader) → an investigator (unsolved thefts; can trace thieves, and sometimes follows a mistaken lead) → a magistrate (a heavy caseload) → a court (a courthouse is built when the magistrate falls behind) → jail (repeat offenders) → professional lawyers (skilled advocates who tip trials). Criminal cases (theft from need or greed, fights, insider trading) and **civil lawsuits** (unpaid debts, breach of contract, property and land disputes, partnership and shareholder disputes, fraud, negligence, personal injury, landlord disputes, inheritance, damaged property) record plaintiff, defendant, claim, evidence (written or spoken contracts, investigators' findings), witnesses, damages sought, settlement and judgment. Evidence strength, the judge's knowledge and the lawyers decide outcomes; innocent people can be convicted. How crimes, witnesses, investigations and trials work in detail is in section 41.
 
 ## 36. Education, health and sport
 
@@ -1167,6 +1177,198 @@ The classic economy, government and justice keep their own rules (sections 8–1
 
 **Map:** hover shows structures (owner, condition, value, crop or herd), projects, the fire and cache, the ford, known deposits and seeps. The 2D map shows the camp fire, cache sacks, ford stones, oil seeps, stumps, woodpiles and stone piles, weeds on neglected buildings, building sites, pens and wild animals that flee from people.
 
-**Saves:** plans and walking paths are not saved (they are rebuilt on load). To keep saves well inside browser storage as the settlement grows, each week every person keeps their 36 strongest relationships, 18 most recent memories, 16 decision records and 24 most recent customers per trade. `S.mode = 'civ'` and everything new lives under `S.civ` (households, structures, projects, parcels, tile edits, ecology, deposits, techniques, theories, research, economy, organisations, jobs, contracts, government, justice, education, sport, neighbours, shipments, migration, animals, stats) and `citizen.civ` (cognition, knowledge, skills, techniques, genes, body, health, occupation, work log, customers, expectations, decision records, goals, beliefs, credit, investor style, mentor, job). The world is rebuilt from the seed plus the saved tile edits and structures. Old classic saves gain `S.civ` (overlay) and `citizen.civ` with defaults.
+**Saves:** plans and walking paths are not saved (they are rebuilt on load). To keep saves well inside browser storage as the settlement grows, each week every person keeps their 30 strongest relationships, 18 most recent memory-stream entries, 10 decision records and 24 most recent customers per trade; each day their mind keeps at most 14 memories (the most important plus the last three days, with retelling details dropped after five days) and at most 12 beliefs about who did what; closed cases older than 60 days keep their outcome but lose the investigation details. Saves over 150,000 characters are **LZW-compressed** into UTF-16 text (about 5–6× smaller; a 3.5 MB town stores in about 0.6 MB). Older, uncompressed saves load as before. When a save takes more than 150 ms, autosave runs every 45 seconds instead of every 15. `S.mode = 'civ'` and everything new lives under `S.civ` (households, structures, projects, parcels, tile edits, ecology, deposits, techniques, theories, research, economy, organisations, jobs, contracts, government, justice, education, sport, neighbours, shipments, migration, animals, stats) and `citizen.civ` (cognition, knowledge, skills, techniques, genes, body, health, occupation, work log, customers, expectations, decision records, goals, beliefs, credit, investor style, mentor, job). The world is rebuilt from the seed plus the saved tile edits and structures. Old classic saves gain `S.civ` (overlay) and `citizen.civ` with defaults.
 
-**Tests** (`tests/civ.tests.js`, seeded): the exact starting population; 80 adults and 20 children; no professions or career goals (with real variety in minds, knowledge and possessions); no businesses; no government, justice or school; no farms; no ranches; no mine and hidden resources, no bridge; only crude housing; occupation recognition (including healer → medical worker); occupations in a free-running settlement; business creation from opportunity; the market progression; money from failed barter; learning from practice, parents and mentors; school formation; knowledge separate from intelligence and the science disciplines; research through the scientific method with wrong theories and new techniques; food-shortage detection; buying food from neighbours (and no food from starving ones); shipments arriving; bridges built and demolished; farms and ranches built, converted and demolished; a private mine; prospecting; a precious-metal strike; oil found by drilling and dry wells; migration-driven growth; growth past 110; partnerships; corporations and dividends; stock ownership and the exchange; loans and credit history; a civil lawsuit judged; bankruptcy by liquidation and restructuring; government emerging from problems; justice from mediation; 3D animals with persistent attributes; inherited, saved appearance with visible growth and aging; hyphenated married names restored on divorce; storage techniques that measurably cut spoilage; food shared by kin and rationed by the common store; the resources tab; locating a building from the land tab; detailed voxel people and animals and the wider palette.
+**Tests** (`tests/civ.tests.js`, seeded): the exact starting population; 80 adults and 20 children; no professions or career goals (with real variety in minds, knowledge and possessions); no businesses; no government, justice or school; no farms; no ranches; no mine and hidden resources, no bridge; only crude housing; occupation recognition (including healer → medical worker); occupations in a free-running settlement; business creation from opportunity; the market progression; money from failed barter; learning from practice, parents and mentors; school formation; knowledge separate from intelligence and the science disciplines; research through the scientific method with wrong theories and new techniques; food-shortage detection; buying food from neighbours (and no food from starving ones); shipments arriving; bridges built and demolished; farms and ranches built, converted and demolished; a private mine; prospecting; a precious-metal strike; oil found by drilling and dry wells; migration-driven growth; growth past 110; partnerships; corporations and dividends; stock ownership and the exchange; loans and credit history; a civil lawsuit judged; bankruptcy by liquidation and restructuring; government emerging from problems; justice from mediation; 3D animals with persistent attributes; inherited, saved appearance with visible growth and aging; hyphenated married names restored on divorce; storage techniques that measurably cut spoilage; food shared by kin and rationed by the common store; the resources tab; locating a building from the land tab; detailed voxel people and animals and the wider palette. Justice (CJ1–13): a brawl fined on the spot, vandalism cases, unsolved crimes, suspects found from witnesses, disagreeing witnesses, alibis clearing the innocent, conviction, acquittal, dismissal, harsher sentences for repeat offenders, jail stopping work and hiring, recusal, bribery and its discovery. Cognition (CC1–12): witnessing, lasting memories, news from friends and newspapers, false rumours, contradictory information, gradual beliefs, scandals changing votes, taxes changing opinions, fading and lasting memories, no instant knowledge of distant events. Frontier (CE1–16): expeditions needing supplies, exploring in each direction, fog hiding resources, exploration taking time, regions differing, discovery not being annexation, annexation passing and failing, building room, new resources, upkeep, opinions on expansion, the frontier moving outward. Plus old-save upgrading (CS1) and the side menu and maximise button (UI1).
+
+---
+
+## 41. Civilization mode: crime, investigation and the courts
+
+The world always knows who really did something (`case.actual`). Nobody in the settlement does: witnesses, investigators, judges and the public only have what was seen, said and found. The **Reveal the truth** switch on the Justice tab shows it to the player.
+
+**Crimes happen at a time and place.** Each day some people decide to steal (from hunger, or greed if Greedy or Cunning) or to damage the property of someone they hate (affinity −45 or worse, disagreeable). What they have learned changes the chance: getting away with it makes it likelier (up to 2.2×), and punishment they accept makes it less likely, as does a record. The deed happens later that day: thefts between 10:00 and 16:00, vandalism usually after dark. Deterrence comes from the watch, a constable and a theft law.
+
+**Witnesses.** Everyone awake within 7 tiles of the scene, nearest 14 first, may see it. The chance depends on daylight, distance and attention. A witness may:
+
+- put the right name to the face (more likely with attention and familiarity);
+- name the wrong person (someone else nearby, or someone they already dislike), with a confidence that reflects this;
+- only notice someone about.
+
+Friends and family of the accused tend to keep quiet. Some witnesses come forward at once; the rest wait to be asked. Every witness gets a first-hand memory and a belief about who did it.
+
+**Quarrels at the fire** are still settled on the spot. If a constable or watchman sees the fight and nobody is hurt, the one who started it is fined or made to apologise (a minor record entry). Only if someone is hurt does it become an assault case, and the victim's own account names who hit them.
+
+**Investigation.** The investigator, or else the constable or watch captain (the victim, before there are any), works the case each day:
+
+- **Interviews** turn waiting witnesses into statements; witnesses loyal to the accused may refuse to talk.
+- **Alibis:** an innocent suspect usually has one or two people who saw them elsewhere. A guilty, Cunning suspect may get a friend to lie, and a careful investigator can break the lie, which counts against them.
+- **Searches:** the thief's store may hold the stolen food. An innocent pantry sometimes holds the same kind of food, as weaker, misleading evidence.
+- **Motive:** a hungry household, or bad blood with the victim.
+
+Suspects are ranked only from this information (statement confidence × the witness's credibility, evidence, minus alibis). A suspect is **named** at 45% with a clear lead, **cleared** if their score falls below 20% (a record entry and a memory), and **arrested** at 55% once there is a constable. Cases nobody can crack go **unsolved** after 40 days, and the offender remembers getting away with it.
+
+**Rough justice.** With constables but no magistrate, the constable decides guilt and punishes (a fine or days of work). If the accused denies it (always if innocent) and has friends or family behind them, the verdict is contested. Three contested verdicts make people say constables should not decide guilt themselves, and the settlement appoints its first **magistrate**.
+
+**Charges and trials.** With a magistrate:
+
+1. A case with evidence strength of 30% or more is **charged**; a weaker one is **dismissed** after four days.
+2. The case waits two days (**awaiting trial**) while investigation continues.
+3. It is heard by the magistrate, or tried at the courthouse once there is one.
+
+With professional advocates:
+
+- the defence lawyer weakens shaky witnesses (confidence under 55%) and motive-only evidence;
+- a **town prosecutor** is appointed once there have been three criminal verdicts in eight weeks;
+- a better-paid lawyer still tips the balance.
+
+The judge sees only the evidence. Skill (law knowledge and reasoning) reduces the chance element, but wrongful convictions and guilty people walking free both happen. Contradictory witnesses weaken a case.
+
+**Conflicts of interest.** A judge or investigator who is married to, family of, a close friend of (affinity over 60), at odds with (under −50), or in business with a party has a conflict. Honest or conscientious ones (and not Greedy or Ambitious) **step aside** and another respected person sits. Others judge anyway, with a thumb on the scale, and people may notice, which lowers trust in the courts.
+
+**Bribery.** A Cunning or Greedy defendant with money may offer a bribe. A bent official (not Honest, and Greedy, Cunning or careless) may take it, tilting the case. An honest one reports it, and that becomes an attempted-bribery case. Hidden bribes come out later, faster with an investigator or a newspaper. The official is charged and removed from office, and people lose trust in the courts and leaders.
+
+**Sentencing** weighs severity (theft 4, vandalism 3, assault 5, bribery 6) and the record (severity × recency, fading over about six months):
+
+- **Warning:** a first minor offence.
+- **Restitution:** stolen food is returned, twice over under a theft law.
+- **Fines.**
+- **Community service:** the morning's work goes to a public project or the common store.
+- **Removal from office:** for bribery.
+- **Jail:** if there is one, for serious or repeat offences, 3 × severity days scaled by the record, up to 40.
+
+**Jail** takes the whole day: no work, no wages, no vote, no gatherings, no hiring. A record lowers hiring chances and, once people know about it, votes. The wrongly convicted and their families remember it and lose faith in the courts.
+
+**Institutions grow from need:**
+
+- **Investigator:** four unsolved cases, or three serious unsolved ones, with an able, clean-record person to take the job.
+- **More constables:** crime outrunning them (one per 60 people).
+- **District constable:** a district whose residents keep being victims.
+- **Magistrate:** contested rough justice, or a heavy caseload.
+- **Courthouse:** too many open cases.
+- **Jail:** repeat offenders whom fines do not stop.
+- **Advocates and a prosecutor.**
+
+---
+
+## 42. Civilization mode: memory, beliefs and opinions
+
+Civilization settlers use the same mind as the classic town (section 11): memories with a source and confidence, beliefs formed from repeated memories and a strong opinion, opinions about topics and people, trust in sources, and beliefs about who did what. It is fed by what settlers actually live through:
+
+- **Lived:** going hungry ("I went hungry during the winter food shortage"); rations from the common store; food shared by a neighbour's household; being robbed; being fined, sentenced, cleared or wrongly convicted; taxes paid; having no roof; land becoming too dear; the woods being cut down (for those who value nature); a quiet month making people feel safer.
+- **Seen:** crimes, fights, arrests and verdicts, expeditions leaving and returning, protests.
+- **Heard at gatherings:** what was discussed and agreed.
+- **Word of mouth:** at the evening fire people pass on memorable news the listener hasn't heard. Gossips pass on more, and a dishonest teller sometimes garbles who did it toward someone they dislike.
+- **Newspapers:** once a newspaper business exists, each week it prints the week's public events and major happenings to readers who can read (literacy 8+). A careless paper sometimes prints the wrong name. When a verdict comes out, people whose paper or gossip pointed at someone else trust that source less; those who got it right trust it more.
+
+Only witnesses, the people affected and those who later hear or read about something ever learn it.
+
+**What it changes:**
+
+- **Votes:** each candidate stands for their two strongest issues (safety, the constables, the courts, relief, taxes, expansion, nature, the leaders), announced in the chronicle. Voters weigh how much they agree, what they believe the candidate has done (a known scandal costs heavily), and, for the sitting leader, the hunger, theft and wrongs they lived through, less the help they got. Family and close friends then talk each other round.
+- **Protests:** once a week, for any issue where at least eight adults feel strongly (opinion ±40), those who have lived it or firmly believe it may march, and their close friends may join. It takes at least eight people (7% of adults). A protest is answered according to the grievance:
+  - a constable with contested rough verdicts is replaced;
+  - taxes are cut by a fifth;
+  - an early election is called (against the leaders, if there are elections);
+  - a magistrate most people believe corrupt steps down.
+
+  Marchers remember it and grow closer.
+- **Migration:** discontent (feeling unsafe, distrusting the leaders or courts, lived hunger, crime or wrongful conviction) makes a household readier to leave.
+- **Hiring:** a record counts against a candidate.
+- **Crime:** getting away with it, or being punished, changes the chance of trying again (section 41).
+- **Expansion:** annexation votes (section 43).
+
+**The profile** (People tab) opens on the settler's mind:
+
+- **District** they live in.
+- **Important memories:** each with its source (🧍 lived, 👁 saw, 🗣 told, 💭 rumour, 📰 paper, 🏛️ gathering, ⚖️ court), plus when and from whom.
+- **Beliefs.**
+- **Opinions** as plain sentences ("Strongly distrusts the constables").
+- **What they would campaign on.**
+- **Trust** in the leaders, constables, courts, gossip and papers.
+- **Suspicions** about who did what.
+- **Reputation.**
+- **Legal history** and record weight.
+
+A **show the numbers** switch reveals the raw values.
+
+---
+
+## 43. Civilization mode: the frontier
+
+**The known world** is the valley the settlers camped in (the original 110 × 50 map). Around it, in every direction, is mist: an unknown region grid of 28 × 25 tiles per region, reaching six rings north and west and more to the south and east. Nothing about a region (terrain, soil, timber, fish, ore) is known until it is explored.
+
+**Expeditions** target the nearest unmapped region in a direction.
+
+**Cost:**
+
+- three people, fit and free to go;
+- 3 food units per person per day, taken from the common store, the sponsor's larder, or what well-stocked households can spare beyond five days (they remember giving);
+- one tool per two people;
+- coin from the treasury once there is money.
+
+**Duration and risk:**
+
+- **Duration:** 3 days + 2 per ring, +2 in winter, +1 in a storm.
+- **Risk:** grows with the ring, winter, the region's danger and any shortfall in food and tools.
+
+**While away** the crew camps at the edge of settled land, eats what it carried, and cannot work, vote or be witnessed. On return, some may come back hurt or not at all. The expedition can fail and map nothing. Otherwise the region is **discovered**:
+
+- It gets a name ("Frosttor", "Silvervale", "Thistlepines"), a biome and attributes (fertility, timber, fish, ore, danger, beauty, travel), and a count of home sites.
+- It is painted onto the map.
+- It gets its own forage, game and fish cells and hidden mineral deposits.
+
+Whoever is in camp hears about it and forms a view of that land.
+
+**Who sends them:**
+
+- **the player** (Land & frontier tab: each direction shows days, food and tools needed against what can be spared, coin, risk and crew, or what is missing);
+- **a gathering**, when "running out of land" is among its top problems and there are at least five days of food;
+- **a restless settler with money** paying for it;
+- **a volunteer household** with at least eight days of food, when land pressure is real (at most one every four weeks).
+
+**Land pressure** is counted each week:
+
+- no building site could be found for a household;
+- land near the camp costs over 14;
+- forage below 40% of capacity;
+- game below 30%;
+- fewer than about 1,600 trees left in the valley;
+- more than 140 people.
+
+Explorers head toward what is short: south for fish, north or east for timber, west or south for farmland. They avoid directions where mapped land is still unclaimed or was voted down.
+
+**Discovery is not annexation.** A region must border settled land to become **annexable**. It is then **proposed** by a gathering's convener, by the player (a petition) or automatically when land runs short. It is decided at the next opportunity:
+
+- by those who come to gatherings, until there are elections;
+- by every free adult once there are.
+
+Each voter weighs:
+
+- their own need: no home (+25), a crowded home (+12);
+- their trade: farmer, woodcutter, fisher, miner or hunter matched to the land;
+- their expansion opinion and view of that region;
+- the land's quality;
+- nature values against the land's beauty and timber;
+- tradition;
+- danger;
+- the upkeep and taxes;
+- how much they like the proposer.
+
+It passes on a simple majority if the treasury can pay the one-off cost ((10 + 10 per ring) × money level). A failed region waits eight weeks before it is proposed again.
+
+**Annexed land** opens up:
+
+- **Building:** when the valley is full, new homes, farms and businesses are sited in districts, nearest first.
+- **Work:** forage, hunting, timber, fishing and prospecting reach the districts when home grounds are worked out.
+- **Access:** a worn track to the settlement.
+- **Further expansion:** the next ring out becomes explorable, and mapped land that now borders it becomes annexable.
+
+A district goes **annexed → developing** (first structure) → **established** (4 homes or 20 residents). People who move there remember that it gave them land of their own.
+
+**Costs:** each district costs upkeep every day from the treasury: (1 + 1.2 per ring + 2 × danger + 1.5 × travel) × money level. If the treasury cannot pay, the track goes to ruin and it becomes a problem the settlement notices. Districts of 15 or more people that are far from a healer, or that keep having crimes, complain; the latter get their own constable.
+
+**Resources run down and recover:** forage, game and fish regrow by season in every district; trees regrow from stumps near woods; ore deposits are finite.
+
+**Saves and maps:** mapped regions are stored with their seed and rebuilt identically on load. Tile keys decode correctly for negative (north and west) coordinates. The 2D map, minimap and 3D view show the fog and each new region.
+

@@ -274,13 +274,21 @@ function civFindSite(def, near, opts){
   const tries = [];
   for (let rad=1; rad<=(opts.maxR||34); rad++){
     for (let k=0;k<rad*8;k++){ const a = k/(rad*8)*Math.PI*2 + hash(def+rad)%7, x = Math.round(nx + Math.cos(a)*rad*1.3 - w/2), y = Math.round(ny + Math.sin(a)*rad - h/2);
-      if (x<1||y<1||x+w>=OW-1||y+h>=OH-1) continue;
+      if (!civSiteInLand(x,y,w,h)) continue;
       if (west!==null && (x+w/2 < riverX(clamp(y,0,40))) !== west) continue;
       if (opts.test && !opts.test(x,y,w,h)) continue;
       if (civSiteClear(x,y,w,h, opts.trees!==false, opts.margin)) return {x,y,w,h}; }
   }
+  // the home valley is full: look in annexed districts, nearest first
+  if (!opts.maxR && !opts.noFrontier && typeof civAnnexed==='function') for (const cell of civAnnexed().sort((a,b)=>ringOf(a.cx,a.cy)-ringOf(b.cx,b.cy))){
+    const [x0,y0,x1,y1] = cellRect(cell.cx, cell.cy), mx = Math.round((x0+x1)/2), my = Math.round((y0+y1)/2);
+    for (let rad=1; rad<=14; rad++) for (let k=0;k<rad*8;k++){ const a = k/(rad*8)*Math.PI*2, x = Math.round(mx + Math.cos(a)*rad*1.3 - w/2), y = Math.round(my + Math.sin(a)*rad - h/2);
+      if (!civSiteInLand(x,y,w,h) || (opts.test && !opts.test(x,y,w,h))) continue; if (civSiteClear(x,y,w,h, opts.trees!==false, opts.margin)) return {x,y,w,h}; }
+  }
   return null;
 }
+// a building site must lie wholly on settled (home or annexed) land
+function civSiteInLand(x,y,w,h){ if (x>=1 && y>=1 && x+w<OW-1 && y+h<OH-1) return true; if (typeof civClaimedTile!=='function') return false; for (const [a,b] of [[x-1,y-1],[x+w,y-1],[x-1,y+h],[x+w,y+h]]) if (tileAt(a,b)===-1 || tileAt(a,b)===T.FOG || !civClaimedTile(a,b)) return false; return true; }
 
 // ---------- tiles: trees, stone, trails ----------
 function civTreeHp(x,y){ const k = tkey(x,y); return S.civ.tree[k] ?? (S.civ.tree[k] = 18 + Math.floor(hashf(x,y,71)*14)); }
@@ -291,13 +299,13 @@ function civTread(x,y){ const k = tkey(x,y); S.civ.traffic[k] = (S.civ.traffic[k
 function civTrailsDaily(){
   const C = S.civ, road = C.roads || {};
   for (const k in C.traffic){
-    const v = C.traffic[k], x = k%4096, y = Math.floor(k/4096), t = tileAt(x,y);
+    const v = C.traffic[k], [x, y] = tdec(k), t = tileAt(x,y);
     if (v >= 55 && (t===T.GRASS || t===T.FLOWER)){ civSetTile(x,y,T.PATH); C.trail[k] = 1; ev('trail_tiles'); }
     C.traffic[k] = Math.floor(v*0.86); if (C.traffic[k] < 1) delete C.traffic[k];
   }
-  for (const k in C.trail){ const x = k%4096, y = Math.floor(k/4096); if (road[k]) continue; if ((C.traffic[k]||0) < 2 && tileAt(x,y)===T.PATH && hashf(x,y,civDay())<0.08){ civSetTile(x,y,T.GRASS); delete C.trail[k]; } }
+  for (const k in C.trail){ const [x, y] = tdec(k); if (road[k]) continue; if ((C.traffic[k]||0) < 2 && tileAt(x,y)===T.PATH && hashf(x,y,civDay())<0.08){ civSetTile(x,y,T.GRASS); delete C.trail[k]; } }
   // regrowth: stumps near forest slowly become saplings again
-  for (const k in C.stumps){ const x = k%4096, y = Math.floor(k/4096); if (civDay()-C.stumps[k] > 90 && tileAt(x,y)===T.GRASS && !C.traffic[k] && hashf(x,y,civDay())<0.02){ let near=0; for (let j=-1;j<=1;j++) for (let i=-1;i<=1;i++) if (tileAt(x+i,y+j)===T.TREE) near++; if (near>=2){ civSetTile(x,y,T.TREE); delete C.stumps[k]; } } }
+  for (const k in C.stumps){ const [x, y] = tdec(k); if (civDay()-C.stumps[k] > 90 && tileAt(x,y)===T.GRASS && !C.traffic[k] && hashf(x,y,civDay())<0.02){ let near=0; for (let j=-1;j<=1;j++) for (let i=-1;i<=1;i++) if (tileAt(x+i,y+j)===T.TREE) near++; if (near>=2){ civSetTile(x,y,T.TREE); delete C.stumps[k]; } } }
 }
 
 // ---------- ecology: forage, game and fish live in 10x10 cells ----------
@@ -313,7 +321,7 @@ function civEcoInit(){
   }
   S.civ.eco = {nx, ny, cells};
 }
-function ecoCellAt(x,y){ const E = S.civ.eco; const cx = clamp(Math.floor(x/ECO_CELL),0,E.nx-1), cy = clamp(Math.floor(y/ECO_CELL),0,E.ny-1); return E.cells[cy*E.nx+cx]; }
+function ecoCellAt(x,y){ const E = S.civ.eco; if ((x<0 || y<0 || x>=OW || y>=OH) && E.ext){ const e = E.ext[Math.floor(x/ECO_CELL)+','+Math.floor(y/ECO_CELL)]; if (e) return e; } const cx = clamp(Math.floor(x/ECO_CELL),0,E.nx-1), cy = clamp(Math.floor(y/ECO_CELL),0,E.ny-1); return E.cells[cy*E.nx+cx]; }
 function civEcoDaily(){
   const season = seasonOf(civDay()), grow = [0.045,0.05,0.035,0.004][season];
   const E = S.civ.eco;
@@ -340,6 +348,7 @@ function civLodMask(){ if (catchingUp || !S.civ.lod) return null; const {vx,vy,v
 function civFar(c, lod){ return lod && (c.rt.x<lod.x0 || c.rt.y<lod.y0 || c.rt.x>lod.x1 || c.rt.y>lod.y1); }
 
 function civHourly(h){
+  civSafe('crime-hour', ()=>civCrimeHour(h));
   civMarketHour(h);
   civOrgsHour(h);
   S.citizens.forEach(c=>{ emotionsHour(c); updateMood(c); if (c.memory.since >= 50) civReflect(c); });
@@ -357,12 +366,14 @@ function civDaily(d){
   else if (d%28===0) S.citizens.forEach(c=>civRefreshLook(c));
   S.citizens.forEach(c=>{ c.days.push(newDayBucket()); if (c.days.length>7) c.days.shift(); c.svcUsed = 0; });
   civSafe('ecology', civEcoDaily);
+  civSafe('frontier', civFrontierDaily);   // expeditions, annexation votes, upkeep, districts
   civSafe('spoilage', civSpoilage);
   civSafe('distribution', civDistributeFood);
   civSafe('structures', civStructsDaily);
   civSafe('health', civHealthDaily);
   civSafe('life', civLifeDaily);
-  civSafe('minds', civMindsDaily);          // learning, mentorship, discovery, occupations
+  civSafe('minds', civMindsDaily);
+  civSafe('cognition', ()=>{ cognitionDaily(); civMindTidy(); }); // memories fade, beliefs anchor opinions, weekly reflection          // learning, mentorship, discovery, occupations
   civSafe('economy', civEconDaily);         // barter, money, businesses, jobs, contracts, loans, property
   civSafe('society', civSocietyDaily);      // gatherings, government, justice, education, sport, imports
   civSafe('science', civScienceDaily);      // prospecting, mines, research
@@ -374,7 +385,7 @@ function civDaily(d){
   civGroundDirty();
   civStage();
 }
-function civWeekly(d){ civSafe('resources-w', civResSnapshot); civSafe('minds-w', civMindsWeekly); civSafe('econ-w', civEconWeekly); civSafe('society-w', civSocietyWeekly); civSafe('science-w', civScienceWeekly); civSafe('neighbours-w', civNeighborsWeekly); }
+function civWeekly(d){ civSafe('resources-w', civResSnapshot); civSafe('frontier-w', civFrontierWeekly); civSafe('cognition-w', civCognitionWeekly); civSafe('minds-w', civMindsWeekly); civSafe('econ-w', civEconWeekly); civSafe('society-w', civSocietyWeekly); civSafe('science-w', civScienceWeekly); civSafe('neighbours-w', civNeighborsWeekly); }
 function civMonthly(d){ civSafe('projects-m', civProjectsMonthly); civSafe('migration-m', civMigrationMonthly); civSafe('econ-m', civEconMonthly); civSafe('society-m', civSocietyMonthly); }
 
 // ---------- the settlement's stage (a label, earned by what exists, never a trigger) ----------
@@ -475,6 +486,7 @@ function civFinishBlock(c, b){
 
 // ---------- eating and drinking ----------
 function civEat(c, urgent){
+  if (c.away){ c.needs.hunger = Math.max(c.needs.hunger, 55); return true; } // explorers live on what they carried
   const h = hhOf(c), n = c.needs; let ate = false;
   const want = urgent ? 60 : 78;
   const eatFrom = st => { const order = CIV_FOODS.filter(g=>st[g]>0).sort((a,b)=>(CG[a].perish||999)-(CG[b].perish||999));
@@ -485,7 +497,7 @@ function civEat(c, urgent){
   if (n.hunger < 35 && storeFood(S.civ.commons) > 0 && S.civ.rationToday < S.civ.rationCap){ const before = n.hunger; eatFrom(S.civ.commons); if (n.hunger>before){ S.civ.rationToday++; ev('rations'); } }
   if (n.hunger < 30) ate = civAskForFood(c) || ate;
   if (n.hunger < 30 && civMoneyOn()) ate = civBuyFood(c) || ate;
-  if (!ate && n.hunger < 20){ if (c.civ.hungryDay !== dayOf(S.minute)){ c.civ.hungryDay = dayOf(S.minute); c.civ.hungryDays = (c.civ.hungryDays||0)+1; } if (!S.week.hungry.includes(c.name)){ S.week.hungry.push(c.name); remember(c, 'There was nothing to eat today.', 7); setEmotion(c, 'Anxious', 240); civProblem('food', 1, c); } }
+  if (!ate && n.hunger < 20){ if (c.civ.hungryDay !== dayOf(S.minute)){ c.civ.hungryDay = dayOf(S.minute); if (isAdult(c)) civHungerMemory(c); c.civ.hungryDays = (c.civ.hungryDays||0)+1; } if (!S.week.hungry.includes(c.name)){ S.week.hungry.push(c.name); remember(c, 'There was nothing to eat today.', 7); setEmotion(c, 'Anxious', 240); civProblem('food', 1, c); } }
   // water: from the household jar, else a walk to the river
   // water: one jar a day from the household, or a drink at the river when working by it
   if (c.civ.drank !== dayOf(S.minute)){ const nearW = [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>tileAt(c.rt.x+dx,c.rt.y+dy)===T.WATER);
@@ -526,12 +538,12 @@ function civDistributeFood(){
       if (got >= want) return; const spare = storeFood(d.store) - need(d)*4; if (spare <= 0) return;
       const g = move(d.store, h.store, Math.min(spare, want-got)); if (g <= 0) return; got += g; st.shared += g;
       const giver = hhMembers(d).find(isAdult), taker = hhMembers(h).find(isAdult);
-      if (giver && taker){ civFavor(taker, giver, g/30); adjustRel(taker, giver, 3); if (hash(taker.id+civDay())%6===0) remember(taker, `${giver.name}'s household shared food with us.`, 5, [giver.id]); }
+      if (giver && taker){ civFavor(taker, giver, g/30); adjustRel(taker, giver, 3); civFedMemory(taker, giver, 'kin'); if (hash(taker.id+civDay())%6===0) remember(taker, `${giver.name}'s household shared food with us.`, 5, [giver.id]); }
       days.set(d, hhFoodDays(d)); });
     // then the common store: rations, children first, as long as the daily ration allowance lasts
     if (storeFood(h.store) < need(h)*1.2 && storeFood(C.commons) > 0 && C.rationToday < C.rationCap){
       const room = (C.rationCap - C.rationToday)*30, g = move(C.commons, h.store, Math.min(room, need(h)*1.5 - storeFood(h.store) + (kids(h) ? 60 : 0)));
-      if (g > 0){ C.rationToday += Math.ceil(g/30); st.rations += g; got += g; ev('rations', Math.ceil(g/30)); } }
+      if (g > 0){ C.rationToday += Math.ceil(g/30); st.rations += g; got += g; ev('rations', Math.ceil(g/30)); hhMembers(h).filter(isAdult).forEach(a=>civFedMemory(a, null, 'ration')); } }
     if (got > 0){ st.helped++; days.set(h, hhFoodDays(h)); } });
   // perishable surplus goes where it will be eaten instead of rotting
   hhs.filter(h=>days.get(h) > 8 && giving(h)).forEach(h=>{
@@ -696,7 +708,7 @@ function civSocialize(c){
   const R = peekRel(c, o.id), warm = (c.personality.agreeableness + o.personality.agreeableness)/2;
   adjustRel(c, o, (warm-0.4)*6 + 1 + (R.tags.includes('Family')?1:0)); adjustRel(o, c, (warm-0.4)*5 + 1);
   c.needs.social = clamp(c.needs.social+6,0,100); o.needs.social = clamp(o.needs.social+6,0,100);
-  civShareKnowledge(c, o);
+  civShareKnowledge(c, o); civGossip(c, o);
   if (isAdult(c) && isAdult(o)) civBarter(c, o);
   if (c.id < o.id && rnd() < 0.04 && peekRel(c,o.id).affinity < 10 && (c.traits.includes('Stubborn') || o.traits.includes('Greedy'))) civQuarrel(c, o);
 }
@@ -810,7 +822,7 @@ function civFoundSettlement(){
 // ---------- boot, save and load ----------
 function civBootNew(seed){
   S = civNewState(seed); S.bubbles = [];
-  civResetLocations(); civFoundSettlement(); genderInit(false);
+  civResetLocations(); civFrontierInit(); civFoundSettlement(); genderInit(false);
   civOpenWeek(); S.weather = 'Clear';
   S.citizens.forEach(c=>{ c.plan = civPlanDay(c, 0); });
   const ol = S.civ.origins.map(id=>ORIGINS.find(o=>o.id===id).label).join(' and ');
@@ -821,11 +833,11 @@ function civBootNew(seed){
 function civBootLoad(){
   CIV_SEED = S.civ.seed; civUpgradeSave(S);
   S.citizens.forEach(c=>{ c.rt.path = null; c.rt.seg = null; c.rt.blockIdx = -1; if (!c.plan || !c.plan.blocks) c.plan = null; });
-  civResetLocations();
-  for (const k in S.civ.edits){ const x = k%4096, y = Math.floor(k/4096); if (tileAt(x,y)!==-1) MAP[y][x] = S.civ.edits[k]; }
+  civResetLocations(); civFrontierInit();
+  for (const k in S.civ.edits){ const [x, y] = tdec(k); if (tileAt(x,y)!==-1) MAP[y][x] = S.civ.edits[k]; }
   Object.values(S.civ.structs).forEach(civApplyStruct);
   Object.values(S.civ.projects).forEach(p=>civReserve(p, true));
-  WATER_TILES=[]; for (let y=0;y<OH;y++) for (let x=0;x<OW;x++) if (MAP[y][x]===T.WATER) WATER_TILES.push([x,y]);
+  civIndexWater();
   indexCitizens(); civTechRecount(); bumpWorld();
 }
 // schema defaults for civ saves from earlier builds of this mode
@@ -855,7 +867,23 @@ function civWeekEntry(w, live){
     stage:C.stageLabel, market:MARKET_STAGES[C.econ.stage], gov:GOV_STAGES[C.gov.stage], justice:JUSTICE_STAGES[C.justice.stage], edu:EDU_STAGES[C.edu.stage], fin:FIN_STAGES[C.fin.stage],
     occupations:occs, techs:Object.keys(C.tech).length, orgs:Object.keys(C.orgs).length,
     weather:w.weather, hungry:w.hungry.slice(), rels:w.rels.slice(), births:w.births.slice(), deaths:w.deaths.slice(), arrivals:w.arrivals.slice(), departures:w.departures.slice(), works:w.builds.slice(), society:w.society.slice(),
-    highlights: byImp.slice(0,10).sort((a,b)=>a.t-b.t), song:w.song||null, prices:[], laws:Object.keys(C.gov.laws)};
+    highlights: byImp.slice(0,10).sort((a,b)=>a.t-b.t), song:w.song||null, prices:[], laws:Object.keys(C.gov.laws), ...civWeekExtras(w, delta)};
+}
+// justice, territory and opinion sections for the weekly report (left out when nothing happened)
+function civWeekExtras(w, delta){
+  const C = S.civ, jc = C.justice.cases.filter(k=>k.kind==='criminal'), inWk = k => k.judgment && k.judgment.day >= w.startDay;
+  const J = {open: jc.filter(k=>k.status==='open').length, reported: jc.filter(k=>k.day >= w.startDay).length, arrests: delta('arrests'), trials: jc.filter(inWk).length, convictions: jc.filter(k=>inWk(k) && k.judgment.found).length, acquittals: jc.filter(k=>inWk(k) && !k.judgment.found).length, dismissed: delta('dismissed'), unsolved: delta('unsolved'), jail: S.citizens.filter(c=>c.jail).length};
+  const T = {events:(w.territory||[]).slice(), out: S.world ? S.world.exp.filter(e=>e.status==='out').length : 0, regions: S.world ? Object.keys(S.world.cells).length : 0, annexed: typeof civAnnexed==='function' ? civAnnexed().length : 0, sites: typeof civAnnexed==='function' ? civAnnexed().reduce((a,c)=>a+Math.max(0,(c.sites||0)-(c.homes||0)),0) : 0};
+  const ops = Object.entries(w.opShift||{}).filter(([k,v])=>Math.abs(v) >= 60 && !k.startsWith('p:')).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,4).map(([k,v])=>`${typeof topicLabel==='function' ? topicLabel(k) : k} ${v>0?'↑':'↓'}`);
+  return {justiceWk: (J.reported||J.arrests||J.trials||J.unsolved||J.jail) ? J : null, territoryWk: (T.events.length||T.out) ? T : null, opinionWk: ops.length ? ops : null, protestsWk: (C.protests||[]).filter(p=>p.day >= w.startDay).map(p=>`${CIV_PROTEST[p.topic]||p.topic} (${p.n})`)};
+}
+function civWeekExtrasLines(w){
+  const L = [], J = w.justiceWk, T = w.territoryWk;
+  if (J) L.push(`⚖️ Justice: ${J.reported} crimes reported · ${J.arrests} arrests · ${J.trials} verdicts (${J.convictions} convicted, ${J.acquittals} acquitted)${J.dismissed?` · ${J.dismissed} dismissed`:''}${J.unsolved?` · ${J.unsolved} gone unsolved`:''} · ${J.open} open cases${J.jail?` · ${J.jail} in jail`:''}`);
+  if (T) L.push(`🧭 Territory: ${T.events.join('; ')||'—'}${T.out?` · ${T.out} expedition${T.out>1?'s':''} out`:''} · ${T.regions} regions mapped, ${T.annexed} annexed${T.sites?` · room for ~${T.sites} more homes in the districts`:''}`);
+  if (w.protestsWk && w.protestsWk.length) L.push(`✊ Protests: ${w.protestsWk.join('; ')}`);
+  if (w.opinionWk) L.push(`💭 Opinion shifted on: ${w.opinionWk.join(', ')}`);
+  return L;
 }
 function civCloseWeek(){ if (!S.week) return; const e = civWeekEntry(S.week, false); S.weeks.push(e); if (S.weeks.length>150) S.weeks.shift(); chronicle(`Week ${e.n} is in the books. ${e.headline}`, 5, '📖', 'week'); S.week = null; civOpenWeek(); }
 function civWeekToMarkdown(w, live){
@@ -872,6 +900,7 @@ function civWeekToMarkdown(w, live){
   if (w.births.length) L.push(`- Births: ${w.births.join('; ')}`); if (w.deaths.length) L.push(`- Deaths: ${w.deaths.join('; ')}`);
   if (w.arrivals.length) L.push(`- Arrivals: ${w.arrivals.join('; ')}`); if (w.departures.length) L.push(`- Departures: ${w.departures.join('; ')}`);
   if (w.works.length) L.push(`- Building: ${w.works.join('; ')}`); if (w.society.length) L.push(`- Society: ${w.society.join('; ')}`);
+  civWeekExtrasLines(w).forEach(x=>L.push('- '+x));
   L.push('', '**Happenings**'); w.highlights.forEach(h=>L.push(`- ${fmtStamp(h.t)} ${h.icon} ${h.text}`));
   if (w.song) L.push('', `Theme song: https://suno.com/song/${w.song}`);
   return L.join('\n');
@@ -883,6 +912,7 @@ function civWeekHtml(w, live, idx){
     <p class="muted" style="font-size:13px">${esc(w.stage||'Camp')} · pop ${s.popStart}→${s.population} · mood ${s.avgMood} · food ≈ ${s.foodDays} days · ${s.barter} barters, ${s.trades} sales</p>
     <p style="font-size:13px">Market: <b>${esc(w.market)}</b> · Gov: <b>${esc(w.gov)}</b> · Justice: <b>${esc(w.justice)}</b> · Education: <b>${esc(w.edu)}</b> · Finance: <b>${esc(w.fin)}</b></p>
     ${oc.length?`<p style="font-size:13px">${oc.map(([k,v])=>`<span class="chip">${esc(k)} ×${v}</span>`).join('')}</p>`:''}
+    ${civWeekExtrasLines(w).map(x=>`<p style="font-size:13px">${esc(x)}</p>`).join('')}
     ${w.hungry.length?`<p style="font-size:13px">🍞 Went hungry: ${esc(w.hungry.slice(0,12).join(', '))}${w.hungry.length>12?` +${w.hungry.length-12}`:''}</p>`:''}
     ${w.highlights.map(e=>`<div class="ev ${e.imp>=7?'major':''}"><time>${esc(fmtStamp(e.t))}</time><span>${esc(e.icon)}</span><span>${esc(e.text)}</span></div>`).join('')}
     <div class="row" style="margin-top:6px"><button class="btn" data-ballad="${live?'live':idx}" style="font-size:12px">Copy ballad prompt</button></div></div></div>`;

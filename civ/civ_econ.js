@@ -315,13 +315,13 @@ function civLaborDaily(){
     const o = S.civ.orgs[j.org]; if (!o || o.status!=='active'){ j.open = false; return; }
     const wl = o.hq && S.civ.structs[o.hq];
     // applicants weigh pay, distance, the firm's reputation and conditions, and what they'd earn on their own
-    const apps = S.citizens.filter(c=>isAdult(c) && c.age<66 && !c.civ.job && !(c.civ.goals||[]).some(g=>g.kind==='start_business' && g.status==='active')).map(c=>{
+    const apps = S.citizens.filter(c=>isAdult(c) && c.age<66 && !c.jail && !c.civ.job && !(c.civ.goals||[]).some(g=>g.kind==='start_business' && g.status==='active')).map(c=>{
       const own = Math.max(0, ...Object.values(c.civ.exp).map(e=>e.v||0)) * 0.12, dist = wl ? Math.hypot(wl.x-c.rt.x, wl.y-c.rt.y)/20 : 0.5;
       const u = j.wage*civMoneyVal(c)*1.5 - own - dist + (o.reputation-0.5)*2 + (j.skill ? sk(c,j.skill)/80 : 0) + (c.wallet<15 ? 2 : 0) - (c.civ.occ && c.civ.tier>=1 ? 1.5 : 0);
       return {c, u}; }).filter(x=>x.u>0.4);
     if (!apps.length){ if (civDay()-j.since > 5){ j.wage = +(j.wage*1.08).toFixed(1); j.since = civDay(); ev('wage_rises'); } return; }
     // the employer picks: skill, knowledge, trust, record
-    const pick = apps.map(x=>({c:x.c, s: (j.skill ? sk(x.c,j.skill) : 20) + (x.c.civ.credit.score-50)*0.2 + (o.mgr ? peekRel(alive(o.mgr)||x.c, x.c.id).trust*20 : 0) + (o.memory.employees[x.c.id]||0)*10})).sort((a,b)=>b.s-a.s)[0].c;
+    const pick = apps.map(x=>({c:x.c, s: (j.skill ? sk(x.c,j.skill) : 20) + (x.c.civ.credit.score-50)*0.2 + (o.mgr ? peekRel(alive(o.mgr)||x.c, x.c.id).trust*20 : 0) + (o.memory.employees[x.c.id]||0)*10 - civLegalScore(x.c)*12})).sort((a,b)=>b.s-a.s)[0].c;
     civHire(o, j, pick);
   });
 }

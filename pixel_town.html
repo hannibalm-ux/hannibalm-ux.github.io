@@ -40,9 +40,28 @@ main{display:grid;grid-template-columns:minmax(0,1fr) 400px;min-height:calc(100v
 .stat small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
 .stat strong{font:22px/1.1 VT323,monospace}
 aside{border-left:2px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0;max-height:calc(100vh - 56px);position:sticky;top:0}
-.tabs{display:flex;flex-wrap:wrap;border-bottom:2px solid var(--line)}
-.tabs button{flex:1;background:none;border:0;border-bottom:3px solid transparent;padding:9px 4px;cursor:pointer;color:var(--muted);font:10px/1 "Press Start 2P",monospace}
-.tabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
+.groups{display:grid;grid-template-columns:repeat(6,1fr);background:#161826;border-bottom:1px solid var(--line)}
+.groups button{background:none;border:0;border-bottom:3px solid transparent;padding:7px 2px 5px;cursor:pointer;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;font:600 11px/1.1 system-ui,sans-serif}
+.groups button i{font-style:normal;font-size:18px;line-height:1;filter:grayscale(.6);opacity:.8}
+.groups button:hover{color:var(--text)}
+.groups button.on{color:var(--accent);border-bottom-color:var(--accent);background:var(--panel)}
+.groups button.on i{filter:none;opacity:1}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;padding:7px 10px;border-bottom:2px solid var(--line)}
+.tabs.single{display:none}
+.tabs button{display:none;background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:4px 12px;cursor:pointer;color:var(--muted);font:600 12px/1.2 system-ui,sans-serif}
+.tabs button.ing{display:inline-block}
+.tabs button:hover{color:var(--text);border-color:var(--muted)}
+.tabs button.on{color:#1a1405;background:var(--accent);border-color:var(--accent)}
+.phead{padding:8px 14px 0;font-size:12px;color:var(--muted);line-height:1.35}
+.phead kbd{font:11px ui-monospace,monospace;border:1px solid var(--line);border-radius:3px;padding:0 4px;color:var(--text)}
+body.maxed header{padding:4px 12px}
+body.maxed main{grid-template-columns:minmax(0,1fr);min-height:0}
+body.maxed aside{display:none}
+body.maxed #stage{padding:6px 8px;gap:4px}
+body.maxed #viewWrap{height:calc(100vh - 88px)}
+body.maxed .stats{display:none}
+body.maxed.drawer aside{display:flex;position:fixed;top:0;right:0;bottom:0;width:min(420px,94vw);max-height:none;z-index:6;box-shadow:-10px 0 28px rgba(0,0,0,.55)}
+#zMax,#zPanel{font-size:15px}
 .panel{display:none;overflow:auto;padding:12px 14px;flex:1}
 .panel.on{display:block}
 h2{font:11px/1.4 "Press Start 2P",monospace;color:var(--accent-2);margin:14px 0 8px}
@@ -117,6 +136,8 @@ a{color:var(--link)}
         <button id="zRotL" title="Turn the camera left (Q)" style="display:none">⟲</button>
         <button id="zRotR" title="Turn the camera right (E)" style="display:none">⟳</button>
         <button id="z3d" title="Switch to the 3D view" style="width:auto;padding:0 8px;font-weight:bold">3D</button>
+        <button id="zPanel" title="Show or hide the side panel (Tab)" style="display:none">☰</button>
+        <button id="zMax" title="Maximise the view (F)">⛶</button>
       </div>
     </div>
     <div id="tip"></div>
@@ -124,19 +145,28 @@ a{color:var(--link)}
     <div class="stats" id="stats"></div>
   </section>
   <aside>
+    <nav class="groups" id="groups">
+      <button data-g="chron" class="on" title="The chronicle and weekly reports (1)"><i>📜</i><span>Chronicle</span></button>
+      <button data-g="people" title="People, households and society (2)"><i>👥</i><span>People</span></button>
+      <button data-g="econ" title="Economy, resources, land and the frontier (3)"><i>🌾</i><span>Economy</span></button>
+      <button data-g="civic" title="Government and justice (4)"><i>🏛️</i><span>Civic</span></button>
+      <button data-g="know" title="Science and knowledge (5)"><i>🔬</i><span>Science</span></button>
+      <button data-g="music" title="Music (6)"><i>🎵</i><span>Music</span></button>
+    </nav>
     <div class="tabs" id="tabs">
-      <button data-p="chron" class="on">Log</button>
-      <button data-p="weeks">Weekly</button>
-      <button data-p="people">People</button>
-      <button data-p="market">Market</button>
-      <button data-p="land">Land</button>
-      <button data-p="res">Resources</button>
-      <button data-p="laws">Gov</button>
-      <button data-p="soc">Society</button>
-      <button data-p="justice">Justice</button>
-      <button data-p="science">Science</button>
-      <button data-p="music">Music</button>
+      <button data-p="chron" data-g="chron" class="on">Log</button>
+      <button data-p="weeks" data-g="chron">Weekly</button>
+      <button data-p="people" data-g="people">People</button>
+      <button data-p="soc" data-g="people">Society</button>
+      <button data-p="market" data-g="econ">Market</button>
+      <button data-p="res" data-g="econ">Resources</button>
+      <button data-p="land" data-g="econ">Land &amp; frontier</button>
+      <button data-p="laws" data-g="civic">Government</button>
+      <button data-p="justice" data-g="civic">Justice</button>
+      <button data-p="science" data-g="know">Science</button>
+      <button data-p="music" data-g="music">Music</button>
     </div>
+    <div class="phead" id="phead"></div>
     <div class="panel on" id="p-chron"></div>
     <div class="panel" id="p-weeks"></div>
     <div class="panel" id="p-people"><div id="pAdd"></div><div id="pList"></div></div>
@@ -165,9 +195,32 @@ a{color:var(--link)}
    ===================================================================== */
 
 // ---------- storage (may be unavailable) ----------
+// big saves are LZW-compressed into UTF-16 text (two 15-bit characters per code, well below the surrogate range) so a
+// large town still fits in browser storage; plain JSON saves from earlier versions load as before
+const LZW = {
+  tag:'\u0002LZW1',
+  // the dictionary maps (phrase code, next character) to a code, as one number, so no strings are built while packing
+  pack(s){ let bits = 16; while ((1 << bits) < s.length/2 && bits < 24) bits++; const size = 1 << bits, mask = size - 1;
+    const kw = new Int32Array(size).fill(-1), kc = new Uint16Array(size), val = new Int32Array(size), out = []; let next = 65536, w = -1;
+    for (let i=0;i<s.length;i++){ const c = s.charCodeAt(i); if (w < 0){ w = c; continue; }
+      let h = (Math.imul(w, 0x9E3779B1) ^ Math.imul(c, 0x85EBCA6B)) >>> (32 - bits);
+      while (kw[h] !== -1 && (kw[h] !== w || kc[h] !== c)) h = (h + 1) & mask;
+      if (kw[h] !== -1){ w = val[h]; continue; }
+      out.push(w); if (next - 65536 < size*0.7){ kw[h] = w; kc[h] = c; val[h] = next; } next++; w = c; }
+    if (w >= 0) out.push(w);
+    const u = new Uint16Array(out.length*2); for (let i=0;i<out.length;i++){ u[2*i] = 32 + (out[i] >>> 15); u[2*i+1] = 32 + (out[i] & 32767); }
+    const parts = []; for (let i=0;i<u.length;i+=8192) parts.push(String.fromCharCode.apply(null, u.subarray(i, i+8192)));
+    return parts.join(''); },
+  unpack(s){ const codes = []; for (let i=0;i+1<s.length;i+=2) codes.push(((s.charCodeAt(i)-32) << 15) | (s.charCodeAt(i+1)-32));
+    if (!codes.length) return ''; const entries = [], out = []; let prev = String.fromCharCode(codes[0]); out.push(prev);
+    for (let i=1;i<codes.length;i++){ const code = codes[i]; let e;
+      if (code < 65536) e = String.fromCharCode(code); else if (code - 65536 < entries.length) e = entries[code-65536]; else if (code - 65536 === entries.length) e = prev + prev[0]; else throw new Error('bad save data');
+      out.push(e); entries.push(prev + e[0]); prev = e; }
+    return out.join(''); }
+};
 const store = {
-  get(k){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; }catch(e){ return null; } },
-  set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); return true; }catch(e){ return false; } },
+  get(k){ try{ const v = localStorage.getItem(k); if (!v) return null; return JSON.parse(v.startsWith(LZW.tag) ? LZW.unpack(v.slice(LZW.tag.length)) : v); }catch(e){ return null; } },
+  set(k,v){ try{ const j = JSON.stringify(v); localStorage.setItem(k, j.length > 150000 ? LZW.tag + LZW.pack(j) : j); return true; }catch(e){ return false; } },
   del(k){ try{ localStorage.removeItem(k); }catch(e){} }
 };
 const SAVE_KEY = 'pixeltown.save.v2', OLD_SAVE_KEY = 'pixeltown.save.v1', MUSIC_KEY = 'pixeltown.music.v1';
@@ -4293,13 +4346,14 @@ const clock = {
 let lastSave = 0;
 function saveGame(force){
   if (!S) return;
-  const now = Date.now(); if (!force && now-lastSave < 15000) return; lastSave = now;
+  const now = Date.now(); if (!force && now-lastSave < (saveGame.every||15000)) return; lastSave = now; const t0 = performance.now();
   S.rng = RNG.s;
   const bubbles = S.bubbles; delete S.bubbles;
   // in civilization mode plans and walking paths are rebuilt on load rather than saved
   const stash = CIV ? S.citizens.map(c=>[c.plan, c.rt.path, c.rt.seg]) : null; if (stash) S.citizens.forEach(c=>{ c.plan = null; c.rt.path = null; c.rt.seg = null; });
   const ok = store.set(SAVE_KEY, {state:S, clock:{speed:clock.speed, paused:clock.paused, gameAt:clock.now()}, savedAt:now});
   if (stash) S.citizens.forEach((c,i)=>{ [c.plan, c.rt.path, c.rt.seg] = stash[i]; });
+  saveGame.every = performance.now() - t0 > 150 ? 45000 : 15000; // big towns autosave less often so play stays smooth
   if (!ok && !S.saveWarned){ S.saveWarned = 1; chronicle('The browser could not store the save (storage full?). Export the log to keep a record.', 6, '💾', 'system'); }
   S.bubbles = bubbles;
 }
@@ -5854,7 +5908,50 @@ function renderPanels(force){
   if (t==='justice' && (force || !$('p-justice').matches(':hover'))) renderJustice();
   if (t==='music' && force) music.renderPanel();
 }
-$('tabs').onclick = e => { const b=e.target.closest('button'); if (!b) return; ui.tab=b.dataset.p; document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id==='p-'+ui.tab)); ui.dirty=true; renderPanels(true); };
+// the side menu: six groups, each with its own tabs; the last tab used in each group is remembered
+const TAB_HELP = {
+  chron:'Everything that happens, as it happens. Pick how much detail you want with the filter.',
+  weeks:'Week-by-week summaries, including justice, territory and shifts in opinion.',
+  people:'Everyone who lives here. Click a name for their profile: work, knowledge, memories, beliefs, opinions and legal history.',
+  soc:'Households, families, love and marriage, protests, sport and neighbours.',
+  market:'Trade, prices, businesses, jobs and money.',
+  res:'What the settlement has: food and storage, animals, wild stocks, timber, materials and minerals.',
+  land:'Explore and annex new land, and every building and site. Click a name 📍 to find it on the map.',
+  laws:'Who leads, the council and offices, laws, taxes and votes.',
+  justice:'Who keeps order, the jail, and every case: statements, evidence, suspects and verdicts.',
+  science:'Techniques, theories and research.',
+  music:'The soundtrack and songs for each phase of the day.'};
+function restoreTab(){ let t = 'chron'; try { t = localStorage.getItem('pixeltown.tab') || 'chron'; } catch(e){} if (!$('tabs').querySelector(`[data-p=${t}]`)) t = 'chron'; showTab(t); }
+function showTab(p){
+  const b = $('tabs').querySelector(`[data-p=${p}]`); if (!b) return; const g = b.dataset.g;
+  ui.tab = p; ui.group = g; ui.groupTab = ui.groupTab || {}; ui.groupTab[g] = p;
+  document.querySelectorAll('#tabs button').forEach(x=>{ x.classList.toggle('on', x===b); x.classList.toggle('ing', x.dataset.g===g); });
+  $('tabs').classList.toggle('single', document.querySelectorAll(`#tabs button[data-g=${g}]`).length < 2);
+  document.querySelectorAll('#groups button').forEach(x=>x.classList.toggle('on', x.dataset.g===g));
+  document.querySelectorAll('.panel').forEach(x=>x.classList.toggle('on', x.id==='p-'+p));
+  $('phead').textContent = TAB_HELP[p] || '';
+  try { localStorage.setItem('pixeltown.tab', p); } catch(e){}
+  ui.dirty = true; renderPanels(true);
+}
+$('tabs').onclick = e => { const b=e.target.closest('button'); if (!b) return; showTab(b.dataset.p); };
+$('groups').onclick = e => { const b=e.target.closest('button'); if (!b) return; const g = b.dataset.g; showTab((ui.groupTab||{})[g] || $('tabs').querySelector(`[data-g=${g}]`).dataset.p); };
+// maximise the play screen: hide the panels (they slide in with ☰), go full screen where the browser allows it
+function setMaxed(on){
+  document.body.classList.toggle('maxed', on); if (!on) document.body.classList.remove('drawer');
+  $('zMax').classList.toggle('on', on); $('zMax').textContent = on ? '🗗' : '⛶'; $('zMax').title = on ? 'Back to the normal layout (F or Esc)' : 'Maximise the view (F)'; $('zPanel').style.display = on ? '' : 'none';
+  try { if (on && document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().then(()=>{ ui.fs = true; }).catch(()=>{}); if (!on && document.fullscreenElement) document.exitFullscreen().catch(()=>{}); } catch(e){}
+  if (!on) ui.fs = false;
+}
+$('zMax').onclick = ()=>setMaxed(!document.body.classList.contains('maxed'));
+$('zPanel').onclick = ()=>{ document.body.classList.toggle('drawer'); renderPanels(true); };
+document.addEventListener('fullscreenchange', ()=>{ if (!document.fullscreenElement && ui.fs && document.body.classList.contains('maxed')) setMaxed(false); });
+window.addEventListener('keydown', e=>{
+  if (/input|textarea|select/i.test((document.activeElement||{}).tagName||'') || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key==='f' || e.key==='F'){ setMaxed(!document.body.classList.contains('maxed')); e.preventDefault(); }
+  else if (e.key==='Tab' && document.body.classList.contains('maxed')){ document.body.classList.toggle('drawer'); renderPanels(true); e.preventDefault(); }
+  else if (e.key==='Escape' && document.body.classList.contains('drawer')) document.body.classList.remove('drawer');
+  else if (/^[1-6]$/.test(e.key)){ const g = document.querySelectorAll('#groups button')[+e.key-1]; if (g) g.click(); }
+});
 $('speed').onclick = e => { const b=e.target.closest('button'); if (!b) return; const v=b.dataset.v; if (v==='pause') clock.pause(); else clock.setSpeed(+v); renderPanels(true); };
 
 // ---------- camera input: drag to pan, wheel / pinch to zoom, tap to select ----------
@@ -6623,7 +6720,7 @@ function civBoot(sv){
   const mt = $('tabs').querySelector('[data-p=market]'); if (mt) mt.textContent = 'Economy';
   music.renderPanel();
   resizeCanvas(); cam.x = S.civ.center[0]*TILE; cam.y = S.civ.center[1]*TILE; clampCam();
-  renderPanels(true);
+  restoreTab();
   requestAnimationFrame(frame);
   try { if (localStorage.getItem('pixeltown.view')==='3d' && (location.protocol!=='file:' || document.getElementById('three-src'))) toggle3D(true); } catch(e){}
 }
@@ -6658,7 +6755,7 @@ function boot(){
   syncAnimals();
   music.renderPanel();
   resizeCanvas(); cam.x = 26*TILE; cam.y = 24*TILE; clampCam();
-  renderPanels(true);
+  restoreTab();
   requestAnimationFrame(frame);
   try { if (localStorage.getItem('pixeltown.view')==='3d' && (location.protocol!=='file:' || document.getElementById('three-src'))) toggle3D(true); } catch(e){}
 }
@@ -6680,6 +6777,9 @@ window.PT = { get S(){return S;}, simulate(n){ for (let i=0;i<n;i++) simTick(); 
 <script src="civ/civ_build.js"></script>
 <script src="civ/civ_econ.js"></script>
 <script src="civ/civ_society.js"></script>
+<script src="civ/civ_justice.js"></script>
+<script src="civ/civ_cognition.js"></script>
+<script src="civ/civ_frontier.js"></script>
 <script src="civ/civ_science.js"></script>
 <script src="civ/civ_render.js"></script>
 <script src="civ/civ_3d.js"></script>

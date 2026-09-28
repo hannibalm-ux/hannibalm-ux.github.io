@@ -166,8 +166,19 @@ function civPlanDay(c, day){
     add(20*60+30, 'Socialize', 'loc_town_square', 'At the fire with the family'); add(DAY, 'Sleep', home, 'Sleeping');
     civFixHere(c, B); return {day, by:'civ', blocks:B};
   }
+  // on an expedition: camped at the edge of settled land, then off into the unknown
+  if (c.away && S.world){ const xy = civCampXY(c.away.dir), dl = DIRS[c.away.dir].label.toLowerCase();
+    add(7*60, 'Sleep', 'wild', 'Camping in the wilds', {xy}); add(20*60, 'Leisure', 'wild', `Exploring to the ${dl}`, {xy}); add(DAY, 'Sleep', 'wild', 'Camping in the wilds', {xy}); civFixHere(c, B); return {day, by:'civ', blocks:B}; }
+  // a jail sentence: the whole day in a cell, no work, no wages, no evening at the fire
+  if (c.jail && c.jail > day){ const J = civHas(['jail','prison'])[0], loc = J ? J.id : home, xy = J ? civStructXY(J) : null;
+    add(7*60, 'Sleep', loc, 'Asleep in a cell', {xy}); add(7*60+30, 'Eat', loc, 'Breakfast in jail', {xy}); add(18*60, 'Leisure', loc, 'Serving a jail sentence', {xy, jailed:true}); add(18*60+30, 'Eat', loc, 'Supper in the cell', {xy}); add(DAY, 'Sleep', loc, 'Asleep in a cell', {xy});
+    civFixHere(c, B); return {day, by:'civ', blocks:B}; }
   const h = hhOf(c), rest = day%7===6 && !civHasGoal(c,'secure_food') && (!h || hhFoodDays(h)>3);
-  const choice = rest ? null : civChooseWork(c, day, h);
+  let choice = rest ? null : civChooseWork(c, day, h);
+  // community service: the morning's work goes to the settlement
+  if (c.civ.service && c.civ.service > day){ const t = CIV_TARGETS.build && CIV_TARGETS.build(c), first = choice ? choice[0] : null;
+    const svc = t ? Object.assign({}, t, {note:'Community service: '+t.note.toLowerCase(), extra:Object.assign({task:'build', xy:t.xy}, t.extra, {service:true})}) : first ? Object.assign({}, first, {note:'Community service: '+first.note.toLowerCase(), extra:Object.assign({}, first.extra, {service:true})}) : null;
+    if (svc) choice = [svc, choice ? choice[1] : svc]; }
   if (choice){
     add(12*60, 'Work', choice[0].loc, choice[0].note, choice[0].extra);
     add(12*60+40, 'Eat', 'here', 'A meal on the spot');
@@ -246,7 +257,7 @@ function civGoalBonus(c, t, obs){
     if (g.kind==='discover' && (t==='research' || t==='prospect')) v += 3;
     if (g.kind==='community' && (t==='build' || t==='heal' || t==='teach')) v += 3;
     if (g.kind==='wealth' && (t==='trade' || t==='prospect' || t==='mine')) v += 2;
-    if ((g.kind==='start_business' || g.kind==='improve_income') && g.data.task===t) v += 5;
+    if ((g.kind==='start_business' || g.kind==='improve_income') && g.data.task===t) v += (g.steps||[]).some(st=>st.k==='experience' && !st.done) ? 12 : 5; // someone planning a business sets out to practise the trade
   });
   if (obs.foodDays < 1.5 && !food.includes(t)) v -= 8;
   // the household's builder fetches what its projects lack, or builds when the materials are there
@@ -275,7 +286,9 @@ function civTaskBlock(c, t){
 function civTarget(c, task){
   const A = ACTIVITIES[task], home = c.home && LOC[c.home] ? c.home : 'loc_town_square', [hx,hy] = [c.rt.x, c.rt.y];
   const r = mapRand(hash(c.id+task+civDay()));
-  const near = (test, rad) => { let best=null, bs=1e9; for (let k=0;k<70;k++){ const x = clamp(Math.round(hx + (r()-0.5)*2*rad), 1, OW-2), y = clamp(Math.round(hy + (r()-0.5)*2*rad), 1, OH-2); if (!walkable(x,y)) continue; const s = test(x,y); if (s==null) continue; const sc = Math.hypot(x-hx,y-hy)*0.08 - s; if (sc<bs){ bs=sc; best=[x,y]; } } return best; };
+  const scan = (cx, cy, test, rad, n) => { let best=null, bs=1e9; for (let k=0;k<n;k++){ const x = clamp(Math.round(cx + (r()-0.5)*2*rad), X0+1, X0+MW-2), y = clamp(Math.round(cy + (r()-0.5)*2*rad), Y0+1, Y0+MH-2); if (!walkable(x,y) || !civClaimedTile(x,y)) continue; const s = test(x,y); if (s==null) continue; const sc = Math.hypot(x-hx,y-hy)*0.08 - s; if (sc<bs){ bs=sc; best=[x,y]; } } return best; };
+  // near home first; if the home grounds are worked out, the annexed districts
+  const near = (test, rad) => { const b = scan(hx, hy, test, rad, 70); if (b) return b; for (const cell of civAnnexed()){ const [x0,y0,x1,y1] = cellRect(cell.cx, cell.cy); const e = scan((x0+x1)/2, (y0+y1)/2, test, 13, 40); if (e) return e; } return null; };
   const adj = (x,y,t) => { for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) if (tileAt(x+dx,y+dy)===t) return [x+dx,y+dy]; return null; };
   const W = (xy, note, extra) => ({loc:'wild', xy, note, extra});
   switch (A && A.place){
@@ -328,7 +341,7 @@ function civWorkProduce(c, b, hrs){
   if (A.eco==='fish' && e) e.fish = Math.max(0, e.fish - units*0.5);
   if (A.season && A.season[season] < 0.5 && !why) why = `little to be had in ${SEASONS[season].toLowerCase()}`;
   if (S.weather==='Storm' && !why) why = 'the storm';
-  const org = b.job && civJobOf(c) && S.civ.orgs[civJobOf(c).org], dest = org ? org.stock : h ? h.store : S.civ.commons;
+  const org = b.job && civJobOf(c) && S.civ.orgs[civJobOf(c).org], dest = b.service ? S.civ.commons : org ? org.stock : h ? h.store : S.civ.commons;
   for (const g in out){ let q = +out[g].toFixed(1); if (q<=0) continue; value += q*civMargValue(c, g, h); if (CG[g].food) ev('pd_'+b.task, q*CG[g].food/90);
     if (!org && CG[g].cat==='material' && civCivic(c)){ const p = civCommunityProjects().find(p=>(p.need[g]||0) > (p.have[g]||0)); if (p && (!h || civMaterialNeed(c,g) - (h.store[g]||0) <= 0 || civProjectsFor(c).length===0)){ const give = Math.min(q, p.need[g]-(p.have[g]||0)); p.have[g] = (p.have[g]||0)+give; q -= give; c.civ.respect += give*0.03; } }
     if (q>0) storeAdd(dest, g, q); }
@@ -473,11 +486,16 @@ function civMindsWeekly(){
 }
 // keep saves small as the settlement grows: the closest ties, recent memories and customers are what matter
 function civPrunePerson(c){
-  const keep = Object.entries(c.rel).filter(([id])=>alive(id)).sort((a,b)=>(b[1].tags.length>1||b[1].tags[0]!=='Neighbor'?1000:0)+Math.abs(b[1].affinity)+b[1].familiarity*30 - ((a[1].tags.length>1||a[1].tags[0]!=='Neighbor'?1000:0)+Math.abs(a[1].affinity)+a[1].familiarity*30)).slice(0, 36);
+  const keep = Object.entries(c.rel).filter(([id])=>alive(id)).sort((a,b)=>(b[1].tags.length>1||b[1].tags[0]!=='Neighbor'?1000:0)+Math.abs(b[1].affinity)+b[1].familiarity*30 - ((a[1].tags.length>1||a[1].tags[0]!=='Neighbor'?1000:0)+Math.abs(a[1].affinity)+a[1].familiarity*30)).slice(0, 30);
   c.rel = Object.fromEntries(keep);
   if (c.memory.records.length > 18) c.memory.records = c.memory.records.slice(-18);
   for (const t in c.civ.buyers){ const m = c.civ.buyers[t], ks = Object.keys(m); if (ks.length > 24) c.civ.buyers[t] = Object.fromEntries(ks.slice(-24).map(k=>[k, m[k]])); }
-  if (c.mind && c.mind.mems && c.mind.mems.length > 10) c.mind.mems = c.mind.mems.slice(-10);
+  // the mind: the most important memories stay (plus the last week's); old ones lose the details only needed for retelling
+  const M = c.mind; if (M && M.mems){ const now = S.minute;
+    if (M.mems.length > 12){ const recent = M.mems.filter(x=>now - x.t < 7*DAY), rest = M.mems.filter(x=>now - x.t >= 7*DAY).sort((a,b)=>b.imp*b.str-a.imp*a.str).slice(0, Math.max(4, 12 - recent.length)); M.mems = rest.concat(recent).sort((a,b)=>a.t-b.t); }
+    M.mems.forEach(x=>{ if (now - x.t > 14*DAY){ delete x.pub; delete x.fact; if (!(x.who||[]).length) delete x.who; if (now - x.t > 30*DAY) delete x.ev; } x.str = +x.str.toFixed(2); }); }
+  if (M && M.kn){ const d = civDay(), ks = Object.keys(M.kn).filter(k=>{ const f = M.kn[k]; return !(f.conf < 0.2 || (d - f.day > 90 && f.conf < 0.6)); }).sort((a,b)=>M.kn[b].conf-M.kn[a].conf).slice(0, 12); M.kn = Object.fromEntries(ks.map(k=>[k, M.kn[k]])); }
+  if (c.civ.dec && c.civ.dec.length > 10) c.civ.dec = c.civ.dec.slice(-10);
   for (const k in c.civ.know) if (c.civ.know[k] < 0.5) delete c.civ.know[k];
 }
 function civSkillGoal(c){
