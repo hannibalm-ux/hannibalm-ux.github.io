@@ -7702,6 +7702,9 @@ function civDaily(d){
   civSafe('spoilage', civSpoilage);
   civSafe('distribution', civDistributeFood);
   civSafe('structures', civStructsDaily);
+  civSafe('reclaim', civReclaimDaily);      // ownerless and unwanted property returns to the settlement; homes shelter the needy
+  civSafe('materials', civMaterialsDaily);  // buy missing materials, draw on the common store, make do when nothing can be had
+  civSafe('contracts-build', civBuildContractsDaily);
   civSafe('health', civHealthDaily);
   civSafe('life', civLifeDaily);
   civSafe('minds', civMindsDaily);
@@ -8435,6 +8438,9 @@ function civPlanDay(c, day){
   if (c.civ.service && c.civ.service > day){ const t = CIV_TARGETS.build && CIV_TARGETS.build(c), first = choice ? choice[0] : null;
     const svc = t ? Object.assign({}, t, {note:'Community service: '+t.note.toLowerCase(), extra:Object.assign({task:'build', xy:t.xy}, t.extra, {service:true})}) : first ? Object.assign({}, first, {note:'Community service: '+first.note.toLowerCase(), extra:Object.assign({}, first.extra, {service:true})}) : null;
     if (svc) choice = [svc, choice ? choice[1] : svc]; }
+  // our own home, with the materials to hand: evenings after work, and the rest day, go into building it
+  const ownP = civOwnHomeProject(c), ownT = ownP && {loc:'wild', note:`Building our ${STRUCTURES[ownP.def].label.toLowerCase()}`, extra:{task:'build', proj:ownP.id, xy:civSiteSpot(ownP)}};
+  if (rest && ownT && !elder) choice = [ownT, ownT];
   if (choice){
     add(12*60, 'Work', choice[0].loc, choice[0].note, choice[0].extra);
     add(12*60+40, 'Eat', 'here', 'A meal on the spot');
@@ -8443,6 +8449,7 @@ function civPlanDay(c, day){
   } else { add(12*60, 'Leisure', 'loc_town_square', 'A day of rest'); add(12*60+40, 'Eat', home, 'Lunch'); add(17*60, 'Socialize', 'loc_town_square', 'Visiting neighbours'); }
   // one adult per household fetches the water
   if (h && civWaterCarrier(h)===c.id && (h.store.water||0) < h.members.length*2){ const w = civTarget(c, 'water'); add(18*60+10, 'Work', w.loc, 'Fetching water', {task:'water', xy:w.xy}); }
+  else if (ownT && !elder && !(choice && choice[1].extra && choice[1].extra.proj===ownP.id)) add(18*60+30, 'Work', ownT.loc, ownT.note+' after the day\'s work', ownT.extra);
   else add(18*60, 'Chore', home, 'Chores at home');
   add(18*60+40, 'Eat', home, 'Supper');
   const social = c.personality.extraversion > 0.35 || c.needs.social < 45;
@@ -8465,7 +8472,9 @@ function civKidTask(c, day){
 // the core decision: observe, remember, interpret, predict, choose, and write it down
 function civChooseWork(c, day, h){
   const X = c.civ;
-  if (X.job){ const j = civJobOf(c); if (j){
+  // food first: with almost nothing to eat at home, someone employed away from food production often takes the day to find food
+  const skipJob = X.job && h && hhFoodDays(h) < 1 && (()=>{ const j0 = civJobOf(c), o0 = j0 && S.civ.orgs[j0.org]; return o0 && !civFoodBiz(BUSINESS_TYPES[o0.biz]); })() && hashf(day, hash(c.id)%997, 5) < 0.6;
+  if (X.job && !skipJob){ const j = civJobOf(c); if (j){
     // employees do the company's work: its mine, field, pen, building site, woods or workshop
     const t = civJobTask(c, j); let blk;
     if (t==='job'){ const w = civWorkplaceXY(c, j); blk = {loc:w.loc, note:`Working as ${j.role} for ${j.orgName}`, extra:{task:'job', xy:w.xy, job:j.id}}; }
@@ -8599,7 +8608,7 @@ function civWorkProduce(c, b, hrs){
   if (S.weather==='Storm' && !why) why = 'the storm';
   const org = b.job && civJobOf(c) && S.civ.orgs[civJobOf(c).org], dest = b.service ? S.civ.commons : org ? org.stock : h ? h.store : S.civ.commons;
   for (const g in out){ let q = +out[g].toFixed(1); if (q<=0) continue; value += q*civMargValue(c, g, h); if (CG[g].food) ev('pd_'+b.task, q*CG[g].food/90);
-    if (!org && CG[g].cat==='material' && civCivic(c)){ const p = civCommunityProjects().find(p=>(p.need[g]||0) > (p.have[g]||0)); if (p && (!h || civMaterialNeed(c,g) - (h.store[g]||0) <= 0 || civProjectsFor(c).length===0)){ const give = Math.min(q, p.need[g]-(p.have[g]||0)); p.have[g] = (p.have[g]||0)+give; q -= give; c.civ.respect += give*0.03; } }
+    if (!org && CG[g].cat==='material' && civCivic(c)){ const p = civCommunityProjects().concat(civNeedyHomeProjects()).find(p=>(p.need[g]||0) > (p.have[g]||0)); if (p && (!h || civMaterialNeed(c,g) - (h.store[g]||0) <= 0 || civProjectsFor(c).length===0)){ const give = Math.min(q, p.need[g]-(p.have[g]||0)); p.have[g] = (p.have[g]||0)+give; q -= give; c.civ.respect += give*0.03; } }
     if (q>0) storeAdd(dest, g, q); }
   return {value, why, out};
 }
@@ -8861,14 +8870,20 @@ CIV_TARGETS.build = c => {
 };
 function civSiteSpot(p){ const cands = []; for (let x=p.x-1;x<=p.x+p.w;x++){ cands.push([x,p.y+p.h],[x,p.y-1]); } for (let y=p.y;y<p.y+p.h;y++){ cands.push([p.x-1,y],[p.x+p.w,y]); } if (p.tiles) p.tiles.forEach(([x,y])=>cands.push([x-1,y],[x+1,y],[x,y-1],[x,y+1])); const ok = cands.filter(([x,y])=>walkable(x,y)); return ok.length ? ok[hash(p.id+civDay())%ok.length] : [p.x, p.y+p.h]; }
 function civBuildChoice(c){
-  const own = civProjectsFor(c); if (own.length) return own.sort((a,b)=>civProjectMatFrac(b)-civProjectMatFrac(a))[0];
+  const ct = civContractorProject(c); if (ct) return ct;
+  const own = civProjectsFor(c).filter(p=>!p.contractor || p.contractor===c.civ.employer); if (own.length) return own.sort((a,b)=>civProjectMatFrac(b)-civProjectMatFrac(a))[0];
+  const bee = civNeedyHomeProjects().filter(p=>civWillHelp(c, p) > 5).sort((a,b)=>civWillHelp(c,b)-civWillHelp(c,a))[0]; if (bee) return bee;
   const com = civCommunityProjects().filter(p=>civProjectMatFrac(p)>0.05 || p.labor-p.done < 20); return com.sort((a,b)=>civProjectMatFrac(b)-civProjectMatFrac(a))[0] || civCommunityProjects()[0] || null;
 }
 CIV_TASK_VALUE.build = (c, h, hrs) => {
   const own = civProjectsFor(c); const com = civCommunityProjects();
   let v = 0;
-  if (own.length){ const p = own[0], mf = civProjectMatFrac(p); v = 7 + (p.purpose==='home' && !S.civ.structs[c.home] ? 10 : 0) + (mf>0.3 ? 5 : -4) + (p.pay ? p.pay*hrs*civMoneyVal(c) : 0); }
+  if (own.length){ const p = own[0], mf = civProjectMatFrac(p); v = 7 + (p.purpose==='home' && !S.civ.structs[c.home] ? 16 : 0) + (mf>0.3 ? 5 : -4) + (mf>=0.99 ? 6 : 0) + (p.pay ? p.pay*hrs*civMoneyVal(c) : 0); } // with everything to hand, finish it
+  else if (civNeedyHomeProjects().some(p=>civWillHelp(c, p) > 5)){ const p = civNeedyHomeProjects().sort((a,b)=>civWillHelp(c,b)-civWillHelp(c,a))[0]; v = civWillHelp(c, p) + 4; } // a building bee for a family with no roof
   else if (com.length){ const p = com[0], civic = c.personality.agreeableness*6 + (c.values.includes('Community')?5:0) + (civHasGoal(c,'community')?4:0) + (civHasGoal(c,'respect')?2:0); v = civic*(civProjectMatFrac(p)>0.2 ? 1 : 0.4) + (p.pay ? p.pay*hrs*civMoneyVal(c) : 0); }
+  // food first: a household running low feeds itself before it builds (and never goes to help others)
+  if (!civBuildSeasonOK() && !(own.length && own[0].purpose==='home' && !S.civ.structs[c.home])) v *= 0.5;
+  const fd = h ? hhFoodDays(h) : 3; if (fd < 2 && !(own.length && own[0].purpose==='home' && !S.civ.structs[c.home] && fd >= 1)) v *= fd < 1 ? 0.15 : 0.45;
   return v * (0.6 + sk(c,'construction')/150);
 };
 CIV_WORK.build = (c, b, hrs) => {
@@ -8881,8 +8896,10 @@ CIV_WORK.build = (c, b, hrs) => {
   const before = p.done; p.done = Math.min(cap, p.done + eff);
   // clearing trees on the plot as the work goes on
   if (p.done > before){ for (let y=p.y;y<p.y+p.h && y<p.y+p.h;y++) for (let x=p.x;x<p.x+p.w;x++){ if (tileAt(x,y)===T.TREE && rnd()<0.3){ civSetTile(x,y,T.GRASS); if (st) storeAdd(st, 'wood', 4); } } }
-  p.workers[c.id] = (p.workers[c.id]||0) + eff;
+  p.workers[c.id] = (p.workers[c.id]||0) + eff; if (p.done > before + 0.01) civProjProgress(p);
   if (p.pay && civMoneyOn()) civPayProjectWage(p, c, hrs);
+  if (p.contractor) civContractWork(p, c, hrs);
+  if (p.forHH && S.civ.hh[p.forHH] && hhOf(c)!==S.civ.hh[p.forHH] && p.done > before && hash(c.id+p.id)%4===0 && !p.helped){ p.helped = 1; const H = S.civ.hh[p.forHH]; hhAdults(H).forEach(m=>{ adjustRel(m, c, 6); civHear(m, {type:'helped', text:`${c.name} helped build our home.`, who:[c.id], topics:{['p:'+c.id]:0.8}, imp:6, src:'self', emo:0.3}); }); }
   c.civ.buyers.build = c.civ.buyers.build || {}; const payerH = p.owner.k==='hh' ? p.owner.id : p.owner.k; if (payerH!==c.civ.hh) c.civ.buyers.build[(p.owner.id||p.owner.k)+''] = 1;
   if (p.done >= p.labor - 0.01 && mf >= 0.999) civFinishProject(p);
   const why = mf < 0.5 ? 'waiting for materials' : null;
@@ -8917,6 +8934,7 @@ function civPayProjectWage(p, c, hrs){ const pay = Math.round(p.pay*hrs); if (pa
 // a vacated home is kept to rent or sell, given to kin, or left to fall down
 function civVacated(s, h){
   s.occ = null;
+  if (s.shelter){ const other = S.citizens.find(c=>c.home===s.id); if (other){ s.occ = other.civ.hh; return; } } // a shared shelter stays the town's
   const need = Object.values(S.civ.hh).find(x=>!x.home || !S.civ.structs[x.home]);
   if (need && (!civMoneyOn() || peekRelHH(h, need) > 20)){ need.home = s.id; s.occ = need.id; hhMembers(need).forEach(m=>m.home = s.id); chronicle(`${need.name} moved into ${s.name}, left behind by the ${h.name} household.`, 4, '📦', 'land'); indexCitizens(); return; }
   if (civMoneyOn()){ s.forSale = true; s.price = Math.round(s.value*1.05); civLandlordOffer(s); }
@@ -8939,9 +8957,11 @@ function civHousingGoals(c, h, home){
     if (!home && civMoneyOn() && civTryRentOrBuy(h)) return;
     let def = civBestHomeDef(builders, wealth, members);
     if (!civMatAffordable(def, h.store, civHHMoney(h)).ok) def = members > 5 && civCanBuild('longhouse', builders) ? 'longhouse' : 'crude_hut';
-    if (civProjects().filter(p=>p.purpose==='home').length > 6) return;
+    if (!home && civHomelessHH().length >= 4 && !civMatAffordable(def, h.store, civHHMoney(h)).ok) def = 'lean_to'; // in a housing crunch, any roof first
+    if (home && civProjects().filter(p=>p.purpose==='home').length > 6) return; // a family with no roof may always start one
     const site = civFindSite(def, home ? [home.x, home.y] : S.civ.center, {margin:1});
     if (site){ civStartProject(def, site, {k:'hh', id:h.id}, {purpose:'home', forHH:h.id, why: !home ? 'they have no roof' : 'too many under one roof'}); civAddGoal(c, 'new_home'); }
+    else if (!home){ S.civ.landShort = civDay(); civProblem('land', 2); } // nowhere left to build
     return;
   }
   // upgrade when the household can: needs knowledge, technique, materials or money, and the wish to
@@ -8950,6 +8970,7 @@ function civHousingGoals(c, h, home){
   const ups = (D.up||[]).filter(u=>civCanBuild(u, builders)); if (!ups.length) return;
   const up = ups.sort((a,b)=>HOME_ORDER.indexOf(b)-HOME_ORDER.indexOf(a))[0];
   const aff = civMatAffordable(up, h.store, civHHMoney(h));
+  if (civHomelessHH().length && aff.short > 10) return; // while families sleep outside, only upgrades already in hand go ahead
   if (!aff.ok && aff.short > 40) { if (!civHasGoal(c,'improve_home')) civAddGoal(c, 'improve_home', {def:up}); return; }
   const U = STRUCTURES[up];
   const inPlace = civSiteClearExcept(home.x, home.y, U.w, U.h, home);
@@ -9206,7 +9227,7 @@ function civSellStruct(s, to, payer){
   chronicle(`${s.name} was sold to ${civOwnerLabel(to)} for ${price}¢${agent?` through ${agent.name}`:''}.`, 5, '🔑', 'land'); S.week.sales.push(`${s.name} → ${civOwnerLabel(to)} (${price}¢)`); ev('property_sales');
 }
 function civLandlordOffer(s){
-  const D = STRUCTURES[s.def]; if (!D.home || s.occ || !civMoneyOn()) return;
+  const D = STRUCTURES[s.def]; if (!D.home || s.occ || s.shelter || !civMoneyOn() || S.citizens.some(c=>c.home===s.id)) return;
   const h = Object.values(S.civ.hh).find(x=>(!x.home || !S.civ.structs[x.home]) && civHHMoney(x) >= 10); if (!h) return;
   const rent = Math.max(2, Math.round(s.value*0.006)), k = civContract('rent', [s.owner, {k:'hh', id:h.id}], {struct:s.id, amount:rent, every:7}, 7);
   h.home = s.id; s.occ = h.id; s.rentK = k.id; hhMembers(h).forEach(m=>m.home = s.id); indexCitizens();
@@ -9230,7 +9251,8 @@ function civConvert(s, def){
 function civProjectsMonthly(){
   civRoadsMonthly();
   // stalled projects with no materials for months are given up
-  civProjects().forEach(p=>{ if (civDay()-p.started > 90 && civProjectMatFrac(p) < 0.25 && p.done < p.labor*0.2){ delete S.civ.projects[p.id]; civReserve(p, false); chronicle(`Work on the ${STRUCTURES[p.def].label.toLowerCase()} for ${civOwnerLabel(p.owner)} was abandoned.`, 4, '🚧', 'land'); const st = civOwnerStore(p.owner); if (st) for (const g in p.have) storeAdd(st, g, p.have[g]); } });
+  civStalledMonthly();
+  civProjects().forEach(p=>{ if (civDay()-p.started > 90 && civProjectMatFrac(p) < 0.25 && p.done < p.labor*0.2 && !civNeedyHomeProjects().includes(p) && !(p.forHH && civHomelessHH().some(h=>h.id===p.forHH))){ delete S.civ.projects[p.id]; civReserve(p, false); chronicle(`Work on the ${STRUCTURES[p.def].label.toLowerCase()} for ${civOwnerLabel(p.owner)} was abandoned.`, 4, '🚧', 'land'); const st = civOwnerStore(p.owner); if (st) for (const g in p.have) storeAdd(st, g, p.have[g]); } });
 }
 
 </script>
@@ -9540,7 +9562,8 @@ function civWorkplaceXY(c, j){
   return {loc:'loc_town_square', xy:null};
 }
 // the task an employee actually does: the company's mine, field, building site or workshop
-function civJobTask(c, j){ const o = S.civ.orgs[j.org]; const B = o && BUSINESS_TYPES[o.biz]; if (!B) return 'job'; if (civProjects().some(p=>p.owner.k==='org' && p.owner.id===o.id && civProjectMatFrac(p)>0.3)) return 'build'; if (B.mine && civStructsOf(s=>s.org===o.id && STRUCTURES[s.def].mine).length) return 'mine'; if (B.land && civStructsOf(s=>s.org===o.id && STRUCTURES[s.def].farm).length) return 'farm'; if (B.land && civStructsOf(s=>s.org===o.id && STRUCTURES[s.def].ranch).length) return 'herd'; if (B.contractor && civProjects().some(p=>p.contractor===o.id || (p.owner.k==='org' && p.owner.id===o.id))) return 'build'; if (B.wild==='tree') return 'chop'; if (B.svc==='care') return 'heal'; return 'job'; }
+function civFoodBiz(B){ return !!B && (B.industry==='food' || B.land || (B.out && Object.keys(B.out).some(g=>CG[g] && CG[g].cat==='food'))); }
+function civJobTask(c, j){ const o = S.civ.orgs[j.org]; const B = o && BUSINESS_TYPES[o.biz]; if (!B) return 'job'; if (B.contractor && civProjects().some(p=>p.contractor===o.id && civProjectMatFrac(p)>0.3 && p.done < p.labor)) return 'build'; if (B.contractor && !civProjects().some(p=>p.owner.k==='org' && p.owner.id===o.id)) return civCommunityProjects().some(p=>civProjectMatFrac(p)>0.4 && p.done < p.labor) ? 'build' : 'chop'; /* between contracts: public works, or timber for the next job */ if (civProjects().some(p=>p.owner.k==='org' && p.owner.id===o.id && civProjectMatFrac(p)>0.3)) return 'build'; if (B.mine && civStructsOf(s=>s.org===o.id && STRUCTURES[s.def].mine).length) return 'mine'; if (B.land && civStructsOf(s=>s.org===o.id && STRUCTURES[s.def].farm).length) return 'farm'; if (B.land && civStructsOf(s=>s.org===o.id && STRUCTURES[s.def].ranch).length) return 'herd'; if (B.contractor && civProjects().some(p=>p.contractor===o.id || (p.owner.k==='org' && p.owner.id===o.id))) return 'build'; if (B.wild==='tree') return 'chop'; if (B.svc==='care') return 'heal'; return 'job'; }
 
 // ---------- the labour market ----------
 function civJobFor(o, c, role, wage){ const j = {id:'job_'+(++S.civ.jSeq), org:o.id, role, wage, skill: o.biz ? Object.keys(BUSINESS_TYPES[o.biz].skills||{})[0] : null, open:false, since:civDay(), filled:c.id}; S.civ.jobs.push(j); return j; }
@@ -9731,10 +9754,17 @@ function civOrgsWeekly(){
     if (profit > 0 && (o.type==='corporation'||o.type==='public_corp')){ const div = profit*0.35; o.divs = +(div/o.shares).toFixed(4); Object.entries(o.owners).forEach(([id,n])=>{ civMoveMoney(civOrgPurse(o), {k:'person', id}, div*n/o.shares, 'dividend'); }); o.retained += profit - div; }
     else if (profit > 0 && ['partnership','family','sole'].includes(o.type)){ const take = profit*0.5; Object.entries(o.owners).forEach(([id,sh])=>civMoveMoney(civOrgPurse(o), {k:'person', id}, take*sh, 'profit share')); }
     // hiring when demand outstrips staff; layoffs when losing money
-    const openJobs = S.civ.jobs.filter(j=>j.org===o.id && j.open).length, cap = B.workers ? B.workers[1] : 4;
+    let openJobs = S.civ.jobs.filter(j=>j.org===o.id && j.open).length, cap = B.workers ? B.workers[1] : 4;
+    // a construction company only needs hands for the work it has contracted; idle hands are let go
+    if (B.contractor){ const work = civProjects().filter(p=>p.contractor===o.id || (p.owner.k==='org' && p.owner.id===o.id)).length; cap = Math.min(cap, 2 + work*3);
+      if (o.staff.length > cap + 1){ const idle = o.staff.map(cById).filter(x=>x && x.id!==o.mgr).sort((a,b)=>civStaffScore(a,o)-civStaffScore(b,o))[0]; if (idle){ civQuit(idle, 'fired'); chronicle(`${o.name} let ${idle.name} go: there is not enough building work.`, 3, '📉', 'business'); } }
+      S.civ.jobs.filter(j=>j.org===o.id && j.open).forEach(j=>{ if (o.staff.length >= cap){ j.open = false; openJobs--; } }); }
     const demand = civBizDemand(B), growing = o.profitAvg > 2 || (o.svcCap||0) < demand*2;
     const avgW = civAvgWage();
-    if (growing && o.staff.length + openJobs < cap && o.cash > avgW*10 && openJobs===0) civPostJob(o, civRoleName(o), +(avgW*(o.memory.lessons.includes('pay more')?1.15:1)).toFixed(1));
+    // when the settlement is short of food, only businesses that produce food take on hands; below a day and a half, others let people go back to feeding their families
+    const foodBiz = civFoodBiz(B), fdAll = civFoodDaysAll();
+    if (!foodBiz && fdAll < 1.5 && o.staff.length > 1 && civDay()%7===3){ const w = o.staff.map(cById).filter(x=>x && x.id!==o.mgr).sort((a,b)=>civStaffScore(a,o)-civStaffScore(b,o))[0]; if (w){ civQuit(w, 'fired'); chronicle(`${o.name} let ${w.name} go so they could help feed their family.`, 3, '📉', 'business'); } }
+    if (growing && (foodBiz || fdAll >= 3) && o.staff.length + openJobs < cap && o.cash > avgW*10 && openJobs===0) civPostJob(o, civRoleName(o), +(avgW*(o.memory.lessons.includes('pay more')?1.15:1)).toFixed(1));
     if (o.profitAvg < -3 && o.staff.length > 1 && o.cash < avgW*5){ const worst = o.staff.map(cById).filter(x=>x && x.id!==o.mgr).sort((a,b)=>civStaffScore(a,o)-civStaffScore(b,o))[0]; if (worst){ civQuit(worst, 'fired'); chronicle(`${o.name} let ${worst.name} go.`, 4, '📉', 'business'); o.memory.lessons.push('cut costs'); } }
     // competition: prices, quality, advertising
     const rivals = civOrgs(x=>x!==o && x.biz===o.biz);
@@ -9816,7 +9846,7 @@ function civHelpTheHungry(){
   if (storeFood(S.civ.commons) < 40) civProblem('food', hungry.length);
 }
 function civTryRentOrBuy(h){
-  const s = civStructsOf(x=>STRUCTURES[x.def].home && !x.occ && x.status==='active' && (x.forSale || x.owner.k!=='hh'))[0]; if (!s) return false;
+  const s = civStructsOf(x=>STRUCTURES[x.def].home && !x.occ && !x.shelter && x.status==='active' && (x.forSale || x.owner.k!=='hh'))[0]; if (!s) return false;
   if (s.forSale && civHHMoney(h) >= s.price){ const payer = hhAdults(h).sort((a,b)=>b.wallet-a.wallet)[0]; civSellStruct(s, {k:'hh', id:h.id}, {k:'person', id:payer.id}); h.home = s.id; s.occ = h.id; hhMembers(h).forEach(m=>m.home = s.id); indexCitizens(); return true; }
   civLandlordOffer(s); return h.home===s.id;
 }
@@ -9873,7 +9903,9 @@ function civDecide(topic, att, convener){
     case 'infrastructure': { const cr = Object.values(C.crossing||{}).reduce((a,b)=>a+b,0); if (cr>5){ C.crossing = C.crossing || {}; const y = Object.entries(C.crossing).sort((a,b)=>b[1]-a[1])[0]; if (y) C.crossing[y[0]] += 20; return 'find a way across the river'; } return null; }
     case 'water': return proj('well', 'the walk to the river is too long');
     case 'health': { const out = []; if (!civHas('latrine').length && builders.length>30){ const r = proj('latrine', 'sickness is spreading'); if (r) out.push('dig latrines'); } const h = S.citizens.filter(c=>c.civ.occ==='healer')[0]; if (h && !civHas(['healer_hut','clinic']).length){ const site = civFindSite('healer_hut', C.center, {margin:1}); if (site){ civStartProject('healer_hut', site, {k:'person', id:h.id}, {why:`for ${h.name} to tend the sick`}); out.push(`give ${h.name.split(' ')[0]} a healer's hut`); } } if (civHas('healer_hut').length && civTechKnown('masonry') && !civHas('clinic').length && S.citizens.some(c=>kn(c,'medicine')>=35)){ const r = proj('clinic', 'the healer\'s hut is overflowing'); if (r) out.push(r); } return out.join(', ') || null; }
-    case 'housing': { const homeless = Object.values(C.hh).filter(h=>!h.home || !C.structs[h.home]); if (!homeless.length) return null; const h = homeless[0]; if (civProjects().some(p=>p.forHH===h.id)) return null; const site = civFindSite('crude_hut', C.center, {margin:1}); if (!site){ civProblem('land', 3); C.landShort = civDay(); return null; } civStartProject('crude_hut', site, {k:'hh', id:h.id}, {purpose:'home', forHH:h.id, why:'neighbours are helping'}); return `help the ${h.name} household build a hut`; }
+    case 'housing': { const homeless = Object.values(C.hh).filter(h=>!h.home || !C.structs[h.home]); if (!homeless.length) return null;
+      // several families without a roof: the settlement raises a shared longhouse and gives it to them
+      if (homeless.length >= 3 && civCanBuild('longhouse', builders) && !civProjects().some(p=>p.def==='longhouse' && (p.owner.k==='community'||p.owner.k==='gov'))){ const site = civFindSite('longhouse', C.center, {margin:1}); if (site){ civStartProject('longhouse', site, civTownOwner(), {purpose:'home', why:'shelter for families with no roof'}); return 'raise a shared longhouse for the families with no roof'; } } const h = homeless[0]; if (civProjects().some(p=>p.forHH===h.id)) return null; const site = civFindSite('crude_hut', C.center, {margin:1}); if (!site){ civProblem('land', 3); C.landShort = civDay(); return null; } civStartProject('crude_hut', site, {k:'hh', id:h.id}, {purpose:'home', forHH:h.id, why:'neighbours are helping'}); return `help the ${h.name} household build a hut`; }
     case 'dispute': case 'crime': { const open = C.justice.cases.filter(k=>k.status==='open'); open.slice(0,3).forEach(k=>civMediate(k, convener)); if (topic==='crime' && C.justice.stage<2 && support(c=>c.values.includes('Order')||c.personality.conscientiousness>0.6) > 0.25) { civJusticeStage(2, 'The settlement agreed to keep a night watch.'); civRaiseWatch(); return 'keep a night watch'; } if (G.stage>=2 && !G.laws.theft && topic==='crime'){ civPassLaw('theft', 'Theft must be repaid twice over', convener); return 'a rule against theft'; } return open.length ? `settle ${Math.min(3,open.length)} quarrel${open.length>1?'s':''}` : null; }
     case 'education': return civSchoolDecision(convener);
     case 'growth': return null;
@@ -10281,7 +10313,10 @@ function civAttractiveness(){
   const wage = civMoneyOn() ? civAvgWage()/(C.econ.level||1) : 0, crime = C.justice.cases.filter(k=>k.kind==='criminal' && civDay()-k.day<56).length/n*10;
   const school = C.edu.stage>=2 ? 0.3 : 0, health = civHas(['healer_hut','clinic','hospital']).length ? 0.3 : 0, tax = C.gov.taxes.rate ? (C.gov.taxes.form==='hearth' ? 0.05 : C.gov.taxes.rate*2) : 0;
   const opp = C.deposits.filter(d=>d.known && (MIN[d.min].precious || MIN[d.min].fluid) && civDay()-d.found<180).length*0.6 + civOrgs(o=>o.biz).length*0.03;
-  return {food, homeless, jobs, employed, wage, crime, school, health, tax, opp, score: food*1.2 - homeless*1.2 + Math.min(1, jobs*0.15) + employed*0.5 + wage*0.08 - crime*0.5 + school + health - tax + opp};
+  // newcomers look ahead: arriving before a winter the stores cannot carry is a bad bet
+  const full = C.landShort != null && civDay() - C.landShort < 28 ? 1 : 0; // no land left to build on
+  const season = seasonOf(civDay()), winterRisk = (season===2 || season===3) ? clamp((20 - civFoodDaysAll())/20, 0, 1) : 0;
+  return {food, homeless, jobs, employed, wage, crime, school, health, tax, opp, winterRisk, score: -winterRisk*1.5 - full*1.5 + food*1.2 - homeless*(homeless > 0.15 ? 3 : 1.2) + Math.min(1, jobs*0.15) + employed*0.5 + wage*0.08 - crime*0.5 + school + health - tax + opp};
 }
 function civMigrationMonthly(){
   const C = S.civ, A = civAttractiveness(); C.attract = A;
@@ -11108,7 +11143,8 @@ function civAnnexUpkeep(cell){ const lvl = S.civ.econ.level||1; return +((1 + ri
 function civAnnexScore(v, cell, by){
   const A = cell.attrs, h = hhOf(v), M = typeof cogOf==='function' ? cogOf(v) : {op:{}};
   let s = (M.op.expansion||0)/2 + (M.op['region:'+cell.id]||0)/3;
-  if (h && !h.home) s += 25; if (h && h.home && S.civ.structs[h.home] && STRUCTURES[S.civ.structs[h.home].def].home && h.members.length > STRUCTURES[S.civ.structs[h.home].def].home.cap) s += 12; // crowded
+  if (h && !h.home) s += 25;
+  if (S.civ.landShort != null && civDay() - S.civ.landShort < 28) s += 14; // everyone can see there is no land left if (h && h.home && S.civ.structs[h.home] && STRUCTURES[S.civ.structs[h.home].def].home && h.members.length > STRUCTURES[S.civ.structs[h.home].def].home.cap) s += 12; // crowded
   if ((M.op.nature||0) > 30) s -= 10 + A.beauty*15 + A.timber*10;
   if (v.values.includes('Prosperity')) s += 10; if (v.values.includes('Tradition')) s -= 6;
   const occ = v.civ.occ; if (occ==='farmer' && A.fert>0.6) s += 15; if (occ==='woodcutter' && A.timber>0.6) s += 15; if (occ==='fisher' && A.fish>0.6) s += 15; if ((occ==='miner'||occ==='prospector') && A.ore>0.5) s += 15; if (occ==='hunter') s += A.danger*10;
@@ -11126,7 +11162,7 @@ function civAnnexVote(){
   const voters = G.stage >= 5 ? S.citizens.filter(c=>isAdult(c) && !c.jail && !c.away) : S.citizens.filter(c=>isAdult(c) && !c.jail && !c.away && (c.politics.civicEngagement + c.personality.extraversion*0.3 + (cogOf(c).op.expansion||0)/200 > 0.45));
   if (voters.length < 5) return;
   const yes = [], no = []; voters.forEach(v=>(civAnnexScore(v, cell, by) > 0 ? yes : no).push(v));
-  const fund = civMoneyOn() && (G.treasury||0) < cost;
+  const fund = civMoneyOn() && (G.treasury||0) < cost/2; // a passed vote goes ahead if the treasury can pay at least half
   const passed = yes.length > no.length && !fund;
   W.votes.push({cell:cell.key, day:civDay(), yes:yes.length, no:no.length, passed, by:P.by, why:P.why}); W.proposal = null;
   const arg = no.length ? (no.filter(v=>(cogOf(v).op.nature||0)>30).length > no.length/3 ? 'too much wilderness would be lost' : cell.attrs.danger>0.5 ? 'it is too dangerous' : 'it would cost too much to keep up') : '';
@@ -11136,7 +11172,7 @@ function civAnnexVote(){
   ev(passed ? 'annexations' : 'annex_failed');
 }
 function civAnnexRegion(cell, cost){
-  if (cost && civMoneyOn()) S.civ.gov.treasury -= cost;
+  if (cost && civMoneyOn()) S.civ.gov.treasury = Math.max(0, (S.civ.gov.treasury||0) - cost);
   cell.state = 'annexed'; cell.annexDay = civDay(); civRegionTrail(cell, true); bumpWorld(); groundKey = '';
   // the next ring out becomes reachable, and any mapped land that now borders ours can be claimed
   Object.values(S.world.cells).forEach(c=>{ if (c.state==='discovered' && [[1,0],[-1,0],[0,1],[0,-1]].some(([a,b])=>civCellClaimed(c.cx+a, c.cy+b))){ c.state = 'annexable'; c.annexableDay = civDay(); chronicle(`${c.name} now borders settled land. It could be annexed.`, 5, '🗺️', 'land'); } });
@@ -11212,6 +11248,173 @@ function civFrontierWeekly(){
   if (!S.world) return;
   S.citizens.filter(isAdult).forEach(c=>{ const r = civDistrictOf(c); if (!r) return; const M = cogOf(c); if (M.movedTo===r) return; M.movedTo = r; const cell = Object.values(S.world.cells).find(x=>x.name===r);
     civHear(c, {type:'settled', text:`Moving out to ${r} gave us land of our own.`, topics:{expansion:0.8, ...(cell ? {['region:'+cell.id]:0.6} : {})}, imp:7, src:'self', emo:0.3}); });
+}
+
+</script>
+<script>/* civ/civ_housing.js */
+/* =====================================================================
+   Pixel Town — civilization mode: getting things built, and a roof for everyone
+   Construction used to stall: people with jobs never built, construction
+   companies never got a client, a missing plank could hold up a house for a
+   year, and empty homes rotted while families slept outside. Now:
+   - households build their own home in the evenings and on rest days;
+   - neighbours hold a building bee for families with no roof;
+   - construction companies take on paid and stalled projects;
+   - households with money buy the materials they lack at the market, and
+     builders make do with what exists when nobody can supply something;
+   - projects that stall for months are taken over by the settlement or given up;
+   - property whose owner is gone, or that stands empty and unsold, returns to
+     the settlement, which gives its homes rent-free to families in need.
+   ===================================================================== */
+// ---------- food comes first ----------
+// before winter, and whenever stores are low, building gives way to food: no building bees, no public contracts,
+// no spending on materials; and the treasury keeps enough to buy food in an emergency
+function civBuildSeasonOK(){ const s = seasonOf(civDay()), fd = civFoodDaysAll(); return fd >= 3 && !((s===2 || s===3) && fd < 10); }
+function civTreasuryReserve(){ return S.citizens.length * 2 * (S.civ.econ.level||1); }
+// ---------- what counts as progress ----------
+function civProjProgress(p){ p.lastProg = civDay(); }
+function civHomelessHH(){ const C = S.civ; return Object.values(C.hh).filter(h=>h.members && h.members.length && (!h.home || !C.structs[h.home])); }
+// a project is ready to work on when most materials are there
+function civProjReady(p){ return civProjectMatFrac(p) >= 0.6 && p.done < p.labor; }
+// the household's own project that could use an evening's work
+function civOwnHomeProject(c){ const h = hhOf(c); if (!h || hhFoodDays(h) < 1.5) return null; return civProjects().filter(p=>(p.forHH===h.id || (p.owner.k==='hh' && p.owner.id===h.id)) && civProjReady(p)).sort((a,b)=>(b.purpose==='home')-(a.purpose==='home') || civProjectMatFrac(b)-civProjectMatFrac(a))[0] || null; }
+// homes for families with no roof: anyone may lend a hand
+function civNeedyHomeProjects(){ const hl = new Set(civHomelessHH().map(h=>h.id)); return civProjects().filter(p=>p.purpose==='home' && p.forHH && hl.has(p.forHH) && civProjectMatFrac(p) >= 0.4 && p.done < p.labor); }
+function civWillHelp(c, p){
+  const h = S.civ.hh[p.forHH]; if (!h || hhOf(c)===h) return 0; if (!civBuildSeasonOK() || (hhOf(c) && hhFoodDays(hhOf(c)) < 5)) return 0; // only when food is secure can people spare a day
+  const kin = hhMembers(h).some(m=>peekRel(c, m.id).tags.includes('Family')), friend = hhMembers(h).some(m=>peekRel(c, m.id).affinity > 30);
+  return (kin ? 8 : 0) + (friend ? 4 : 0) + (civCivic(c) ? 5 : 0) + c.personality.agreeableness*3 + (hhMembers(h).some(m=>!isAdult(m)) ? 2 : 0);
+}
+
+// ---------- materials: buy what is missing, make do with what exists ----------
+const CIV_SUBST = {lumber:[['wood',1.5]], metal:[['wood',2]], steel:[['wood',2],['stone',1]], brick:[['stone',1.2]], glass:[['fiber',1]], cement:[['clay',1.5]], rope:[['fiber',2]]};
+function civSourceable(g, miss){
+  if (GOOD_TASK[g]) return true;                                  // anyone can gather it, given time
+  const C = S.civ, stock = Object.values(C.hh).reduce((a,h)=>a+(h.store[g]||0),0) + (C.commons[g]||0) + Object.values(C.orgs).reduce((a,o)=>a+((o.stock||{})[g]||0),0) + (C.econ.listings||[]).filter(l=>l.g===g).reduce((a,l)=>a+l.q,0);
+  if (stock >= miss*0.5) return true;
+  return Object.values(C.orgs).some(o=>o.status==='active' && BUSINESS_TYPES[o.biz] && BUSINESS_TYPES[o.biz].out && BUSINESS_TYPES[o.biz].out[g]); // someone makes it
+}
+function civMaterialsDaily(){
+  const C = S.civ, d = civDay();
+  civProjects().forEach(p=>{
+    p.lastProg = p.lastProg ?? p.started; p.wait = p.wait || {};
+    const firm = p.contractor && C.orgs[p.contractor]; if (firm && firm.stock && civDeliver(p, firm.stock) > 0) civProjProgress(p); // the builders bring their own timber
+    for (const g in p.need){
+      const miss = p.need[g] - (p.have[g]||0); if (miss <= 0.01){ delete p.wait[g]; continue; }
+      p.wait[g] = p.wait[g] ?? d;
+      // the owner's household buys it if there is a market and they have the means
+      if (civMoneyOn() && (p.owner.k==='hh' || p.owner.k==='person') && d - p.wait[g] >= 3){
+        const h = p.owner.k==='hh' ? C.hh[p.owner.id] : hhOf(alive(p.owner.id)), buyer = h && hhAdults(h).sort((a,b)=>b.wallet-a.wallet)[0];
+        if (buyer && buyer.wallet > civPrice(g)*2 && hhFoodDays(h) >= 4 && civFoodDaysAll() >= 2){ const got = civBuy(buyer, g, Math.ceil(miss), civPrice(g)*1.6); if (got > 0){ civDeliver(p, h.store); civProjProgress(p); } } }
+      // public projects draw on the common store
+      if ((p.owner.k==='community' || p.owner.k==='gov' || civNeedyHomeProjects().includes(p)) && (C.commons[g]||0) > 0){ const t = storeTake(C.commons, g, miss); if (t > 0){ p.have[g] = (p.have[g]||0) + t; civProjProgress(p); } }
+      // nobody here can supply it: after two weeks the builders make do with something else
+      if (d - p.wait[g] >= 14 && CIV_SUBST[g] && !civSourceable(g, miss)){
+        const left = p.need[g] - (p.have[g]||0); p.need[g] = +(p.have[g]||0); if (p.need[g] <= 0) delete p.need[g];
+        CIV_SUBST[g].forEach(([s, f])=>{ p.need[s] = Math.round((p.need[s]||0) + left*f); }); delete p.wait[g];
+        chronicle(`With no ${CG[g] ? CG[g].name.toLowerCase() : g} to be had, the builders of the ${STRUCTURES[p.def].label.toLowerCase()} made do with ${CIV_SUBST[g].map(([s])=>CG[s].name.toLowerCase()).join(' and ')}.`, 3, '🪵', 'land'); ev('substitutions');
+      }
+    }
+  });
+}
+
+// ---------- construction companies take on work ----------
+function civBuildContractsDaily(){
+  if (!civMoneyOn()) return;
+  const C = S.civ, firms = civOrgs(o=>o.status==='active' && BUSINESS_TYPES[o.biz] && BUSINESS_TYPES[o.biz].contractor && (o.staff||[]).length);
+  if (!firms.length) return;
+  const d = civDay(), load = o => civProjects().filter(p=>p.contractor===o.id).length;
+  // projects that need hands: public works, homes for the homeless, and anything whose owner can pay and has stalled
+  const want = civProjects().filter(p=>!p.contractor && civProjectMatFrac(p) >= 0.5 && p.done < p.labor && (p.owner.k==='gov' || p.owner.k==='community' || civNeedyHomeProjects().includes(p) || d - (p.lastProg ?? p.started) >= 5))
+    .sort((a,b)=>(b.purpose==='home')-(a.purpose==='home') || (a.lastProg??a.started)-(b.lastProg??b.started));
+  want.forEach(p=>{
+    const rate = +(1.2*(C.econ.level||1)).toFixed(2), payer = civContractPayer(p); if (!payer || civPurse(payer) < rate*8) return;
+    const firm = firms.filter(o=>load(o) < Math.max(1, Math.ceil(o.staff.length/2))).sort((a,b)=>load(a)-load(b) || (b.reputation||0.5)-(a.reputation||0.5))[0]; if (!firm) return;
+    p.contractor = firm.id; p.rate = rate; p.payer = payer;
+    chronicle(`${firm.name} took on the ${STRUCTURES[p.def].label.toLowerCase()} for ${civOwnerLabel(p.owner)}${p.owner.k==='gov'||p.owner.k==='community'?' (paid by the settlement)':''}.`, 4, '🏗️', 'land'); ev('contracts_build');
+  });
+}
+// who pays: the owner, the treasury for public works and for homes of families who cannot
+function civContractPayer(p){ const pub = civBuildSeasonOK() && (S.civ.gov.treasury||0) > civTreasuryReserve() + 20;
+  if (p.owner.k==='gov' || p.owner.k==='community') return pub ? {k:'gov'} : null;
+  const own = civOwnerPurse(p.owner); if (own && civPurse(own) >= 10) return own;
+  if (civNeedyHomeProjects().includes(p) && pub) return {k:'gov'}; return null; }
+// an hour of a contractor's work is paid to the firm; if the money runs out, the contract ends
+function civContractWork(p, c, hrs){
+  if (!p.contractor || c.civ.employer!==p.contractor) return;
+  const amt = +(p.rate*hrs).toFixed(2); if (amt <= 0) return;
+  const payer = p.payer || civOwnerPurse(p.owner); if (payer.k==='gov' && ((S.civ.gov.treasury||0) - amt < civTreasuryReserve() || !civBuildSeasonOK())){ p.contractor = null; chronicle(`The settlement paused paid work on the ${STRUCTURES[p.def].label.toLowerCase()} to keep money for food.`, 3, '🏗️', 'land'); return; }
+  if (!civMoveMoney(payer, {k:'org', id:p.contractor}, amt, 'construction')){ const o = S.civ.orgs[p.contractor]; chronicle(`${o?o.name:'The builders'} stopped work on the ${STRUCTURES[p.def].label.toLowerCase()}: the money ran out.`, 4, '🏗️', 'land'); p.contractor = null; }
+}
+function civContractorProject(c){ const id = c.civ.employer; if (!id) return null; return civProjects().filter(p=>p.contractor===id && p.done < p.labor).sort((a,b)=>civProjectMatFrac(b)-civProjectMatFrac(a))[0] || null; }
+
+// ---------- stalled projects: the settlement takes them on, or they are given up ----------
+function civStalledMonthly(){
+  const C = S.civ, d = civDay(), town = civTownOwner();
+  civProjects().forEach(p=>{
+    const idle = d - (p.lastProg ?? p.started); if (idle < 45 || d - p.started < 60) return;
+    const h = p.forHH && C.hh[p.forHH], needy = h && (!h.home || !C.structs[h.home]);
+    if (needy && p.owner.k!=='community' && p.owner.k!=='gov'){ p.owner = town; p.lastProg = d; chronicle(`The settlement took over the unfinished ${STRUCTURES[p.def].label.toLowerCase()} for the ${h.name} household, who still have no roof.`, 5, '🤝', 'land'); ev('projects_taken_over'); return; }
+    if (!needy && (p.upgradeOf || p.purpose!=='home' || !h)){ delete C.projects[p.id]; civReserve(p, false); const st = civOwnerStore(p.owner); if (st) for (const g in p.have) storeAdd(st, g, p.have[g]); chronicle(`Work on the ${STRUCTURES[p.def].label.toLowerCase()} for ${civOwnerLabel(p.owner)} was given up after months without progress.`, 4, '🚧', 'land'); ev('abandoned'); }
+  });
+}
+
+// ---------- abandoned property returns to the settlement and shelters the needy ----------
+function civTownOwner(){ return S.civ.gov.stage >= 4 ? {k:'gov'} : {k:'community'}; }
+function civOwnerGone(o){
+  if (!o) return true;
+  if (o.k==='hh'){ const h = S.civ.hh[o.id]; return !h || !hhMembers(h).length; }
+  if (o.k==='person') return !alive(o.id);
+  if (o.k==='org'){ const g = S.civ.orgs[o.id]; return !g || ['closed','dissolved','bankrupt','merged'].includes(g.status); }
+  return false;
+}
+function civReclaimDaily(){
+  const C = S.civ, d = civDay(), town = civTownOwner();
+  Object.values(C.structs).forEach(s=>{
+    const D = STRUCTURES[s.def]; if (!D || D.bridge || D.tile==='BRIDGE' || D.tile==='DOCK') return;
+    const empty = !civUsers(s).length && !(D.home && s.occ && C.hh[s.occ]);
+    if (empty) s.emptySince = s.emptySince ?? d; else delete s.emptySince;
+    if (s.owner.k==='community' || s.owner.k==='gov') return;
+    const gone = civOwnerGone(s.owner), longEmpty = s.emptySince != null && d - s.emptySince >= 21 && (s.forSale || s.status==='abandoned' || D.home && !civMoneyOn());
+    if (!gone && !longEmpty) return;
+    // it passes to the settlement: an owner who is gone, or a place left empty and unwanted
+    const was = civOwnerLabel(s.owner);
+    s.owner = town; s.forSale = false; s.listed = null; s.price = null; const pc = C.parcels[s.id]; if (pc) pc.owner = town;
+    if (s.status==='abandoned' && s.cond >= 8) s.status = 'active';
+    if (s.rentK && C.contracts[s.rentK]) C.contracts[s.rentK].status = 'ended'; s.rentK = null;
+    s.reclaimed = d; ev('reclaimed');
+    chronicle(gone ? `${s.name} had no owner left (it belonged to ${was}), so it returned to the settlement.` : `${s.name} stood empty and unwanted, so it returned to the settlement.`, 4, '🏚️', 'land');
+  });
+  civShelterNeedy();
+}
+// town-owned homes go rent-free to those with no roof: families with children first, then those without longest
+function civShelterNeedy(){
+  const C = S.civ, d = civDay();
+  const needy = civHomelessHH().sort((a,b)=>hhMembers(b).filter(m=>!isAdult(m)).length - hhMembers(a).filter(m=>!isAdult(m)).length || (a.homelessSince??d) - (b.homelessSince??d));
+  needy.forEach(h=>{ h.homelessSince = h.homelessSince ?? d; });
+  if (!needy.length) return;
+  // doubling up: a single person or a couple with no roof moves in with kin or friends who have room
+  needy.filter(h=>h.members.length <= 2 && d - h.homelessSince >= 2).forEach(h=>{
+    const people = hhMembers(h); if (!people.length) return;
+    const hosts = Object.values(C.hh).filter(x=>x!==h && x.home && C.structs[x.home] && STRUCTURES[C.structs[x.home].def].home && S.citizens.filter(c=>c.home===x.home).length + people.length <= STRUCTURES[C.structs[x.home].def].home.cap)
+      .map(x=>({x, w: Math.max(...hhMembers(x).flatMap(m=>people.map(p=>{ const r = peekRel(m, p.id); return (r.tags.includes('Family')?60:0) + r.affinity; })), -99) + (hhAdults(x).some(civCivic) ? 15 : 0)})).filter(o=>o.w >= 25).sort((a,b)=>b.w-a.w);
+    const host = hosts[0] && hosts[0].x; if (!host) return;
+    const home = C.structs[host.home]; people.forEach(p=>civJoinHH(p, host)); indexCitizens(); ev('taken_in');
+    chronicle(`The ${host.name} household took in ${people.map(p=>p.name).join(' and ')}, who had no roof, at ${home.name}.`, 4, '🏠', 'family');
+    people.filter(isAdult).forEach(p=>civHear(p, {type:'helped', text:`The ${host.name} household took me in when I had nowhere to live.`, topics:{poor:0.3}, imp:6, src:'self', emo:0.3}));
+  });
+  // town homes with room: an empty one, or a shelter that still has space (a longhouse can take several families)
+  const living = s => S.citizens.filter(c=>c.home===s.id).length;
+  const free = Object.values(C.structs).filter(s=>STRUCTURES[s.def].home && (s.owner.k==='community' || s.owner.k==='gov') && s.cond >= 8 && (s.shelter ? living(s) < STRUCTURES[s.def].home.cap : !(s.occ && C.hh[s.occ] && C.hh[s.occ].members.length) && !living(s)))
+    .sort((a,b)=>STRUCTURES[b.def].home.cap - STRUCTURES[a.def].home.cap);
+  free.forEach(s=>{ for (let k=0;k<4;k++){
+    const cap = STRUCTURES[s.def].home.cap, room = cap - living(s), h = needy.find(x=>(!x.home || !C.structs[x.home]) && (living(s)===0 || x.members.length <= room)); if (!h) return;
+    h.home = s.id; if (!s.occ || !C.hh[s.occ]) s.occ = h.id; s.status = 'active'; s.shelter = true; delete h.homelessSince; hhMembers(h).forEach(m=>{ m.home = s.id; if (isAdult(m)) civHear(m, {type:'sheltered', text:`The settlement gave us ${s.name} when we had no roof.`, topics:{relief:0.8, council:0.5, poor:0.4}, imp:7, src:'self', emo:0.4}); });
+    if (s.cond < 40){ const give = Math.min(20, C.commons.wood||0); if (give){ storeTake(C.commons, 'wood', give); s.cond = Math.min(100, s.cond + give*2); } }
+    indexCitizens(); ev('sheltered');
+    chronicle(`The settlement gave ${s.name} to the ${h.name} household, who had no roof${hhMembers(h).some(m=>!isAdult(m))?' and young children':''}. They live there rent-free.`, 5, '🏠', 'land');
+    if (S.week) S.week.society.push(`${h.name} household housed in ${s.name}`);
+    if (STRUCTURES[s.def].home.cap - living(s) < 2) return; } });
 }
 
 </script>
@@ -12087,11 +12290,13 @@ function civRenderEconomy(){
 function civRenderLand(){
   const C = S.civ, cats = {};
   Object.values(C.structs).forEach(s=>{ const D = STRUCTURES[s.def]; (cats[D.cat] = cats[D.cat] || []).push(s); });
-  const projs = Object.values(C.projects).map(p=>`<div style="font-size:12px">🏗️ <b><a ${locAttr(p.x,p.y,p.w,p.h,STRUCTURES[p.def].label)}>${esc(STRUCTURES[p.def].label)}</a></b> for ${esc(civOwnerLabel(p.owner))} · materials ${civBar(civProjectMatFrac(p)*100)} · work ${civBar(p.done/p.labor*100,100,'#f2c14e')} ${Object.entries(p.need).map(([g,q])=>`${CG[g]?CG[g].name.toLowerCase():g} ${Math.floor(p.have[g]||0)}/${q}`).join(', ')}</div>`).join('') || '<span class="muted">Nothing under construction</span>';
+  const idle = p => civDay() - (p.lastProg ?? p.started);
+  const projs = Object.values(C.projects).sort((a,b)=>(b.purpose==='home')-(a.purpose==='home') || idle(a)-idle(b)).map(p=>`<div style="font-size:12px">🏗️ <b><a ${locAttr(p.x,p.y,p.w,p.h,STRUCTURES[p.def].label)}>${esc(STRUCTURES[p.def].label)}</a></b> for ${esc(civOwnerLabel(p.owner))}${p.contractor && C.orgs[p.contractor] ? ` · built by ${esc(C.orgs[p.contractor].name)}` : ''}${idle(p) >= 7 ? ` · <span class="No">no progress for ${idle(p)} days</span>` : ''} · materials ${civBar(civProjectMatFrac(p)*100)} · work ${civBar(p.done/p.labor*100,100,'#f2c14e')} ${Object.entries(p.need).map(([g,q])=>`${CG[g]?CG[g].name.toLowerCase():g} ${Math.floor(p.have[g]||0)}/${q}`).join(', ')}</div>`).join('') || '<span class="muted">Nothing under construction</span>';
   const deps = C.deposits.filter(d=>d.known || d.suspected).map(d=>`<div style="font-size:12px">${d.known?'⛏️':'❓'} <a ${locAttr(d.x,d.y,1,1,MIN[d.min].label)}>${esc(MIN[d.min].label)}</a>${d.known?` · ${Math.round(d.left)} units · depth ${d.depth} · purity ${Math.round(d.purity*100)}%`:' (a seep; nobody knows its use)'} · ${d.claim?`claimed by ${esc(civOwnerLabel(d.claim.who))}${d.claim.registered?' (registered)':''}`:'unclaimed'}${d.mine?' · mined':''}</div>`).join('') || '<span class="muted">Nothing found yet. The ground keeps its secrets.</span>';
   const an = {}; C.animals.forEach(a=>{ an[a.kind] = (an[a.kind]||0)+1; });
   $('p-land').innerHTML = `${civFrontierHtml()}<h2>Land & building</h2>
     <p class="muted" style="font-size:12px;margin:2px 0 6px">Click any building, site or find to show it on the map.</p>
+    ${civHousingHtml()}
     <div class="card"><b>Under construction</b>${projs}</div>
     ${Object.entries(cats).map(([cat, list])=>`<div class="card"><b>${esc(cat[0].toUpperCase()+cat.slice(1))} (${list.length})</b>${list.slice(0,60).map(s=>`<div style="font-size:12px"><a ${locAttr(s.x,s.y,s.w,s.h,s.name)}>${esc(s.name)}</a> <span class="muted">· ${esc(STRUCTURES[s.def].label)} · ${esc(civOwnerLabel(s.owner))} · ${civBar(s.cond)}${civMoneyOn()?` · ${s.value}¢`:''}${s.forSale?' · for sale':''}${s.status!=='active'?' · '+s.status:''}${STRUCTURES[s.def].farm&&s.meta?` · ${s.meta.stage}${s.meta.crop?' '+s.meta.crop:''}`:''}</span></div>`).join('')}</div>`).join('')}
     <div class="card"><b>Resources found</b>${deps}</div>
@@ -12246,6 +12451,16 @@ function civMindHtml(c){
     <b style="display:block;margin-top:6px">Reputation</b><p style="margin:2px 0;font-size:13px">${repTxt}${raw?` (${rep>0?'+':''}${Math.round(rep)})`:''}${believers?` · ${believers} ${believers>1?'people believe':'person believes'} they broke the law`:''}${c.jail?` · <b class="No">in jail until day ${c.jail+1}</b>`:''}${c.civ.service>civDay()?` · doing community service`:''}</p>
     ${legal?`<b style="display:block;margin-top:6px">Legal history</b>${legal}<p class="muted" style="font-size:12px;margin:2px 0">Record weight ${civLegalScore(c).toFixed(2)} (serious and recent offences weigh most)</p>`:''}
     <label class="muted" style="font-size:11px"><input type="checkbox" class="rawMind" ${raw?'checked':''}> show the numbers</label></details>`;
+}
+// ---------- housing: who has no roof, and what the settlement holds for them ----------
+function civHousingHtml(){
+  const C = S.civ, hl = civHomelessHH(), d = civDay();
+  const town = Object.values(C.structs).filter(s=>STRUCTURES[s.def].home && (s.owner.k==='community' || s.owner.k==='gov'));
+  const living = s => S.citizens.filter(c=>c.home===s.id).length;
+  return `<div class="card"><b>Housing</b> <span class="muted" style="font-size:12px">${Object.keys(C.hh).length} households · ${hl.length} without a roof · ${C.stats.taken_in||0} taken in by others · ${C.stats.sheltered||0} sheltered by the settlement · ${C.stats.reclaimed||0} properties returned to the settlement</span>
+    ${hl.length ? `<div style="font-size:12px;margin-top:4px">${hl.slice(0,12).map(h=>`<div>🏕️ ${esc(h.name)} household (${h.members.length}${hhMembers(h).some(m=>!isAdult(m))?', with children':''}) · ${h.homelessSince!=null?`${d-h.homelessSince} days`:'just now'}${civProjects().some(p=>p.forHH===h.id)?' · building':''}</div>`).join('')}</div>` : '<div class="muted" style="font-size:12px">Everyone has a roof.</div>'}
+    ${town.length ? `<div style="font-size:12px;margin-top:4px"><b>Town-owned homes</b>${town.map(s=>`<div>🏠 <a ${locAttr(s.x,s.y,s.w,s.h,s.name)}>${esc(s.name)}</a> <span class="muted">· ${living(s)}/${STRUCTURES[s.def].home.cap} living there${s.shelter?' rent-free':''}${s.reclaimed!=null?` · returned day ${s.reclaimed+1}`:''}</span></div>`).join('')}</div>` : ''}
+    ${C.landShort!=null && d - C.landShort < 28 ? '<div class="No" style="font-size:12px;margin-top:4px">There is no land left to build on here: the settlement needs to annex more.</div>' : ''}</div>`;
 }
 // ---------- the frontier: explore, map, annex ----------
 function civFrontierHtml(){

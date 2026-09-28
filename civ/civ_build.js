@@ -38,14 +38,20 @@ CIV_TARGETS.build = c => {
 };
 function civSiteSpot(p){ const cands = []; for (let x=p.x-1;x<=p.x+p.w;x++){ cands.push([x,p.y+p.h],[x,p.y-1]); } for (let y=p.y;y<p.y+p.h;y++){ cands.push([p.x-1,y],[p.x+p.w,y]); } if (p.tiles) p.tiles.forEach(([x,y])=>cands.push([x-1,y],[x+1,y],[x,y-1],[x,y+1])); const ok = cands.filter(([x,y])=>walkable(x,y)); return ok.length ? ok[hash(p.id+civDay())%ok.length] : [p.x, p.y+p.h]; }
 function civBuildChoice(c){
-  const own = civProjectsFor(c); if (own.length) return own.sort((a,b)=>civProjectMatFrac(b)-civProjectMatFrac(a))[0];
+  const ct = civContractorProject(c); if (ct) return ct;
+  const own = civProjectsFor(c).filter(p=>!p.contractor || p.contractor===c.civ.employer); if (own.length) return own.sort((a,b)=>civProjectMatFrac(b)-civProjectMatFrac(a))[0];
+  const bee = civNeedyHomeProjects().filter(p=>civWillHelp(c, p) > 5).sort((a,b)=>civWillHelp(c,b)-civWillHelp(c,a))[0]; if (bee) return bee;
   const com = civCommunityProjects().filter(p=>civProjectMatFrac(p)>0.05 || p.labor-p.done < 20); return com.sort((a,b)=>civProjectMatFrac(b)-civProjectMatFrac(a))[0] || civCommunityProjects()[0] || null;
 }
 CIV_TASK_VALUE.build = (c, h, hrs) => {
   const own = civProjectsFor(c); const com = civCommunityProjects();
   let v = 0;
-  if (own.length){ const p = own[0], mf = civProjectMatFrac(p); v = 7 + (p.purpose==='home' && !S.civ.structs[c.home] ? 10 : 0) + (mf>0.3 ? 5 : -4) + (p.pay ? p.pay*hrs*civMoneyVal(c) : 0); }
+  if (own.length){ const p = own[0], mf = civProjectMatFrac(p); v = 7 + (p.purpose==='home' && !S.civ.structs[c.home] ? 16 : 0) + (mf>0.3 ? 5 : -4) + (mf>=0.99 ? 6 : 0) + (p.pay ? p.pay*hrs*civMoneyVal(c) : 0); } // with everything to hand, finish it
+  else if (civNeedyHomeProjects().some(p=>civWillHelp(c, p) > 5)){ const p = civNeedyHomeProjects().sort((a,b)=>civWillHelp(c,b)-civWillHelp(c,a))[0]; v = civWillHelp(c, p) + 4; } // a building bee for a family with no roof
   else if (com.length){ const p = com[0], civic = c.personality.agreeableness*6 + (c.values.includes('Community')?5:0) + (civHasGoal(c,'community')?4:0) + (civHasGoal(c,'respect')?2:0); v = civic*(civProjectMatFrac(p)>0.2 ? 1 : 0.4) + (p.pay ? p.pay*hrs*civMoneyVal(c) : 0); }
+  // food first: a household running low feeds itself before it builds (and never goes to help others)
+  if (!civBuildSeasonOK() && !(own.length && own[0].purpose==='home' && !S.civ.structs[c.home])) v *= 0.5;
+  const fd = h ? hhFoodDays(h) : 3; if (fd < 2 && !(own.length && own[0].purpose==='home' && !S.civ.structs[c.home] && fd >= 1)) v *= fd < 1 ? 0.15 : 0.45;
   return v * (0.6 + sk(c,'construction')/150);
 };
 CIV_WORK.build = (c, b, hrs) => {
@@ -58,8 +64,10 @@ CIV_WORK.build = (c, b, hrs) => {
   const before = p.done; p.done = Math.min(cap, p.done + eff);
   // clearing trees on the plot as the work goes on
   if (p.done > before){ for (let y=p.y;y<p.y+p.h && y<p.y+p.h;y++) for (let x=p.x;x<p.x+p.w;x++){ if (tileAt(x,y)===T.TREE && rnd()<0.3){ civSetTile(x,y,T.GRASS); if (st) storeAdd(st, 'wood', 4); } } }
-  p.workers[c.id] = (p.workers[c.id]||0) + eff;
+  p.workers[c.id] = (p.workers[c.id]||0) + eff; if (p.done > before + 0.01) civProjProgress(p);
   if (p.pay && civMoneyOn()) civPayProjectWage(p, c, hrs);
+  if (p.contractor) civContractWork(p, c, hrs);
+  if (p.forHH && S.civ.hh[p.forHH] && hhOf(c)!==S.civ.hh[p.forHH] && p.done > before && hash(c.id+p.id)%4===0 && !p.helped){ p.helped = 1; const H = S.civ.hh[p.forHH]; hhAdults(H).forEach(m=>{ adjustRel(m, c, 6); civHear(m, {type:'helped', text:`${c.name} helped build our home.`, who:[c.id], topics:{['p:'+c.id]:0.8}, imp:6, src:'self', emo:0.3}); }); }
   c.civ.buyers.build = c.civ.buyers.build || {}; const payerH = p.owner.k==='hh' ? p.owner.id : p.owner.k; if (payerH!==c.civ.hh) c.civ.buyers.build[(p.owner.id||p.owner.k)+''] = 1;
   if (p.done >= p.labor - 0.01 && mf >= 0.999) civFinishProject(p);
   const why = mf < 0.5 ? 'waiting for materials' : null;
@@ -94,6 +102,7 @@ function civPayProjectWage(p, c, hrs){ const pay = Math.round(p.pay*hrs); if (pa
 // a vacated home is kept to rent or sell, given to kin, or left to fall down
 function civVacated(s, h){
   s.occ = null;
+  if (s.shelter){ const other = S.citizens.find(c=>c.home===s.id); if (other){ s.occ = other.civ.hh; return; } } // a shared shelter stays the town's
   const need = Object.values(S.civ.hh).find(x=>!x.home || !S.civ.structs[x.home]);
   if (need && (!civMoneyOn() || peekRelHH(h, need) > 20)){ need.home = s.id; s.occ = need.id; hhMembers(need).forEach(m=>m.home = s.id); chronicle(`${need.name} moved into ${s.name}, left behind by the ${h.name} household.`, 4, '📦', 'land'); indexCitizens(); return; }
   if (civMoneyOn()){ s.forSale = true; s.price = Math.round(s.value*1.05); civLandlordOffer(s); }
@@ -116,9 +125,11 @@ function civHousingGoals(c, h, home){
     if (!home && civMoneyOn() && civTryRentOrBuy(h)) return;
     let def = civBestHomeDef(builders, wealth, members);
     if (!civMatAffordable(def, h.store, civHHMoney(h)).ok) def = members > 5 && civCanBuild('longhouse', builders) ? 'longhouse' : 'crude_hut';
-    if (civProjects().filter(p=>p.purpose==='home').length > 6) return;
+    if (!home && civHomelessHH().length >= 4 && !civMatAffordable(def, h.store, civHHMoney(h)).ok) def = 'lean_to'; // in a housing crunch, any roof first
+    if (home && civProjects().filter(p=>p.purpose==='home').length > 6) return; // a family with no roof may always start one
     const site = civFindSite(def, home ? [home.x, home.y] : S.civ.center, {margin:1});
     if (site){ civStartProject(def, site, {k:'hh', id:h.id}, {purpose:'home', forHH:h.id, why: !home ? 'they have no roof' : 'too many under one roof'}); civAddGoal(c, 'new_home'); }
+    else if (!home){ S.civ.landShort = civDay(); civProblem('land', 2); } // nowhere left to build
     return;
   }
   // upgrade when the household can: needs knowledge, technique, materials or money, and the wish to
@@ -127,6 +138,7 @@ function civHousingGoals(c, h, home){
   const ups = (D.up||[]).filter(u=>civCanBuild(u, builders)); if (!ups.length) return;
   const up = ups.sort((a,b)=>HOME_ORDER.indexOf(b)-HOME_ORDER.indexOf(a))[0];
   const aff = civMatAffordable(up, h.store, civHHMoney(h));
+  if (civHomelessHH().length && aff.short > 10) return; // while families sleep outside, only upgrades already in hand go ahead
   if (!aff.ok && aff.short > 40) { if (!civHasGoal(c,'improve_home')) civAddGoal(c, 'improve_home', {def:up}); return; }
   const U = STRUCTURES[up];
   const inPlace = civSiteClearExcept(home.x, home.y, U.w, U.h, home);
@@ -383,7 +395,7 @@ function civSellStruct(s, to, payer){
   chronicle(`${s.name} was sold to ${civOwnerLabel(to)} for ${price}¢${agent?` through ${agent.name}`:''}.`, 5, '🔑', 'land'); S.week.sales.push(`${s.name} → ${civOwnerLabel(to)} (${price}¢)`); ev('property_sales');
 }
 function civLandlordOffer(s){
-  const D = STRUCTURES[s.def]; if (!D.home || s.occ || !civMoneyOn()) return;
+  const D = STRUCTURES[s.def]; if (!D.home || s.occ || s.shelter || !civMoneyOn() || S.citizens.some(c=>c.home===s.id)) return;
   const h = Object.values(S.civ.hh).find(x=>(!x.home || !S.civ.structs[x.home]) && civHHMoney(x) >= 10); if (!h) return;
   const rent = Math.max(2, Math.round(s.value*0.006)), k = civContract('rent', [s.owner, {k:'hh', id:h.id}], {struct:s.id, amount:rent, every:7}, 7);
   h.home = s.id; s.occ = h.id; s.rentK = k.id; hhMembers(h).forEach(m=>m.home = s.id); indexCitizens();
@@ -407,5 +419,6 @@ function civConvert(s, def){
 function civProjectsMonthly(){
   civRoadsMonthly();
   // stalled projects with no materials for months are given up
-  civProjects().forEach(p=>{ if (civDay()-p.started > 90 && civProjectMatFrac(p) < 0.25 && p.done < p.labor*0.2){ delete S.civ.projects[p.id]; civReserve(p, false); chronicle(`Work on the ${STRUCTURES[p.def].label.toLowerCase()} for ${civOwnerLabel(p.owner)} was abandoned.`, 4, '🚧', 'land'); const st = civOwnerStore(p.owner); if (st) for (const g in p.have) storeAdd(st, g, p.have[g]); } });
+  civStalledMonthly();
+  civProjects().forEach(p=>{ if (civDay()-p.started > 90 && civProjectMatFrac(p) < 0.25 && p.done < p.labor*0.2 && !civNeedyHomeProjects().includes(p) && !(p.forHH && civHomelessHH().some(h=>h.id===p.forHH))){ delete S.civ.projects[p.id]; civReserve(p, false); chronicle(`Work on the ${STRUCTURES[p.def].label.toLowerCase()} for ${civOwnerLabel(p.owner)} was abandoned.`, 4, '🚧', 'land'); const st = civOwnerStore(p.owner); if (st) for (const g in p.have) storeAdd(st, g, p.have[g]); } });
 }

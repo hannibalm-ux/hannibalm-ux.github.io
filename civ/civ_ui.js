@@ -78,11 +78,13 @@ function civRenderEconomy(){
 function civRenderLand(){
   const C = S.civ, cats = {};
   Object.values(C.structs).forEach(s=>{ const D = STRUCTURES[s.def]; (cats[D.cat] = cats[D.cat] || []).push(s); });
-  const projs = Object.values(C.projects).map(p=>`<div style="font-size:12px">🏗️ <b><a ${locAttr(p.x,p.y,p.w,p.h,STRUCTURES[p.def].label)}>${esc(STRUCTURES[p.def].label)}</a></b> for ${esc(civOwnerLabel(p.owner))} · materials ${civBar(civProjectMatFrac(p)*100)} · work ${civBar(p.done/p.labor*100,100,'#f2c14e')} ${Object.entries(p.need).map(([g,q])=>`${CG[g]?CG[g].name.toLowerCase():g} ${Math.floor(p.have[g]||0)}/${q}`).join(', ')}</div>`).join('') || '<span class="muted">Nothing under construction</span>';
+  const idle = p => civDay() - (p.lastProg ?? p.started);
+  const projs = Object.values(C.projects).sort((a,b)=>(b.purpose==='home')-(a.purpose==='home') || idle(a)-idle(b)).map(p=>`<div style="font-size:12px">🏗️ <b><a ${locAttr(p.x,p.y,p.w,p.h,STRUCTURES[p.def].label)}>${esc(STRUCTURES[p.def].label)}</a></b> for ${esc(civOwnerLabel(p.owner))}${p.contractor && C.orgs[p.contractor] ? ` · built by ${esc(C.orgs[p.contractor].name)}` : ''}${idle(p) >= 7 ? ` · <span class="No">no progress for ${idle(p)} days</span>` : ''} · materials ${civBar(civProjectMatFrac(p)*100)} · work ${civBar(p.done/p.labor*100,100,'#f2c14e')} ${Object.entries(p.need).map(([g,q])=>`${CG[g]?CG[g].name.toLowerCase():g} ${Math.floor(p.have[g]||0)}/${q}`).join(', ')}</div>`).join('') || '<span class="muted">Nothing under construction</span>';
   const deps = C.deposits.filter(d=>d.known || d.suspected).map(d=>`<div style="font-size:12px">${d.known?'⛏️':'❓'} <a ${locAttr(d.x,d.y,1,1,MIN[d.min].label)}>${esc(MIN[d.min].label)}</a>${d.known?` · ${Math.round(d.left)} units · depth ${d.depth} · purity ${Math.round(d.purity*100)}%`:' (a seep; nobody knows its use)'} · ${d.claim?`claimed by ${esc(civOwnerLabel(d.claim.who))}${d.claim.registered?' (registered)':''}`:'unclaimed'}${d.mine?' · mined':''}</div>`).join('') || '<span class="muted">Nothing found yet. The ground keeps its secrets.</span>';
   const an = {}; C.animals.forEach(a=>{ an[a.kind] = (an[a.kind]||0)+1; });
   $('p-land').innerHTML = `${civFrontierHtml()}<h2>Land & building</h2>
     <p class="muted" style="font-size:12px;margin:2px 0 6px">Click any building, site or find to show it on the map.</p>
+    ${civHousingHtml()}
     <div class="card"><b>Under construction</b>${projs}</div>
     ${Object.entries(cats).map(([cat, list])=>`<div class="card"><b>${esc(cat[0].toUpperCase()+cat.slice(1))} (${list.length})</b>${list.slice(0,60).map(s=>`<div style="font-size:12px"><a ${locAttr(s.x,s.y,s.w,s.h,s.name)}>${esc(s.name)}</a> <span class="muted">· ${esc(STRUCTURES[s.def].label)} · ${esc(civOwnerLabel(s.owner))} · ${civBar(s.cond)}${civMoneyOn()?` · ${s.value}¢`:''}${s.forSale?' · for sale':''}${s.status!=='active'?' · '+s.status:''}${STRUCTURES[s.def].farm&&s.meta?` · ${s.meta.stage}${s.meta.crop?' '+s.meta.crop:''}`:''}</span></div>`).join('')}</div>`).join('')}
     <div class="card"><b>Resources found</b>${deps}</div>
@@ -237,6 +239,16 @@ function civMindHtml(c){
     <b style="display:block;margin-top:6px">Reputation</b><p style="margin:2px 0;font-size:13px">${repTxt}${raw?` (${rep>0?'+':''}${Math.round(rep)})`:''}${believers?` · ${believers} ${believers>1?'people believe':'person believes'} they broke the law`:''}${c.jail?` · <b class="No">in jail until day ${c.jail+1}</b>`:''}${c.civ.service>civDay()?` · doing community service`:''}</p>
     ${legal?`<b style="display:block;margin-top:6px">Legal history</b>${legal}<p class="muted" style="font-size:12px;margin:2px 0">Record weight ${civLegalScore(c).toFixed(2)} (serious and recent offences weigh most)</p>`:''}
     <label class="muted" style="font-size:11px"><input type="checkbox" class="rawMind" ${raw?'checked':''}> show the numbers</label></details>`;
+}
+// ---------- housing: who has no roof, and what the settlement holds for them ----------
+function civHousingHtml(){
+  const C = S.civ, hl = civHomelessHH(), d = civDay();
+  const town = Object.values(C.structs).filter(s=>STRUCTURES[s.def].home && (s.owner.k==='community' || s.owner.k==='gov'));
+  const living = s => S.citizens.filter(c=>c.home===s.id).length;
+  return `<div class="card"><b>Housing</b> <span class="muted" style="font-size:12px">${Object.keys(C.hh).length} households · ${hl.length} without a roof · ${C.stats.taken_in||0} taken in by others · ${C.stats.sheltered||0} sheltered by the settlement · ${C.stats.reclaimed||0} properties returned to the settlement</span>
+    ${hl.length ? `<div style="font-size:12px;margin-top:4px">${hl.slice(0,12).map(h=>`<div>🏕️ ${esc(h.name)} household (${h.members.length}${hhMembers(h).some(m=>!isAdult(m))?', with children':''}) · ${h.homelessSince!=null?`${d-h.homelessSince} days`:'just now'}${civProjects().some(p=>p.forHH===h.id)?' · building':''}</div>`).join('')}</div>` : '<div class="muted" style="font-size:12px">Everyone has a roof.</div>'}
+    ${town.length ? `<div style="font-size:12px;margin-top:4px"><b>Town-owned homes</b>${town.map(s=>`<div>🏠 <a ${locAttr(s.x,s.y,s.w,s.h,s.name)}>${esc(s.name)}</a> <span class="muted">· ${living(s)}/${STRUCTURES[s.def].home.cap} living there${s.shelter?' rent-free':''}${s.reclaimed!=null?` · returned day ${s.reclaimed+1}`:''}</span></div>`).join('')}</div>` : ''}
+    ${C.landShort!=null && d - C.landShort < 28 ? '<div class="No" style="font-size:12px;margin-top:4px">There is no land left to build on here: the settlement needs to annex more.</div>' : ''}</div>`;
 }
 // ---------- the frontier: explore, map, annex ----------
 function civFrontierHtml(){

@@ -188,7 +188,8 @@ function civAnnexUpkeep(cell){ const lvl = S.civ.econ.level||1; return +((1 + ri
 function civAnnexScore(v, cell, by){
   const A = cell.attrs, h = hhOf(v), M = typeof cogOf==='function' ? cogOf(v) : {op:{}};
   let s = (M.op.expansion||0)/2 + (M.op['region:'+cell.id]||0)/3;
-  if (h && !h.home) s += 25; if (h && h.home && S.civ.structs[h.home] && STRUCTURES[S.civ.structs[h.home].def].home && h.members.length > STRUCTURES[S.civ.structs[h.home].def].home.cap) s += 12; // crowded
+  if (h && !h.home) s += 25;
+  if (S.civ.landShort != null && civDay() - S.civ.landShort < 28) s += 14; // everyone can see there is no land left if (h && h.home && S.civ.structs[h.home] && STRUCTURES[S.civ.structs[h.home].def].home && h.members.length > STRUCTURES[S.civ.structs[h.home].def].home.cap) s += 12; // crowded
   if ((M.op.nature||0) > 30) s -= 10 + A.beauty*15 + A.timber*10;
   if (v.values.includes('Prosperity')) s += 10; if (v.values.includes('Tradition')) s -= 6;
   const occ = v.civ.occ; if (occ==='farmer' && A.fert>0.6) s += 15; if (occ==='woodcutter' && A.timber>0.6) s += 15; if (occ==='fisher' && A.fish>0.6) s += 15; if ((occ==='miner'||occ==='prospector') && A.ore>0.5) s += 15; if (occ==='hunter') s += A.danger*10;
@@ -206,7 +207,7 @@ function civAnnexVote(){
   const voters = G.stage >= 5 ? S.citizens.filter(c=>isAdult(c) && !c.jail && !c.away) : S.citizens.filter(c=>isAdult(c) && !c.jail && !c.away && (c.politics.civicEngagement + c.personality.extraversion*0.3 + (cogOf(c).op.expansion||0)/200 > 0.45));
   if (voters.length < 5) return;
   const yes = [], no = []; voters.forEach(v=>(civAnnexScore(v, cell, by) > 0 ? yes : no).push(v));
-  const fund = civMoneyOn() && (G.treasury||0) < cost;
+  const fund = civMoneyOn() && (G.treasury||0) < cost/2; // a passed vote goes ahead if the treasury can pay at least half
   const passed = yes.length > no.length && !fund;
   W.votes.push({cell:cell.key, day:civDay(), yes:yes.length, no:no.length, passed, by:P.by, why:P.why}); W.proposal = null;
   const arg = no.length ? (no.filter(v=>(cogOf(v).op.nature||0)>30).length > no.length/3 ? 'too much wilderness would be lost' : cell.attrs.danger>0.5 ? 'it is too dangerous' : 'it would cost too much to keep up') : '';
@@ -216,7 +217,7 @@ function civAnnexVote(){
   ev(passed ? 'annexations' : 'annex_failed');
 }
 function civAnnexRegion(cell, cost){
-  if (cost && civMoneyOn()) S.civ.gov.treasury -= cost;
+  if (cost && civMoneyOn()) S.civ.gov.treasury = Math.max(0, (S.civ.gov.treasury||0) - cost);
   cell.state = 'annexed'; cell.annexDay = civDay(); civRegionTrail(cell, true); bumpWorld(); groundKey = '';
   // the next ring out becomes reachable, and any mapped land that now borders ours can be claimed
   Object.values(S.world.cells).forEach(c=>{ if (c.state==='discovered' && [[1,0],[-1,0],[0,1],[0,-1]].some(([a,b])=>civCellClaimed(c.cx+a, c.cy+b))){ c.state = 'annexable'; c.annexableDay = civDay(); chronicle(`${c.name} now borders settled land. It could be annexed.`, 5, '🗺️', 'land'); } });

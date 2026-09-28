@@ -4,7 +4,7 @@ This document describes everything Pixel Town simulates and how. It covers the c
 
 Pixel Town has **two modes**:
 
-- **Civilization mode** (every new game). 100 people make camp by a river with crude shelters and about a week of food. There is no town, no jobs, no market, no government and no bridge. Everything else has to emerge from what they decide to do. It is described in **Part II** (sections 24 to 43).
+- **Civilization mode** (every new game). 100 people make camp by a river with crude shelters and about a week of food. There is no town, no jobs, no market, no government and no bridge. Everything else has to emerge from what they decide to do. It is described in **Part II** (sections 24 to 44).
 - **Classic mode** (old saves, or `pixel_town.html?mode=classic`). The established medieval town with 50 villagers, described in sections 1 to 23. Classic towns also gain the new minds, knowledge, research, prospecting and neighbouring settlements (section 39).
 
 ---
@@ -57,6 +57,7 @@ Pixel Town has **two modes**:
 41. [Civilization mode: crime, investigation and the courts](#41-civilization-mode-crime-investigation-and-the-courts)
 42. [Civilization mode: memory, beliefs and opinions](#42-civilization-mode-memory-beliefs-and-opinions)
 43. [Civilization mode: the frontier](#43-civilization-mode-the-frontier)
+44. [Civilization mode: construction and housing](#44-civilization-mode-construction-and-housing)
 
 ---
 
@@ -82,6 +83,7 @@ The design goal is emergent history. The town remembers what happened, villagers
 | `civ/civ_justice.js` | Civilization mode's crime and justice: crimes at the time and place they happen, witnesses, statements, investigation, suspects and alibis, rough justice, magistrates and trials, recusal, bribery, sentencing, jail, legal history. |
 | `civ/civ_cognition.js` | Civilization mode's link to the memory engine: lived experiences, gossip, gatherings, newspapers, votes, protests, discontent. |
 | `civ/civ_frontier.js` | Civilization mode's frontier: fog beyond the valley, expeditions, regions, annexation votes, districts, upkeep, new ecology and minerals. |
+| `civ/civ_housing.js` | Civilization mode's construction support and housing: evening and rest-day building, building bees, construction contracts, buying and substituting materials, stalled projects, reclaiming abandoned property, sheltering and taking in the homeless. |
 | `civ/civ_science.js` | Hidden deposits, prospecting, claims, mines, oil and gas, research and the scientific method. |
 | `civ/civ_render.js`, `civ/civ_3d.js`, `civ/civ_ui.js` | 2D art for the new mode; voxel people and voxel animals, props, crops, building condition and interiors (both modes); the panels. |
 | `civ/civ_overlay.js` | New systems for classic towns. |
@@ -880,6 +882,7 @@ A one-time notice explains what's new.
 - **Cognition (12):** witnessing, remembering, learning from a friend and from a newspaper, false rumours, contradictory evidence, gradual belief change, memories changing votes, policies changing opinions, fading and persisting memories, no instant knowledge of distant events.
 - **Frontier (16):** exploration cost, exploring in all four directions, fog hiding resources, exploration taking time, regions differing, discovery not being annexation, annexation succeeding and failing, new building space, new resources, rising upkeep, opinions on expansion, the frontier moving outward.
 - **Family (2):** only a woman and a man conceive; same-sex couples adopt.
+- **Construction and housing (11):** construction companies contracted and paid, evening self-building, building bees, material substitution, buying materials, stalled homes taken over (and stalled upgrades given up), ownerless and unwanted property returning to the settlement, rent-free shelter with children first, being taken in by family or friends, food coming first.
 - **Civilization (88):** see section 40, including the civilization-mode justice (CJ1–13), cognition (CC1–12) and frontier (CE1–16) tests, an old-save upgrade test (CS1) and the side-menu and maximise test (UI1).
 
 ---
@@ -1371,4 +1374,84 @@ A district goes **annexed → developing** (first structure) → **established**
 **Resources run down and recover:** forage, game and fish regrow by season in every district; trees regrow from stumps near woods; ore deposits are finite.
 
 **Saves and maps:** mapped regions are stored with their seed and rebuilt identically on load. Tile keys decode correctly for negative (north and west) coordinates. The 2D map, minimap and 3D view show the fog and each new region.
+
+---
+
+## 44. Civilization mode: construction and housing
+
+**Why this exists.** Before this, only about two in five projects were finished. Houses with every material to hand sat half-built for months, and families slept outside. The reasons:
+
+- people with jobs never built;
+- construction companies never got a client;
+- a plank nobody could make held a house up for a year;
+- nothing gave priority to families with no roof;
+- empty homes rotted, unaffordable, while those families stayed homeless.
+
+**Who builds:**
+
+- **The household itself.** The household's builder works on its project during the day. Everyone else in the household, employed or not, spends an hour after work on it (from 17:15). The rest day goes to it too, once most of the materials (60%) are there. A home with everything to hand gets a strong push to be finished. People with no roof put their own home first.
+- **Building bees.** Neighbours help build a home for a family with no roof once it has 40% of its materials. Those most willing are family, friends, community-minded and agreeable people, and helping families with children counts extra. The family remembers who helped and likes them more.
+- **Construction companies.** They take on work from paying owners:
+  - public works;
+  - homes for families with no roof;
+  - any project that has stalled for five days with at least half its materials.
+
+  The owner pays by the hour, or the treasury does for public works and homes for the needy. Idle staff build public works or cut timber, and the company supplies its sites from its own stock. A company only keeps two hands plus three per contract and lets idle people go.
+
+**Materials:**
+
+- **Buying:** after three days of waiting, a household with money buys what its project lacks at the market (at up to 1.6× the usual price).
+- **The common store:** public projects and homes for the needy draw on it.
+- **Donations:** community-minded people's surplus timber, stone and thatch goes to public projects and to homes for the needy.
+- **Making do:** if a material cannot be had for two weeks (nobody gathers it, nobody makes it, there is none in stock), the builders use something else:
+
+  | Missing | Used instead |
+  |---|---|
+  | Lumber | Wood × 1.5 |
+  | Metal | Wood × 2 |
+  | Steel | Wood × 2 and stone |
+  | Brick | Stone × 1.2 |
+  | Glass | Fibre |
+  | Cement | Clay × 1.5 |
+  | Rope | Fibre × 2 |
+
+**Priorities:**
+
+- A family with no roof can always start a home.
+- In a housing crunch (four or more families without a roof) that home is the cheapest shelter first, a lean-to.
+- While anyone is homeless, households only upgrade if they already have almost everything they need.
+- When three or more families have no roof, a gathering raises a **shared longhouse** owned by the settlement.
+
+**Stalled projects** (45 days without progress):
+
+- a home for a family still without a roof is **taken over by the settlement**, so contractors and neighbours can finish it;
+- stalled upgrades and non-home projects are **given up**, and their materials go back to the owner.
+
+**Food comes first:**
+
+- A household with under two days of food builds much less; under one day, hardly at all.
+- Building bees only happen when the helpers have five days of food at home.
+- In autumn and winter with under 10 days of food, or any time under 3:
+  - bees and public contracts pause;
+  - the treasury keeps enough to buy food before paying builders.
+- **Hiring freeze:** businesses that do not produce food stop hiring when the settlement has under three days of food. Below a day and a half they let a worker go each week to help feed their family.
+- **Food before work:** an employee whose household has under a day of food usually spends the day finding food instead of going to a non-food job.
+- **Wary newcomers:** they stay away from a settlement that cannot get through the coming winter, has no land left to build on, or where many families have no roof.
+
+**Abandoned property returns to the settlement.** A building passes to the settlement (the government once there are offices, otherwise the community) when:
+
+- its owner is gone: the household has died out or left, the person is dead, or the business has closed; or
+- it stands empty for three weeks and is unsold, abandoned or, before there is money, unwanted.
+
+Any lease ends, and a building falling apart but still standing is put back in use. Businesses can no longer let good buildings rot while people need them.
+
+**Sheltering the needy:**
+
+- **Rent-free shelter.** Every day, town-owned homes go rent-free to families with no roof, those with the most children and those homeless longest first. A shelter can take several families up to its capacity (a longhouse holds 12). The common store's timber patches a run-down shelter. Sheltered homes are never sold or let while someone lives there.
+- **Taken in.** A single person or a couple with no roof is taken in by relatives, or by friends or community-minded neighbours with room.
+
+**On screen:**
+
+- **Housing card** (Land & frontier tab): who has no roof and for how long, how many were taken in or sheltered, properties returned, and every town-owned home with its residents.
+- **Project list:** each project shows who is building it and how long it has gone without progress.
 

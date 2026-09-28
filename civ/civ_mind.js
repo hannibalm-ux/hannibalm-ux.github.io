@@ -179,6 +179,9 @@ function civPlanDay(c, day){
   if (c.civ.service && c.civ.service > day){ const t = CIV_TARGETS.build && CIV_TARGETS.build(c), first = choice ? choice[0] : null;
     const svc = t ? Object.assign({}, t, {note:'Community service: '+t.note.toLowerCase(), extra:Object.assign({task:'build', xy:t.xy}, t.extra, {service:true})}) : first ? Object.assign({}, first, {note:'Community service: '+first.note.toLowerCase(), extra:Object.assign({}, first.extra, {service:true})}) : null;
     if (svc) choice = [svc, choice ? choice[1] : svc]; }
+  // our own home, with the materials to hand: evenings after work, and the rest day, go into building it
+  const ownP = civOwnHomeProject(c), ownT = ownP && {loc:'wild', note:`Building our ${STRUCTURES[ownP.def].label.toLowerCase()}`, extra:{task:'build', proj:ownP.id, xy:civSiteSpot(ownP)}};
+  if (rest && ownT && !elder) choice = [ownT, ownT];
   if (choice){
     add(12*60, 'Work', choice[0].loc, choice[0].note, choice[0].extra);
     add(12*60+40, 'Eat', 'here', 'A meal on the spot');
@@ -187,6 +190,7 @@ function civPlanDay(c, day){
   } else { add(12*60, 'Leisure', 'loc_town_square', 'A day of rest'); add(12*60+40, 'Eat', home, 'Lunch'); add(17*60, 'Socialize', 'loc_town_square', 'Visiting neighbours'); }
   // one adult per household fetches the water
   if (h && civWaterCarrier(h)===c.id && (h.store.water||0) < h.members.length*2){ const w = civTarget(c, 'water'); add(18*60+10, 'Work', w.loc, 'Fetching water', {task:'water', xy:w.xy}); }
+  else if (ownT && !elder && !(choice && choice[1].extra && choice[1].extra.proj===ownP.id)) add(18*60+30, 'Work', ownT.loc, ownT.note+' after the day\'s work', ownT.extra);
   else add(18*60, 'Chore', home, 'Chores at home');
   add(18*60+40, 'Eat', home, 'Supper');
   const social = c.personality.extraversion > 0.35 || c.needs.social < 45;
@@ -209,7 +213,9 @@ function civKidTask(c, day){
 // the core decision: observe, remember, interpret, predict, choose, and write it down
 function civChooseWork(c, day, h){
   const X = c.civ;
-  if (X.job){ const j = civJobOf(c); if (j){
+  // food first: with almost nothing to eat at home, someone employed away from food production often takes the day to find food
+  const skipJob = X.job && h && hhFoodDays(h) < 1 && (()=>{ const j0 = civJobOf(c), o0 = j0 && S.civ.orgs[j0.org]; return o0 && !civFoodBiz(BUSINESS_TYPES[o0.biz]); })() && hashf(day, hash(c.id)%997, 5) < 0.6;
+  if (X.job && !skipJob){ const j = civJobOf(c); if (j){
     // employees do the company's work: its mine, field, pen, building site, woods or workshop
     const t = civJobTask(c, j); let blk;
     if (t==='job'){ const w = civWorkplaceXY(c, j); blk = {loc:w.loc, note:`Working as ${j.role} for ${j.orgName}`, extra:{task:'job', xy:w.xy, job:j.id}}; }
@@ -343,7 +349,7 @@ function civWorkProduce(c, b, hrs){
   if (S.weather==='Storm' && !why) why = 'the storm';
   const org = b.job && civJobOf(c) && S.civ.orgs[civJobOf(c).org], dest = b.service ? S.civ.commons : org ? org.stock : h ? h.store : S.civ.commons;
   for (const g in out){ let q = +out[g].toFixed(1); if (q<=0) continue; value += q*civMargValue(c, g, h); if (CG[g].food) ev('pd_'+b.task, q*CG[g].food/90);
-    if (!org && CG[g].cat==='material' && civCivic(c)){ const p = civCommunityProjects().find(p=>(p.need[g]||0) > (p.have[g]||0)); if (p && (!h || civMaterialNeed(c,g) - (h.store[g]||0) <= 0 || civProjectsFor(c).length===0)){ const give = Math.min(q, p.need[g]-(p.have[g]||0)); p.have[g] = (p.have[g]||0)+give; q -= give; c.civ.respect += give*0.03; } }
+    if (!org && CG[g].cat==='material' && civCivic(c)){ const p = civCommunityProjects().concat(civNeedyHomeProjects()).find(p=>(p.need[g]||0) > (p.have[g]||0)); if (p && (!h || civMaterialNeed(c,g) - (h.store[g]||0) <= 0 || civProjectsFor(c).length===0)){ const give = Math.min(q, p.need[g]-(p.have[g]||0)); p.have[g] = (p.have[g]||0)+give; q -= give; c.civ.respect += give*0.03; } }
     if (q>0) storeAdd(dest, g, q); }
   return {value, why, out};
 }
