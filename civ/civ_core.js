@@ -607,7 +607,13 @@ function civStructsDaily(){
     s.cond = Math.max(0, s.cond - (0.12 + (100-dur)/260)*storm*(age>200?1.4:1));
     if (s.def in {pen:1, ranch:1} && s.cond<30 && hashf(s.x,s.y,d)<0.1) civProblem('neglect', 1);
     // occupied homes and working businesses get patched up by the people who use them
-    if (s.status==='active' && s.cond<70){ const users = civUsers(s); if (users.length && hashf(s.x,s.y,d+1) < 0.25){ const st = civOwnerStore(s.owner) || (hhOf(users[0])||{}).store; const mat = D.mat && Object.keys(D.mat)[0]; if (!mat || (st && storeTake(st, mat, 2)>=1)) s.cond = Math.min(100, s.cond + 6); } }
+    if (s.status==='active' && s.cond<70){ const users = civUsers(s); if (users.length && hashf(s.x,s.y,d+1) < (D.home && s.cond < 35 ? 0.5 : 0.25)){
+      // repairs use the owner's materials, then the family's, then the common store; a home of wood, thatch, clay or stone
+      // can always be patched with what the family gathers, so an occupied hut is not left to fall down around them
+      const mat = D.mat && Object.keys(D.mat)[0], stores = [civOwnerStore(s.owner), (hhOf(users[0])||{}).store, S.civ.commons].filter(Boolean);
+      const natural = D.home && Object.keys(D.mat||{}).every(g=>['wood','thatch','clay','stone','fibre'].includes(g));
+      if (!mat || stores.some(st=>storeTake(st, mat, 2)>=1)) s.cond = Math.min(100, s.cond + 6);
+      else if (natural){ s.cond = Math.min(100, s.cond + 4); ev('homes_patched'); } } }
     if (D.bridge && s.cond<=0){ civRemoveStruct(s, 'collapse'); civProblem('infrastructure', 3); return; }
     if (s.cond<=0 && D.cat!=='farm' && D.cat!=='ranch'){ civRemoveStruct(s, 'collapse'); civProblem('housing', 1); return; }
     if (s.status==='active' && !civUsers(s).length && !D.bridge && !D.tile && age>30 && s.cond<35 && hashf(s.x,s.y,d+2)<0.03){ s.status = 'abandoned'; chronicle(`${s.name} stands empty and is falling apart.`, 3, '🏚️', 'land'); }

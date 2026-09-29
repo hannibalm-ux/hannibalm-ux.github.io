@@ -66,7 +66,8 @@ function civGovDaily(){
   else if (G.stage>=2 && d%7===2 && since>=5 && civProblemTotal()>=3) civGathering('council');
   // council: repeated gatherings with the same respected faces
   const recent = G.meetings.filter(m=>d-m.day<=28).length;
-  const since1 = G.stageHist.length ? d - G.stageHist[G.stageHist.length-1].day : 0;
+  // days since the government last changed shape, read fresh at each step so one day can't jump several stages
+  const sinceStage = () => G.stageHist.length ? d - G.stageHist[G.stageHist.length-1].day : 0, since1 = sinceStage();
   if (G.stage===1 && recent >= 4 && since1 >= 21){
     const values = S.citizens.filter(isAdult).reduce((a,c)=>{ c.values.forEach(v=>a[v]=(a[v]||0)+1); return a; }, {});
     const top = Object.entries(values).sort((a,b)=>b[1]-a[1])[0][0];
@@ -76,15 +77,17 @@ function civGovDaily(){
     civGovStage(2, `A ${G.form} has formed: ${pool.map(c=>c.name).join(', ')} will meet regularly to settle the settlement's business.`);
   }
   // leadership: when the council cannot keep up with a crisis
-  if (G.stage===2 && since1 >= 21 && (P.food>12 || P.crime>6 || P.dispute>8 || P.growth>6 || recent>=6)){
+  // (a council that has already passed laws or set taxes still needs someone to lead it: this depends on having a leader, not on the stage number)
+  const councilDay = (G.stageHist.find(h=>h.stage===2)||{}).day;
+  if (G.stage>=2 && !G.leader && councilDay!=null && d - councilDay >= 21 && sinceStage() >= 3 && (P.food>12 || P.crime>6 || P.dispute>8 || P.growth>6 || recent>=6)){
     const lead = (G.form==='assembly' ? civRespected(1) : civRespected(1, c=>G.council.includes(c.id)))[0] || civRespected(1)[0];
     if (lead){ G.leader = lead.id; lead.office = 'Leader'; const title = G.form==='chieftaincy' ? 'chief' : G.form==='council of elders' ? 'eldest speaker' : G.form==='merchant council' ? 'first merchant' : G.form==='theocratic circle' ? 'high speaker' : 'headman';
-      G.title = title; civGovStage(3, `${lead.name} has been recognised as the settlement's ${title}.`); remember(lead, `They made me ${title}.`, 9); }
+      G.title = title; const txt = `${lead.name} has been recognised as the settlement's ${title}.`; if (G.stage < 3) civGovStage(3, txt); else { G.stageHist.push({stage:3, day:d}); chronicle(txt, 8, '🏛️', 'gov'); ev('gov_stage'); } remember(lead, `They made me ${title}.`, 9); }
   }
   if (G.leader && !alive(G.leader)){ G.leader = null; civProblem('dispute', 4); if (G.stage>=3) civSuccession(); }
   G.council = G.council.filter(id=>alive(id));
   // offices appear when a job needs doing
-  if (G.stage>=3 && (G.stage>3 || since1 >= 14)){
+  if (G.stage>=3 && (G.stage>3 || sinceStage() >= 14)){
     // offices are paid where the culture expects it; freedom-minded settlements rely on volunteers
     G.paidOffices = (C.culture ? C.culture.order + C.culture.community >= C.culture.freedom : true);
     if (!G.offices.treasurer && (civMoneyOn() && (C.fund||0) + G.treasury > 30)){ const t = civRespected(1, c=>kn(c,'finance')+kn(c,'mathematics')>15 && !c.office)[0]; if (t) civAppoint('treasurer', t, 'to look after the common purse'); }
@@ -109,7 +112,7 @@ function civElectionsWeekly(){
   const avgOp = lead ? S.citizens.filter(isAdult).reduce((a,c)=>a+peekRel(c,lead.id).affinity,0)/Math.max(1,S.citizens.filter(isAdult).length) : -50;
   const voice = S.citizens.filter(c=>isAdult(c) && (c.values.includes('Freedom') || c.values.includes('Community'))).length / Math.max(1, S.citizens.filter(isAdult).length);
   const noVotes = ['chieftaincy','theocratic circle','oligarchy'].includes(G.form) && voice < 0.55;
-  if (G.stage<5 && !noVotes && (avgOp < 0 || !lead) && voice > 0.3 && civTechKnown('counting')){ civElection('people wanted a say in who leads'); civGovStage(5, 'The settlement held its first election.'); return; }
+  if (!G.elections.length && !noVotes && (avgOp < 0 || !lead) && voice > 0.3 && civTechKnown('counting')){ civElection('people wanted a say in who leads'); if (G.stage < 5) civGovStage(5, 'The settlement held its first election.'); else { G.stageHist.push({stage:5, day:d}); chronicle('The settlement held its first election.', 8, '🏛️', 'gov'); } return; }
   if (G.stage>=5 && G.elections.length && d - G.elections[G.elections.length-1].day >= 56) civElection('the term was up');
 }
 function civElection(why){
