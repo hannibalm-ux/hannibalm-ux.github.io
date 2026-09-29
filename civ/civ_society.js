@@ -287,7 +287,10 @@ function civEducationWeekly(){
     const s = o.hq && C.structs[o.hq], lvl = o.edu.level;
     if (lvl===1 && civTechKnown('writing') && lit.some(t=>kn(t,'literacy')>=30)){ o.edu.level = 2; civEduStage(3, `${o.name} now teaches reading, writing and sums: a proper primary school.`); }
     if (lvl===2 && lit.length>=2 && s && s.def!=='school_hut'){ o.edu.level = 3; civEduStage(4, `${o.name} has grown into a secondary school.`); }
-    if (lvl===2 && s && s.def==='school_hut' && civCanBuild('school', lit) && !civProjects().some(p=>p.upgradeOf===s.id)){ civStartProject('school', {x:s.x, y:s.y, w:5, h:3}, s.owner, {upgradeOf:s.id, purpose:'education', why:'the schoolhouse is too small'}); }
+    // the schoolhouse is rebuilt as a proper school: bigger if the ground beside it is free, otherwise on its own footprint
+    if (lvl===2 && s && s.def==='school_hut' && civCanBuild('school', lit) && !civProjects().some(p=>p.upgradeOf===s.id)){
+      let fits = true; for (let y=s.y;y<s.y+3 && fits;y++) for (let x=s.x;x<s.x+5;x++){ const t = tileAt(x,y), inHut = x<s.x+s.w && y<s.y+s.h; if (!inHut && (t===-1 || !(t===T.GRASS||t===T.FLOWER||t===T.SAND||t===T.TREE) || S.civ.reserved[tkey(x,y)])){ fits = false; break; } }
+      civStartProject('school', fits ? {x:s.x, y:s.y, w:5, h:3} : {x:s.x, y:s.y, w:s.w, h:s.h}, s.owner, {upgradeOf:s.id, purpose:'education', why:'the schoolhouse is too small'}); }
     if (!o.staff.length){ o.idle = (o.idle||0)+1; if (o.idle>4){ civOrgDissolve(o, 'closed'); if (s){ s.forSale = civMoneyOn(); s.price = s.value; } } } else o.idle = 0;
     // hire another teacher if there are many pupils
     const pupils = S.citizens.filter(k=>!isAdult(k) && k.age>=6).length; if (pupils > o.staff.length*14){ const t = S.citizens.find(c=>isAdult(c) && !c.civ.job && kn(c,'teaching')+sk(c,'teaching') > 35); if (t){ o.staff.push(t.id); t.civ.employer = o.id; chronicle(`${t.name} joined ${o.name} as a teacher.`, 4, '🧑‍🏫', 'learning'); } }
