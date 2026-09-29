@@ -61,7 +61,7 @@ function civCrimeScene(k, offender, xy, sev){
   const near = civWitnesses(xy[0], xy[1], 7, [offender.id]).sort((a,b)=>Math.hypot(a.rt.x-xy[0],a.rt.y-xy[1])-Math.hypot(b.rt.x-xy[0],b.rt.y-xy[1])).slice(0, 14);
   near.forEach(o=>{
     const dist = Math.max(Math.abs(o.rt.x-xy[0]), Math.abs(o.rt.y-xy[1]));
-    const pSee = (civNight() ? 0.3 : 0.75) * (0.45 + o.civ.cog.attention*0.6) * (1 - dist/9);
+    const pSee = (civDarkAt(xy[0], xy[1]) ? 0.3 : 0.75) * (0.45 + o.civ.cog.attention*0.6) * (1 - dist/9);
     if (rnd() > pSee){ if (rnd() < 0.35) k.pending.push({by:o.id, acc:offender.id, conf:0.2, around:true}); return; } // saw someone about, no more
     const fam = Math.max(0, peekRel(o, offender.id).familiarity||0);
     let who = offender;
@@ -69,7 +69,7 @@ function civCrimeScene(k, offender, xy, sev){
       const pool = S.citizens.filter(x=>x!==o && x!==offender && isAdult(x) && !x.jail && !x.away && Math.abs(x.rt.x-xy[0])<16 && Math.abs(x.rt.y-xy[1])<16);
       const dis = pool.filter(x=>peekRel(o,x.id).affinity < -20);
       const from = dis.length && rnd()<0.5 ? dis : pool; if (from.length) who = from[Math.floor(rnd()*from.length)]; }
-    const conf = clamp((who===offender ? 0.45 + o.civ.cog.attention*0.4 : 0.25 + rnd()*0.35) * (civNight() ? 0.75 : 1), 0.1, 0.95);
+    const conf = clamp((who===offender ? 0.45 + o.civ.cog.attention*0.4 : 0.25 + rnd()*0.35) * (civDarkAt(xy[0], xy[1]) ? 0.75 : 1), 0.1, 0.95);
     // loyalty: people are slow to name a friend or family member
     const close = peekRel(o, who.id).tags.includes('Family') || peekRel(o, who.id).affinity > 55;
     k.pending.push({by:o.id, acc:who.id, conf, withhold:close});

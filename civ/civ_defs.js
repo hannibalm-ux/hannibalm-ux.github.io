@@ -310,7 +310,17 @@ const STRUCTURES = {
   waterworks:   {label:'Waterworks',          cat:'infra',w:4,h:3, style:'stone', mat:{brick:80, metal:30}, labor:260, tech:'plumbing', water:true},
   sewage:       {label:'Sewage works',        cat:'infra',w:4,h:3, style:'stone', mat:{brick:80, metal:20}, labor:240, tech:'sanitation', sanit:true},
   power_plant:  {label:'Power station',       cat:'infra',w:5,h:4, style:'stone', mat:{brick:160, steel:60}, labor:520, tech:'electricity', power:true},
-  station:      {label:'Transit station',     cat:'infra',w:5,h:3, style:'hall', roof:'#4a4a5a', mat:{brick:120, steel:40}, labor:420, tech:'railways'},
+  station:      {label:'Railway station',     cat:'transport',w:5,h:3, style:'hall', roof:'#4a4a5a', mat:{brick:120, steel:40}, labor:420, tech:'railways'},
+  // street lighting: each kind upgrades to the next as the town learns more and grows
+  torch_post:   {label:'Torch post',          cat:'lighting',w:1,h:1, prop:'torch', mat:{wood:3}, labor:2, light:{kind:'torch', r:40, stage:0}, up:['oil_lantern']},
+  oil_lantern:  {label:'Oil lantern post',    cat:'lighting',w:1,h:1, prop:'lantern', mat:{wood:3, clay:2}, labor:4, tech:'pottery', light:{kind:'lantern', r:52, stage:1}, up:['gas_lamp']},
+  gas_lamp:     {label:'Gas street lamp',     cat:'lighting',w:1,h:1, prop:'gaslamp', mat:{metal:4, glass:1}, labor:8, tech:'gas_lighting', light:{kind:'gas', r:64, stage:2}, up:['electric_lamp']},
+  electric_lamp:{label:'Electric street light',cat:'lighting',w:1,h:1, prop:'streetlight', mat:{steel:3, glass:1}, labor:10, tech:'electricity', light:{kind:'electric', r:84, stage:3, power:true}},
+  // transport: the places vehicles are kept, built and boarded
+  stable:       {label:'Stable',              cat:'transport',w:3,h:2, style:'barn', roof:'#8a5a2a', mat:{wood:28, thatch:6}, labor:32, tech:'riding', transport:'stable'},
+  boathouse:    {label:'Boathouse',           cat:'transport',w:3,h:2, style:'barn', roof:'#5a6a7a', mat:{wood:30, thatch:6}, labor:36, tech:'boatbuilding', transport:'boats', up:['shipyard']},
+  shipyard:     {label:'Shipyard & harbour',  cat:'transport',w:5,h:3, style:'barn', roof:'#4a5a6a', mat:{lumber:60, stone:30, rope:10}, labor:160, tech:'sailing', transport:'ships'},
+  airfield:     {label:'Airfield',            cat:'transport',w:9,h:3, tile:'PLAZA', mat:{stone:60, cement:20}, labor:160, tech:'aviation', transport:'planes'},
   latrine:      {label:'Latrines',            cat:'infra',w:2,h:1, style:'hut', roof:'#6a5a3a', mat:{wood:10}, labor:10, sanit:0.4},
   // leisure and sport
   sports_field: {label:'Sports field',        cat:'leisure',w:6,h:4, tile:'GRASS', prop:'goals', mat:{wood:10}, labor:20},
@@ -477,7 +487,17 @@ const TECHS = {
   canning:       {label:'Canning',              cat:'food', need:{foodcraft:40, chemistry:30}, any:[['th_germs','ironworking']], disc:'chemistry', store:{veg:2.5, meat:2.5, fish:2.5, game:2, milk:1.5, berries:2}},
   refrigeration: {label:'Refrigeration',        cat:'food', need:{physics:56, chemistry:50}, any:[['steam_power','th_heat_work']], disc:'physics', store:{all:2}},
   electricity:   {label:'Electricity',          cat:'energy', need:{physics:62}, any:[['th_electromagnetism','steelmaking']], disc:'physics'},
-  telegraph:     {label:'The telegraph',        cat:'communication', need:{physics:58}, any:[['electricity']], disc:'physics'}
+  telegraph:     {label:'The telegraph',        cat:'communication', need:{physics:58}, any:[['electricity']], disc:'physics'},
+  gas_lighting:  {label:'Gas lighting',         cat:'energy', need:{chemistry:38}, any:[['ironworking','th_combustion'],['refining']], disc:'chemistry'},
+  // getting about: each one puts new vehicles on the roads, rivers and sky
+  riding:        {label:'Horse riding',         cat:'transport', need:{husbandry:18}, any:[['domestication']], prac:'herd', disc:'biology'},
+  boatbuilding:  {label:'Boatbuilding',         cat:'transport', need:{crafts:14, wilderness:12}, any:[['carpentry'],['weaving']], prac:'fish', disc:'engineering'},
+  wagons:        {label:'Horse-drawn wagons',   cat:'transport', need:{engineering:22}, any:[['wheel','riding']], disc:'engineering'},
+  sailing:       {label:'Sailing ships',        cat:'transport', need:{engineering:30}, any:[['boatbuilding','weaving']], disc:'engineering'},
+  steamships:    {label:'Steamships',           cat:'transport', need:{engineering:50}, any:[['sailing','steam_power']], disc:'engineering'},
+  combustion_engine:{label:'The combustion engine', cat:'energy', need:{engineering:56, chemistry:46}, any:[['refining','steelmaking']], disc:'engineering'},
+  automobiles:   {label:'Motor cars',           cat:'transport', need:{engineering:58}, any:[['combustion_engine','road_building']], disc:'engineering'},
+  aviation:      {label:'Powered flight',       cat:'transport', need:{physics:60, engineering:64}, any:[['combustion_engine']], disc:'physics'}
 };
 for (const k in TECHS) TECHS[k].id = k;
 

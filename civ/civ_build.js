@@ -25,8 +25,8 @@ function civStartProject(def, site, owner, opts){
   const p = {id, def, x:site.x, y:site.y, w:site.w, h:site.h, tiles:site.tiles||null, owner, purpose:opts.purpose||D.cat, upgradeOf:opts.upgradeOf||null, need, have:{}, labor:Math.round(labor), done:0,
     started:civDay(), workers:{}, pay:opts.pay||0, fund:opts.fund||0, name: opts.name || `${D.label} for ${civOwnerLabel(owner)}`, forHH: opts.forHH||null, meta: opts.meta||{}, org:opts.org||null};
   C.projects[id] = p; civReserve(p, true);
-  chronicle(`${civOwnerLabel(owner)[0].toUpperCase()+civOwnerLabel(owner).slice(1)} began work on ${an(D.label.toLowerCase())}${opts.why?` (${opts.why})`:''}.`, D.cat==='bridge'||D.cat==='civic'||D.cat==='education'||D.cat==='storage' ? 6 : 4, '🏗️', 'land');
-  S.week.builds.push(`${D.label} started (${civOwnerLabel(owner)})`); ev('projects');
+  if (!opts.quiet) chronicle(`${civOwnerLabel(owner)[0].toUpperCase()+civOwnerLabel(owner).slice(1)} began work on ${an(D.label.toLowerCase())}${opts.why?` (${opts.why})`:''}.`, D.cat==='bridge'||D.cat==='civic'||D.cat==='education'||D.cat==='storage' ? 6 : 4, '🏗️', 'land');
+  if (!opts.quiet) S.week.builds.push(`${D.label} started (${civOwnerLabel(owner)})`); ev('projects');
   return p;
 }
 function civProjectMatFrac(p){ let need=0, have=0; for (const g in p.need){ need += p.need[g]; have += Math.min(p.need[g], p.have[g]||0); } return need ? have/need : 1; }
@@ -91,8 +91,8 @@ function civFinishProject(p){
   if (D.bridge) s.meta.toll = 0;
   indexCitizens(); bumpWorld(); ev('built'); if (D.cat==='bridge') ev('bridges_built'); if (D.farm) ev('fields_built'); if (D.ranch) ev('pens_built');
   const top = Object.entries(p.workers).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([id])=>alive(id)).filter(Boolean);
-  chronicle(`${s.name} is finished${top.length?`, built by ${top.map(x=>x.name.split(' ')[0]).join(', ')}`:''}.`, D.cat==='bridge'||D.cat==='civic'||D.cat==='education'||D.cat==='storage'||D.cat==='medical' ? 8 : 5, D.cat==='bridge'?'🌉':D.farm?'🌾':D.ranch?'🐐':'🏠', 'land');
-  S.week.builds.push(`${s.name} finished`);
+  if (!D.light) chronicle(`${s.name} is finished${top.length?`, built by ${top.map(x=>x.name.split(' ')[0]).join(', ')}`:''}.`, D.cat==='bridge'||D.cat==='civic'||D.cat==='education'||D.cat==='storage'||D.cat==='medical' ? 8 : 5, D.cat==='bridge'?'🌉':D.farm?'🌾':D.ranch?'🐐':'🏠', 'land');
+  if (!D.light) S.week.builds.push(`${s.name} finished`);
   top.forEach(w=>{ remember(w, `We finished ${s.name}.`, 6); w.civ.respect += 1; });
   S.civ.history.push({t:S.minute, kind:'built', def:p.def, name:s.name, owner:civOwnerLabel(p.owner)});
   if (typeof civOnStructBuilt==='function') civOnStructBuilt(s, p);
@@ -324,6 +324,7 @@ function civOnStructBuilt(s, p){
   if (D.road){ civStructsOf(x=>x.id===s.id); }
   if (typeof civOnStructBuiltEcon==='function') civOnStructBuiltEcon(s, p);
   if (typeof civOnStructBuiltScience==='function') civOnStructBuiltScience(s, p);
+  if (typeof civOnStructBuiltTransport==='function') civOnStructBuiltTransport(s, p);
 }
 
 // ---------- roads: worn trails become roads when someone pays to improve them ----------

@@ -347,6 +347,7 @@ function r3Animals(ts, dark){
 
 // ---------- props: every map object as a real 3D model ----------
 function r3PropMesh(e){
+  if (e.tag && e.tag.startsWith('light:') && typeof civLightMesh==='function') return civLightMesh(e.tag.slice(6));
   const g = lpG(), P = []; let key = null;
   const img = e.img;
   if (img===ART.well){ key = 'well'; P.push(lpPart(g.cyl, '#8a8478', [0,0.25,0], [0,0,0], [0.42,0.5,0.42]), lpPart(g.cyl, '#1a2a4a', [0,0.49,0], [0,0,0], [0.34,0.02,0.34]), lpPart(g.box, '#6e4a2c', [-0.38,0.8,0], [0,0,0], [0.06,0.9,0.06]), lpPart(g.box, '#6e4a2c', [0.38,0.8,0], [0,0,0], [0.06,0.9,0.06]), lpPart(g.cone, '#8a3a2a', [0,1.35,0], [0,Math.PI/4,0], [0.62,0.35,0.62]), lpPart(g.cyl, '#5a3a22', [0,1.05,0], [0,0,Math.PI/2], [0.04,0.8,0.04])); }

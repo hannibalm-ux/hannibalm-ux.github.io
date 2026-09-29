@@ -58,6 +58,7 @@ Pixel Town has **two modes**:
 42. [Civilization mode: memory, beliefs and opinions](#42-civilization-mode-memory-beliefs-and-opinions)
 43. [Civilization mode: the frontier](#43-civilization-mode-the-frontier)
 44. [Civilization mode: construction and housing](#44-civilization-mode-construction-and-housing)
+45. [Civilization mode: street lighting and transport](#45-civilization-mode-street-lighting-and-transport)
 
 ---
 
@@ -84,6 +85,7 @@ The design goal is emergent history. The town remembers what happened, villagers
 | `civ/civ_cognition.js` | Civilization mode's link to the memory engine: lived experiences, gossip, gatherings, newspapers, votes, protests, discontent. |
 | `civ/civ_frontier.js` | Civilization mode's frontier: fog beyond the valley, expeditions, regions, annexation votes, districts, upkeep, new ecology and minerals. |
 | `civ/civ_housing.js` | Civilization mode's construction support and housing: evening and rest-day building, building bees, construction contracts, buying and substituting materials, stalled projects, reclaiming abandoned property, sheltering and taking in the homeless. |
+| `civ/civ_transport.js` | Civilization mode's street lighting (torches to electric lights), transport buildings, and the vehicles that the town's techniques put on its paths, water, rails and sky. |
 | `civ/civ_science.js` | Hidden deposits, prospecting, claims, mines, oil and gas, research and the scientific method. |
 | `civ/civ_render.js`, `civ/civ_3d.js`, `civ/civ_ui.js` | 2D art for the new mode; voxel people and voxel animals, props, crops, building condition and interiors (both modes); the panels. |
 | `civ/civ_overlay.js` | New systems for classic towns. |
@@ -763,7 +765,7 @@ Each annexed region costs the treasury 2¢ + 2¢ per ring of distance, plus more
 
 - **Ground:** a hi-bit pixel-art ground layer, pre-rendered per season, with soft shorelines, curbs and path edges.
 - **Sprites:** y-sorted sprites for villagers, buildings, trees, lamps, stalls and animals.
-- **Effects:** day/night lighting with lamp and window glow; rain, snow, fog, lightning and puddles.
+- **Effects:** day/night lighting with lamp and window glow; rain, snow, fog, lightning and puddles. Night is a dim, moonlit blue that never covers more than half the scene, so buildings and people stay visible (in 3D the moon lights the town and the night sky is lighter).
 - **Map:** a minimap that keeps the world's aspect ratio. Fog covers unexplored land, labelled "Unexplored", or "Expedition out" while explorers are on their way.
 
 ### 3D (the 3D button)
@@ -883,6 +885,7 @@ A one-time notice explains what's new.
 - **Frontier (16):** exploration cost, exploring in all four directions, fog hiding resources, exploration taking time, regions differing, discovery not being annexation, annexation succeeding and failing, new building space, new resources, rising upkeep, opinions on expansion, the frontier moving outward.
 - **Family (2):** only a woman and a man conceive; same-sex couples adopt.
 - **Construction and housing (11):** construction companies contracted and paid, evening self-building, building bees, material substitution, buying materials, stalled homes taken over (and stalled upgrades given up), ownerless and unwanted property returning to the settlement, rent-free shelter with children first, being taken in by family or friends, food coming first.
+- **Lighting and transport (9):** night never pitch black, torches beside paths, better lights needing both technique and town size, old lights replaced in place, lights kept in repair and helping witnesses, vehicles unlocked by techniques (and moving on land, not water), boathouses on the shore, faster journeys and fuller caravans, 3D models for every light and vehicle.
 - **Civilization (88):** see section 40, including the civilization-mode justice (CJ1–13), cognition (CC1–12) and frontier (CE1–16) tests, an old-save upgrade test (CS1) and the side-menu and maximise test (UI1).
 
 ---
@@ -1454,4 +1457,57 @@ Any lease ends, and a building falling apart but still standing is put back in u
 
 - **Housing card** (Land & frontier tab): who has no roof and for how long, how many were taken in or sheltered, properties returned, and every town-owned home with its residents.
 - **Project list:** each project shows who is building it and how long it has gone without progress.
+
+---
+
+## 45. Civilization mode: street lighting and transport
+
+**Night.** Nights are dim and blue rather than black: the 2D darkness is capped at half the scene, even in a storm. In 3D the moon lights the town with a soft, cool light and the night sky is lighter.
+
+**Street lights.** The settlement (the government once it has offices, otherwise the community) puts up lights beside paths and doors, starting with the darkest spots: the fire, then the doors of homes and public buildings. Lights stand at least three and a half tiles apart. There are about one per five people, plus three more for each step up in town size (up to 70). At most three are built at a time. None are built while three or more families have no roof, when food is short, or late in the year with little stored. Each new kind needs both a technique and a big enough town:
+
+| Light | Technique | Town size | Reach | Materials |
+|---|---|---|---|---|
+| Torch post | none | camp | 2.5 tiles | wood |
+| Oil lantern post | Pottery | hamlet | 3.25 tiles | wood, clay |
+| Gas street lamp | Gas lighting | village | 4 tiles | metal, glass |
+| Electric street light | Electricity, plus a power station | town | 5.25 tiles | steel, glass |
+
+Once a better kind is available, old lights are replaced where they stand, starting in the middle of town. The town keeps its lights in repair; they never count as abandoned. Only the first light of each kind appears in the chronicle. **Effect:** at night, a crime on a lit street is seen as clearly as by day: witnesses notice more and are more certain of who they saw.
+
+**Transport buildings.** One at a time, when the settlement is fed, housed and not in the depths of winter:
+
+| Building | Technique | Town size |
+|---|---|---|
+| Stable | Horse riding | hamlet |
+| Boathouse (on the shore) | Boatbuilding | hamlet |
+| Shipyard & harbour (on the shore) | Sailing ships | village |
+| Power station | Electricity | town |
+| Railway station (with a track along its front) | Railways | town |
+| Airfield | Powered flight | town |
+
+**New techniques:** Gas lighting, Horse riding, Boatbuilding, Horse-drawn wagons, Sailing ships, Steamships, the Combustion engine, Motor cars and Powered flight. Like every technique, they are found through research or practice, or brought in by traders.
+
+**Vehicles.** What the town knows decides what moves about it, in 2D and 3D:
+
+| Vehicle | Needs | Where |
+|---|---|---|
+| Handcarts | The wheel | paths |
+| Riders on horseback | Horse riding | paths and open ground |
+| Horse-drawn wagons | Horse-drawn wagons | paths and open ground |
+| Rowing boats | Boatbuilding | river and lake |
+| Sailing ships | Sailing ships and a shipyard | open water |
+| Steamships | Steamships and a shipyard | open water, with smoke |
+| Steam trains | Railways and a station | the track, stopping at the station |
+| Motor cars and lorries | Motor cars (lorries in a town) | roads only |
+| Aeroplanes | Powered flight and an airfield | across the sky |
+
+There are more vehicles as the town grows, and newer kinds replace some of the old (cars replace some riders). Riders, carts, wagons and boats stay in at night. Cars, lorries and trains show headlights; aeroplanes blink. Vehicles are only scenery: their movement uses its own randomness and never changes the simulation.
+
+**Effects on the economy:**
+
+- **Journeys:** expeditions are shorter by the travel speed: +5% with the wheel, +15% riding, +10% wagons, +30% each for a railway, motor cars and an airfield.
+- **Caravans:** traders carry one more kind of goods, and sell a larger share, for each of carts, wagons, ships, lorries, and two for a railway.
+
+**On screen:** a **Street lighting** card and a **Transport** card on the Land & frontier tab show the lights by kind, what the next kind needs, the transport buildings, and each vehicle with how many are about or what it still needs.
 

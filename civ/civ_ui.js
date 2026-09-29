@@ -85,6 +85,7 @@ function civRenderLand(){
   $('p-land').innerHTML = `${civFrontierHtml()}<h2>Land & building</h2>
     <p class="muted" style="font-size:12px;margin:2px 0 6px">Click any building, site or find to show it on the map.</p>
     ${civHousingHtml()}
+    ${civTransportHtml()}
     <div class="card"><b>Under construction</b>${projs}</div>
     ${Object.entries(cats).map(([cat, list])=>`<div class="card"><b>${esc(cat[0].toUpperCase()+cat.slice(1))} (${list.length})</b>${list.slice(0,60).map(s=>`<div style="font-size:12px"><a ${locAttr(s.x,s.y,s.w,s.h,s.name)}>${esc(s.name)}</a> <span class="muted">· ${esc(STRUCTURES[s.def].label)} · ${esc(civOwnerLabel(s.owner))} · ${civBar(s.cond)}${civMoneyOn()?` · ${s.value}¢`:''}${s.forSale?' · for sale':''}${s.status!=='active'?' · '+s.status:''}${STRUCTURES[s.def].farm&&s.meta?` · ${s.meta.stage}${s.meta.crop?' '+s.meta.crop:''}`:''}</span></div>`).join('')}</div>`).join('')}
     <div class="card"><b>Resources found</b>${deps}</div>

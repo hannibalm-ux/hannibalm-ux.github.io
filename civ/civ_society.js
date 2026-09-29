@@ -399,7 +399,7 @@ function civCaravansWeekly(){
   const t = traders[hash(String(civDay()))%traders.length], n = C.neighbors.slice().sort((a,b)=>a.dist-b.dist + (b.rel-a.rel)/50)[0]; if (!n) return;
   const h = hhOf(t); if (!h) return;
   const sp = civSurplus(h, t).filter(([g])=>!n.res.includes(g)); let value = 0;
-  sp.slice(0,3).forEach(([g,q])=>{ const sell = Math.floor(q*0.7); storeTake(h.store, g, sell); value += sell*n.prices[g]*0.9; });
+  const haul = civHaulBonus(); sp.slice(0, 3 + haul).forEach(([g,q])=>{ const sell = Math.floor(q*Math.min(0.9, 0.7 + haul*0.04)); storeTake(h.store, g, sell); value += sell*n.prices[g]*0.9; });
   if (value < 5) return;
   const buy = n.res.find(g=>CG[g] && CG[g].cat!=='food') || n.res[0]; const q = Math.floor(value/Math.max(0.5, n.prices[buy]));
   storeAdd(h.store, buy, q); n.lastTrade = civDay(); n.rel = clamp(n.rel+3, -100, 100); t.civ.log.trade = (t.civ.log.trade||0) + 8; ev('caravans');

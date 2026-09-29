@@ -381,6 +381,7 @@ function civDaily(d){
   civSafe('society', civSocietyDaily);      // gatherings, government, justice, education, sport, imports
   civSafe('science', civScienceDaily);      // prospecting, mines, research
   civSafe('trails', civTrailsDaily);
+  civSafe('transport', ()=>civTransportDaily(d)); // street lights, stables, stations, harbours
   if (d%7===0) civSafe('weekly', ()=>civWeekly(d));
   if (d%28===0) civSafe('monthly', ()=>civMonthly(d));
   if (S.civ.animKey !== civAnimKey()) civSafe('animals', civSyncAnimals);
@@ -393,7 +394,7 @@ function civMonthly(d){ civSafe('projects-m', civProjectsMonthly); civSafe('migr
 
 // ---------- the settlement's stage (a label, earned by what exists, never a trigger) ----------
 function civStage(){
-  const C = S.civ, n = S.citizens.length, inst = Object.keys(C.orgs).length, str = Object.keys(C.structs).length;
+  const C = S.civ, n = S.citizens.length, inst = Object.keys(C.orgs).length, str = Object.values(C.structs).filter(s=>!(STRUCTURES[s.def]||{}).light).length;
   const score = n + inst*6 + str*2 + (C.econ.stage>=4?40:0) + (C.gov.stage>=3?30:0) + Object.keys(C.tech).length*3;
   let lab = SETTLEMENT_STAGES[0][1]; SETTLEMENT_STAGES.forEach(([k,l])=>{ if (score>=k) lab = l; });
   if (lab!==C.stageLabel){ if (C.stageLabel) chronicle(`The settlement has become a ${lab.toLowerCase()}.`, 8, '🏘️', 'founding'); C.stageLabel = lab; }
