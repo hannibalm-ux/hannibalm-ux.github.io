@@ -7,7 +7,7 @@
    ===================================================================== */
 // ---------- geometry helpers: many coloured parts merged into one mesh ----------
 const LP = {mat:null, cache:new Map()};
-function lpMat(){ if (LP.mat) return LP.mat; LP.mat = typeof HD!=='undefined' && HD.on ? new THREE.MeshStandardMaterial({vertexColors:true, flatShading:true, roughness:0.8, metalness:0}) : new THREE.MeshLambertMaterial({vertexColors:true, flatShading:true}); LP.mat.userData.shared = true; return LP.mat; }
+function lpMat(){ return LP.mat || (LP.mat = new THREE.MeshLambertMaterial({vertexColors:true, flatShading:true})); }
 function lpPart(geo, color, pos, rot, scl){ const m = new THREE.Matrix4(), q = new THREE.Quaternion().setFromEuler(new THREE.Euler(...(rot||[0,0,0]))); m.compose(new THREE.Vector3(...(pos||[0,0,0])), q, new THREE.Vector3(...(scl||[1,1,1]))); return {geo, color, m}; }
 function lpMerge(parts){
   let n = 0; const gs = parts.map(p=>{ const g = (p.geo.index ? p.geo.toNonIndexed() : p.geo.clone()); g.applyMatrix4(p.m); n += g.attributes.position.count; return [g, p.color]; });
@@ -43,8 +43,7 @@ function voxNoiseTex(){
   VOX_NOISE = new THREE.CanvasTexture(c); VOX_NOISE.wrapS = VOX_NOISE.wrapT = THREE.RepeatWrapping; VOX_NOISE.magFilter = VOX_NOISE.minFilter = THREE.NearestFilter; VOX_NOISE.generateMipmaps = false;
   return VOX_NOISE;
 }
-function voxMat(){ if (VOX_MAT) return VOX_MAT; const hd = typeof HD!=='undefined' && HD.on; if (hd){ const t = voxNoiseTex(); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; t.needsUpdate = true; }
-  VOX_MAT = hd ? new THREE.MeshStandardMaterial({vertexColors:true, map:voxNoiseTex(), roughness:0.78, metalness:0}) : new THREE.MeshLambertMaterial({vertexColors:true, map:voxNoiseTex()}); VOX_MAT.userData.shared = true; return VOX_MAT; }
+function voxMat(){ return VOX_MAT || (VOX_MAT = new THREE.MeshLambertMaterial({vertexColors:true, map:voxNoiseTex()})); }
 const VOX_FACES = [
   [[1,0,0], [[1,0,1],[1,0,0],[1,1,0],[1,1,1]]], [[-1,0,0],[[0,0,0],[0,0,1],[0,1,1],[0,1,0]]],
   [[0,1,0], [[0,1,1],[1,1,1],[1,1,0],[0,1,0]]], [[0,-1,0],[[0,0,0],[1,0,0],[1,0,1],[0,0,1]]],
@@ -52,7 +51,7 @@ const VOX_FACES = [
 // boxes: [x0,y0,z0,x1,y1,z1,hex] in voxels -> one merged, vertex-coloured geometry with one noise texel per voxel
 function voxGeo(boxes){
   const n = boxes.length, pos = new Float32Array(n*72), nor = new Float32Array(n*72), col = new Float32Array(n*72), uv = new Float32Array(n*48), idx = new Uint32Array(n*36);
-  const C = new THREE.Color(); let v = 0, soft = typeof HD!=='undefined' && HD.on; // HD: normals lean toward each corner, so boxes shade like rounded forms
+  const C = new THREE.Color(); let v = 0;
   boxes.forEach((b, bi)=>{
     const [x0,y0,z0,x1,y1,z1,hex] = b, sz = [x1-x0, y1-y0, z1-z0], o = [x0,y0,z0], off = (hash(String(bi)+hex)%29)/32;
     C.set(hex);
@@ -61,8 +60,7 @@ function voxGeo(boxes){
       const ax = k => cs[k].map((q,i)=>q); // corner in 0/1
       const d1 = [0,1,2].find(i=>cs[1][i]!==cs[0][i]), d2 = [0,1,2].find(i=>cs[3][i]!==cs[0][i]);
       cs.forEach((q,ci)=>{
-        if (soft){ const cx = (q[0]-0.5)*1.1, cy = (q[1]-0.5)*1.1, cz = (q[2]-0.5)*1.1, nx = nm[0]+cx, ny = nm[1]+cy, nz = nm[2]+cz, nl = Math.hypot(nx,ny,nz); for (let i=0;i<3;i++){ pos[v*3+i] = (o[i] + q[i]*sz[i]) * VOX; } nor[v*3] = nx/nl; nor[v*3+1] = ny/nl; nor[v*3+2] = nz/nl; }
-        else for (let i=0;i<3;i++){ pos[v*3+i] = (o[i] + q[i]*sz[i]) * VOX; nor[v*3+i] = nm[i]; }
+        for (let i=0;i<3;i++){ pos[v*3+i] = (o[i] + q[i]*sz[i]) * VOX; nor[v*3+i] = nm[i]; }
         col[v*3] = C.r*shade; col[v*3+1] = C.g*shade; col[v*3+2] = C.b*shade;
         const a = Math.abs(q[d1]-cs[0][d1]), bb = Math.abs(q[d2]-cs[0][d2]);
         uv[v*2] = a*sz[d1]/32 + off + o[d1]/32; uv[v*2+1] = bb*sz[d2]/32 + off*0.7 + o[d2]/32;

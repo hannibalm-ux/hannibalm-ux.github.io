@@ -135,7 +135,6 @@ a{color:var(--link)}
         <button id="zFollow" title="Follow selected villager">◎</button>
         <button id="zRotL" title="Turn the camera left (Q)" style="display:none">⟲</button>
         <button id="zRotR" title="Turn the camera right (E)" style="display:none">⟳</button>
-        <button id="zHD" title="Graphics quality" style="display:none;width:auto;padding:0 8px;font-size:12px">HD</button>
         <button id="z3d" title="Switch to the 3D view" style="width:auto;padding:0 8px;font-weight:bold">3D</button>
         <button id="zPanel" title="Show or hide the side panel (Tab)" style="display:none">☰</button>
         <button id="zMax" title="Maximise the view (F)">⛶</button>
@@ -6074,7 +6073,6 @@ $('zFit').onclick = ()=>{ if (R3.on){ R3.dist = 95; R3.pitch = 1.05; cam.x = WX0
 $('zFollow').onclick = ()=>{ if (!ui.sel){ $('tabs').querySelector('[data-p=people]').click(); return; } cam.follow=!cam.follow; $('zFollow').classList.toggle('on',cam.follow); if (cam.follow && cam.z<2.5*DPR) cam.z=clampZ(3*DPR); };
 $('z3d').onclick = ()=>toggle3D();
 $('zRotL').onclick = ()=>{ R3.yaw += Math.PI/4; };
-$('zHD').onclick = ()=>{ if (typeof hdCyclePref==='function' && R3.ready) hdCyclePref(); };
 $('zRotR').onclick = ()=>{ R3.yaw -= Math.PI/4; };
 mini.addEventListener('click', e=>{ const r=mini.getBoundingClientRect(); cam.x=((e.clientX-r.left)/r.width*220-MINI.ox)/MINI.s+WX0; cam.y=((e.clientY-r.top)/r.height*100-MINI.oy)/MINI.s+WY0; cam.follow=false; clampCam(); });
 function hitCitizen(wx,wy){ let best=null, bd=14; S.citizens.forEach(c=>{ if (!visibleCitizen(c)) return; const cx=c.rt.x*TILE+10, cy=c.rt.y*TILE+2; const d=Math.hypot(cx-wx,cy-wy); if (d<bd){bd=d;best=c;} }); return best; }
@@ -6273,7 +6271,7 @@ async function toggle3D(force){
   $('z3d').title = R3.on ? 'Back to the 2D pixel map' : 'Switch to the 3D view';
   if (R3.c3) R3.c3.style.display = R3.on ? 'block' : 'none';
   cv.style.visibility = R3.on ? 'hidden' : 'visible';
-  ['zRotL','zRotR','zHD'].forEach(id=>{ $(id).style.display = R3.on ? '' : 'none'; }); if (typeof hdUpdateButton==='function') hdUpdateButton();
+  ['zRotL','zRotR'].forEach(id=>{ $(id).style.display = R3.on ? '' : 'none'; });
   try { localStorage.setItem('pixeltown.view', R3.on ? '3d' : '2d'); } catch(e){}
 }
 function r3Tex(canvas, repeat){
@@ -6284,14 +6282,13 @@ function r3Tex(canvas, repeat){
 }
 function r3CachedTex(canvas){ let t = R3.texCache.get(canvas); if (!t){ t = r3Tex(canvas); R3.texCache.set(canvas, t); } return t; }
 function crop(img, x, y, w, h){ const c = mk(Math.max(1,w), Math.max(1,h)); c.getContext('2d').drawImage(img, x, y, w, h, 0, 0, w, h); return c; }
-function r3Dispose(obj){ if (!obj) return; obj.traverse(o=>{ if (o.geometry) o.geometry.dispose(); const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : []; ms.forEach(m=>{ if (m.userData && m.userData.shared) return; ['map','emissiveMap'].forEach(k=>{ if (m[k] && !m[k].shared) m[k].dispose(); }); m.dispose(); }); }); if (obj.parent) obj.parent.remove(obj); }
+function r3Dispose(obj){ if (!obj) return; obj.traverse(o=>{ if (o.geometry) o.geometry.dispose(); const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : []; ms.forEach(m=>{ ['map','emissiveMap'].forEach(k=>{ if (m[k] && !m[k].shared) m[k].dispose(); }); m.dispose(); }); }); if (obj.parent) obj.parent.remove(obj); }
 
 function r3Init(){
   const wrap = $('viewWrap');
   const c3 = document.createElement('canvas'); c3.id = 'view3d';
   c3.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;display:none;touch-action:none;cursor:grab';
   wrap.insertBefore(c3, cv.nextSibling);
-  if (typeof HD!=='undefined' && HD.on){ HD.q = hdTier(); }
   const renderer = new THREE.WebGLRenderer({canvas:c3, antialias:true, powerPreference:'high-performance'});
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -6328,7 +6325,6 @@ function r3Init(){
   R3.rain = new THREE.Points(pg, new THREE.PointsMaterial({color:0xcfe4ff, size:0.09, transparent:true, opacity:0.75, depthWrite:false})); R3.rain.frustumCulled=false; R3.rain.visible=false; scene.add(R3.rain);
   R3.rainN = N;
   try { r3VolInit(); } catch(e){ R3.vol = false; }
-  if (typeof HD!=='undefined' && HD.on){ try { hdInit(); } catch(e){ console.error('HD init failed', e); } }
   r3Controls(c3);
 }
 // terrain heights: water sinks, rocky outcrops rise
@@ -6337,7 +6333,7 @@ function r3Frame(){
   const scene = R3.scene;
   if (R3.water){ scene.remove(R3.water); r3Dispose(R3.water); } if (R3.skirt){ scene.remove(R3.skirt); r3Dispose(R3.skirt); }
   const wg = new THREE.PlaneGeometry(MW, MH); wg.rotateX(-Math.PI/2); wg.translate(X0+MW/2, -0.14, Y0+MH/2);
-  R3.water = typeof HD!=='undefined' && HD.on && HD.td ? hdWater() : new THREE.Mesh(wg, new THREE.MeshPhongMaterial({color:0x3e76b0, transparent:true, opacity:0.42, shininess:120, specular:0xbfd8f0}));
+  R3.water = new THREE.Mesh(wg, new THREE.MeshPhongMaterial({color:0x3e76b0, transparent:true, opacity:0.42, shininess:120, specular:0xbfd8f0}));
   R3.water.receiveShadow = true; scene.add(R3.water);
   // a skirt of meadow around the map so the edges don't fall into the void
   R3.skirt = new THREE.Group(); const skMat = new THREE.MeshLambertMaterial({color:0x3a6a34});
@@ -6345,7 +6341,6 @@ function r3Frame(){
   scene.add(R3.skirt); R3.frameKey = `${X0},${Y0},${MW},${MH}`;
 }
 function r3Terrain(){
-  if (typeof HD!=='undefined' && HD.on) return hdTerrain();
   const g = new THREE.PlaneGeometry(MW, MH, MW, MH); g.rotateX(-Math.PI/2); g.translate(X0+MW/2, 0, Y0+MH/2);
   const pos = g.attributes.position;
   for (let j=0;j<=MH;j++) for (let i=0;i<=MW;i++){
@@ -6423,7 +6418,6 @@ function hipRoof(w, d, h, o){
   return g;
 }
 function r3Building(b){
-  if (typeof HD!=='undefined' && HD.on && b.style!=='mine') return hdBuilding(b);
   let img = ART.bld[b.id]; if (!img || (!b.fac && b.style!=='mine')) img = ART.bld[b.id] = makeBuilding(b, ART.season);
   const grp = new THREE.Group(); grp.userData.b = b;
   const cx = b.x + b.w/2, cz = b.y + b.h/2;
@@ -6475,27 +6469,15 @@ function r3Building(b){
   return grp;
 }
 function r3World(){
-  const hd = typeof HD!=='undefined' && HD.on;
-  // HD: buildings are cached and only rebuilt when they change; terrain and trees only when the map itself changes
-  const sig = hd ? r3MapSig() : null, mapChanged = !hd || sig !== R3.mapSig;
-  if (hd && R3.bldCache) for (const e of R3.bldCache.values()) if (e.g.parent) e.g.parent.remove(e.g);
-  if (hd && !mapChanged && R3.trees && R3.trees.parent) R3.trees.parent.remove(R3.trees);
   if (R3.world) r3Dispose(R3.world);
   const w = new THREE.Group();
-  if (hd){ if (mapChanged){ if (R3.trees) r3Dispose(R3.trees); R3.trees = hdTrees(); } w.add(R3.trees); } else { w.add(r3Trees()); w.add(r3Crops()); }
-  R3.bldCache = R3.bldCache || new Map(); const alive = new Set();
-  R3.bldGroups = BUILDINGS.map(b=>{ if (!hd) return r3Building(b); alive.add(b.id); const k = hdBldKey(b), e = R3.bldCache.get(b.id); if (e && e.k===k) return e.g; if (e) r3Dispose(e.g); const g = r3Building(b); R3.bldCache.set(b.id, {k, g}); return g; });
-  if (hd) for (const [id, e] of R3.bldCache) if (!alive.has(id)){ r3Dispose(e.g); R3.bldCache.delete(id); }
-  R3.bldGroups.forEach(g=>w.add(g));
-  if (hd) HD.smokers = R3.bldGroups.filter(g=>g.userData.chimney).map(g=>({b:g.userData.b, x:g.userData.chimney.x, y:g.userData.chimney.y, z:g.userData.chimney.z}));
+  w.add(r3Trees()); w.add(r3Crops());
+  R3.bldGroups = BUILDINGS.map(r3Building); R3.bldGroups.forEach(g=>w.add(g));
   R3.scene.add(R3.world = w);
-  if (R3.frameKey!==`${X0},${Y0},${MW},${MH}`){ if (!hd){ r3Frame(); buildGround(); R3.groundTex.dispose(); R3.groundTex = r3Tex(ground); R3.groundTex.shared = true; R3.groundKey = groundKey; } }
+  if (R3.frameKey!==`${X0},${Y0},${MW},${MH}`){ r3Frame(); buildGround(); R3.groundTex.dispose(); R3.groundTex = r3Tex(ground); R3.groundTex.shared = true; R3.groundKey = groundKey; }
   R3.skirt.children[0].material.color.set(['#4a8a3e','#3a6a34','#6a6a30','#dfe6ee'][ART.season]);
-  if (R3.terrain && mapChanged){ r3Dispose(R3.terrain); R3.scene.add(R3.terrain = r3Terrain()); if (hd && R3.frameKey!==`${X0},${Y0},${MW},${MH}`) r3Frame(); R3.mapSig = sig; }
+  if (R3.terrain){ r3Dispose(R3.terrain); R3.scene.add(R3.terrain = r3Terrain()); }
 }
-// a cheap fingerprint of the tile map and season: the HD terrain and trees are only rebuilt when it changes
-function r3MapSig(){ let h = 2166136261; for (let y=Y0;y<Y0+MH;y++){ const row = MAP[y]; for (let x=X0;x<X0+MW;x++){ h ^= row[x]; h = Math.imul(h, 16777619); } } return `${h}|${ART.season}|${X0},${Y0},${MW},${MH}|${HD.q}`; }
-function hdBldKey(b){ const s = b.civ && S.civ && S.civ.structs[b.id]; return [b.style, b.type, b.x, b.y, b.w, b.h, b.roof, b.crude?1:0, ART.season, s ? Math.round(s.cond/10) : 10, s ? Math.floor((civDay()-s.built)/100) : 0, s && s.org && S.civ.orgs[s.org] && S.civ.orgs[s.org].profitAvg > 5 ? 1 : 0, s ? Math.round((s.value||0)/200) : 0, HD.q].join('|'); }
 // ---------- sprites: props, markers, villagers, animals ----------
 function r3Sprite(img, k){
   const s = new THREE.Sprite(new THREE.SpriteMaterial({map:r3CachedTex(img), alphaTest:0.4, transparent:true}));
@@ -6523,7 +6505,6 @@ function r3Props(){
   R3.boats = CIV ? [] : [[43,43],[37,46]].map(([bx,by])=>{ const s = place(ART.boat, bx*TILE, by*TILE); s.userData.base = s.position.y; return s; });
   // lamp glows
   R3.glows = r3LampList().map(L=>{ const g = new THREE.Sprite(r3GlowMat(L.kind)); const k = L.kind==='electric' ? 3.4 : L.kind==='torch' ? 2.0 : 2.6; g.scale.set(k,k,1); g.position.set(L.x, L.h, L.z); grp.add(g); return g; });
-  if (typeof HD!=='undefined' && HD.on) grp.add(hdGroundWorks());
   R3.scene.add(R3.props = grp);
 }
 // villagers are drawn with the low-poly figures in civ/civ_3d.js (lpBuild / lpAnimate)
@@ -6536,53 +6517,25 @@ function r3GlowMat(kind){ R3.glowMats = R3.glowMats || {}; if (kind==='lamp' || 
 // The scene is drawn to an offscreen target; a full-screen pass then marches each view ray through the air,
 // asking the sun's shadow map whether every point is lit, so shafts of light and shadow show in the haze.
 function r3VolInit(){
-  const R = R3, hd = typeof HD!=='undefined' && HD.on, q = hd ? HD.q : (R.mobile ? 0 : 2), steps = hd ? [8, 14, 22][q] : (R.mobile ? 12 : 24);
+  const R = R3, steps = R.mobile ? 12 : 24;
   const rt = new THREE.WebGLRenderTarget(4, 4, {type:THREE.HalfFloatType});
-  rt.depthTexture = new THREE.DepthTexture(4, 4); rt.depthTexture.type = THREE.UnsignedIntType; rt.samples = q===0 ? 0 : 4;
-  // bloom: a bright pass and a two-way blur at quarter resolution
-  const bOpts = {type:THREE.HalfFloatType, depthBuffer:false}, bA = new THREE.WebGLRenderTarget(4, 4, bOpts), bB = new THREE.WebGLRenderTarget(4, 4, bOpts);
-  const quadVS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
-  const brightMat = new THREE.ShaderMaterial({ uniforms:{tColor:{value:rt.texture}, texel:{value:new THREE.Vector2()}, thr:{value:1.0}}, vertexShader:quadVS, depthTest:false, depthWrite:false,
-    fragmentShader:`varying vec2 vUv; uniform sampler2D tColor; uniform vec2 texel; uniform float thr;
-      void main(){ vec3 c = (texture2D(tColor, vUv + texel*vec2(-1.0,-1.0)).rgb + texture2D(tColor, vUv + texel*vec2(1.0,-1.0)).rgb + texture2D(tColor, vUv + texel*vec2(-1.0,1.0)).rgb + texture2D(tColor, vUv + texel*vec2(1.0,1.0)).rgb) * 0.25;
-        float l = max(max(c.r, c.g), c.b); float k = clamp((l - thr) / max(l, 1e-4), 0.0, 1.0); gl_FragColor = vec4(min(c * k * k, vec3(8.0)), 1.0); }` });
-  const blurMat = new THREE.ShaderMaterial({ uniforms:{tSrc:{value:null}, dir:{value:new THREE.Vector2()}}, vertexShader:quadVS, depthTest:false, depthWrite:false,
-    fragmentShader:`varying vec2 vUv; uniform sampler2D tSrc; uniform vec2 dir;
-      void main(){ vec3 c = texture2D(tSrc, vUv).rgb * 0.227; c += (texture2D(tSrc, vUv + dir*1.38).rgb + texture2D(tSrc, vUv - dir*1.38).rgb) * 0.316; c += (texture2D(tSrc, vUv + dir*3.23).rgb + texture2D(tSrc, vUv - dir*3.23).rgb) * 0.07; gl_FragColor = vec4(c, 1.0); }` });
+  rt.depthTexture = new THREE.DepthTexture(4, 4); rt.depthTexture.type = THREE.UnsignedIntType; rt.samples = R.mobile ? 0 : 4;
   const mat = new THREE.ShaderMaterial({
-    uniforms:{ tColor:{value:rt.texture}, tDepth:{value:rt.depthTexture}, tShadow:{value:null}, useShadow:{value:0}, tBloom:{value:bB.texture},
-      projInv:{value:new THREE.Matrix4()}, proj:{value:new THREE.Matrix4()}, camWorld:{value:new THREE.Matrix4()}, shadowMat:{value:new THREE.Matrix4()},
+    uniforms:{ tColor:{value:rt.texture}, tDepth:{value:rt.depthTexture}, tShadow:{value:null}, useShadow:{value:0},
+      projInv:{value:new THREE.Matrix4()}, camWorld:{value:new THREE.Matrix4()}, shadowMat:{value:new THREE.Matrix4()},
       camPos:{value:new THREE.Vector3()}, sunDir:{value:new THREE.Vector3(0,1,0)}, sunCol:{value:new THREE.Color()}, fogCol:{value:new THREE.Color()},
-      haze:{value:0.02}, strength:{value:4}, maxDist:{value:90}, dbg:{value:0}, texel:{value:new THREE.Vector2()},
-      uQ:{value:q}, hdOn:{value:hd ? 1 : 0}, exposure:{value:1.0}, bloomStr:{value:0.12}, aoStr:{value:0.75}, aoRad:{value:0.55},
+      haze:{value:0.02}, strength:{value:4}, maxDist:{value:90}, dbg:{value:0},
       lampPos:{value:[0,1,2,3,4,5].map(()=>new THREE.Vector3())}, lampI:{value:[0,0,0,0,0,0]}, lampCol:{value:new THREE.Color(0xffc070)} },
-    vertexShader:quadVS,
+    vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
     fragmentShader:`
       #include <packing>
       varying vec2 vUv;
-      uniform sampler2D tColor, tDepth, tShadow, tBloom; uniform float useShadow, haze, strength, maxDist, dbg, hdOn, exposure, bloomStr, aoStr, aoRad; uniform int uQ;
-      uniform mat4 projInv, proj, camWorld, shadowMat; uniform vec3 camPos, sunDir, sunCol, fogCol, lampCol; uniform vec2 texel;
+      uniform sampler2D tColor, tDepth, tShadow; uniform float useShadow, haze, strength, maxDist, dbg;
+      uniform mat4 projInv, camWorld, shadowMat; uniform vec3 camPos, sunDir, sunCol, fogCol, lampCol;
       uniform vec3 lampPos[6]; uniform float lampI[6];
       float ign(vec2 p){ return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
-      vec3 viewPos(vec2 uv, float d){ vec4 v = projInv * vec4(uv*2.0-1.0, d*2.0-1.0, 1.0); return v.xyz / v.w; }
-      // ambient occlusion from the depth buffer: creases, contact shadows under props, the foot of every wall
-      float ssao(vec2 uv, float d){
-        vec3 P = viewPos(uv, d); vec3 Px = viewPos(uv + vec2(texel.x, 0.0), texture2D(tDepth, uv + vec2(texel.x, 0.0)).x) - P, Py = viewPos(uv + vec2(0.0, texel.y), texture2D(tDepth, uv + vec2(0.0, texel.y)).x) - P;
-        vec3 N = normalize(cross(Px, Py)); if (N.z < 0.0) N = -N;
-        float rnd = ign(gl_FragCoord.xy) * 6.2832; vec3 T0 = normalize(abs(N.y) < 0.9 ? cross(N, vec3(0.0,1.0,0.0)) : cross(N, vec3(1.0,0.0,0.0))); vec3 B0 = cross(N, T0);
-        vec3 T = T0*cos(rnd) + B0*sin(rnd), B = cross(N, T);
-        int n = uQ > 1 ? 12 : 8; float occ = 0.0, rad = aoRad * clamp(-P.z/25.0, 0.6, 2.2);
-        for (int i=0;i<12;i++){ if (i >= n) break; float fi = float(i) + 0.5, a = fi*2.39996, r = sqrt(fi/float(n)); float sc = mix(0.15, 1.0, fi/float(n));
-          vec3 dir = T*cos(a)*r + B*sin(a)*r + N*sqrt(max(0.0, 1.0 - r*r)); vec3 S0 = P + dir*rad*sc;
-          vec4 c = proj * vec4(S0, 1.0); vec2 suv = c.xy/c.w*0.5 + 0.5; if (suv.x < 0.0 || suv.y < 0.0 || suv.x > 1.0 || suv.y > 1.0) continue;
-          float sd = texture2D(tDepth, suv).x; vec3 SP = viewPos(suv, sd); float range = smoothstep(0.0, 1.0, rad / max(abs(P.z - SP.z), 1e-3));
-          occ += step(S0.z + 0.03, SP.z) * range; }
-        return clamp(1.0 - occ/float(n), 0.0, 1.0);
-      }
-      vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
       void main(){
         vec3 col = texture2D(tColor, vUv).rgb; float d = texture2D(tDepth, vUv).x;
-        if (hdOn > 0.5 && uQ > 0 && d < 0.9999){ float ao = ssao(vUv, d); col *= mix(1.0, ao, aoStr); }
         vec4 vp = projInv * vec4(vUv*2.0-1.0, d*2.0-1.0, 1.0); vp /= vp.w; vec3 wp = (camWorld * vp).xyz;
         vec3 rd = wp - camPos; float len = length(rd); rd /= len; len = min(d >= 0.9999 ? maxDist : len, maxDist);
         const float TOP = 7.0; float t0 = 0.0;   // only the air near the ground, where buildings and trees cast shadow, is marched
@@ -6600,23 +6553,13 @@ function r3VolInit(){
           scat += T * dens * L * stepL; T *= exp(-dens * stepL * 0.5); t += stepL;
         }
         col = col * mix(1.0, T, 0.6) + scat + fogCol * (1.0 - T) * 0.12;
-        if (hdOn > 0.5){
-          col += texture2D(tBloom, vUv).rgb * bloomStr; // glow only around what is truly bright
-          col = aces(col * exposure);
-          float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
-          col = mix(vec3(l), col, 1.1); // a little richer
-          col *= mix(vec3(0.94, 0.98, 1.06), vec3(1.05, 1.0, 0.93), smoothstep(0.08, 0.75, l)); // cool shade, warm light
-          col = clamp(col, 0.0, 1.0); col = mix(col, col*col*(3.0-2.0*col), 0.18); // gentle contrast curve
-          vec2 v = vUv - 0.5; col *= 1.0 - 0.22*pow(dot(v, v)*2.2, 1.6); // soft vignette
-        }
         if (dbg > 0.5) col = vec3(litSum/float(N));
         gl_FragColor = linearToOutputTexel(vec4(col, 1.0));
       }`,
     depthTest:false, depthWrite:false });
   const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); quad.frustumCulled = false;
   const vs = new THREE.Scene(); vs.add(quad);
-  const bq = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), brightMat); bq.frustumCulled = false; const bs = new THREE.Scene(); bs.add(bq);
-  Object.assign(R, {vol:true, volRT:rt, volMat:mat, volScene:vs, volCam:new THREE.OrthographicCamera(-1,1,1,-1,0,1), volSize:new THREE.Vector2(), bloomA:bA, bloomB:bB, brightMat, blurMat, bloomQuad:bq, bloomScene:bs});
+  Object.assign(R, {vol:true, volRT:rt, volMat:mat, volScene:vs, volCam:new THREE.OrthographicCamera(-1,1,1,-1,0,1), volSize:new THREE.Vector2()});
 }
 // the locate marker in 3D: a glowing outline on the ground and a beam of light above the building
 function r3Marker(ts){
@@ -6636,16 +6579,8 @@ function r3Draw(dark){
   if (!R.vol){ R.renderer.render(R.scene, R.camera); return; }
   R.renderer.getDrawingBufferSize(R.volSize);
   if (R.volRT.width!==R.volSize.x || R.volRT.height!==R.volSize.y) R.volRT.setSize(R.volSize.x, R.volSize.y);
-  R.renderer.setRenderTarget(R.volRT); R.renderer.render(R.scene, R.camera);
-  const U = R.volMat.uniforms, sun = R.sun, cam = R.camera, hd = typeof HD!=='undefined' && HD.on;
-  // bloom from the bright parts: sun glints on water, lamps, lit windows, fire
-  if (hd && R.bloomA){ const bw = Math.max(2, Math.floor(R.volSize.x/4)), bh = Math.max(2, Math.floor(R.volSize.y/4)); if (R.bloomA.width!==bw || R.bloomA.height!==bh){ R.bloomA.setSize(bw, bh); R.bloomB.setSize(bw, bh); }
-    R.brightMat.uniforms.texel.value.set(1/R.volSize.x, 1/R.volSize.y); R.bloomQuad.material = R.brightMat; R.renderer.setRenderTarget(R.bloomB); R.renderer.render(R.bloomScene, R.volCam);
-    for (let k=0;k<2;k++){ R.blurMat.uniforms.tSrc.value = R.bloomB.texture; R.blurMat.uniforms.dir.value.set((k+1)/bw, 0); R.bloomQuad.material = R.blurMat; R.renderer.setRenderTarget(R.bloomA); R.renderer.render(R.bloomScene, R.volCam);
-      R.blurMat.uniforms.tSrc.value = R.bloomA.texture; R.blurMat.uniforms.dir.value.set(0, (k+1)/bh); R.renderer.setRenderTarget(R.bloomB); R.renderer.render(R.bloomScene, R.volCam); }
-    U.bloomStr.value = 0.1 + dark*0.25; U.exposure.value = 1.05 + dark*0.35; U.uQ.value = HD.q; }
-  R.renderer.setRenderTarget(null);
-  U.proj.value.copy(cam.projectionMatrix); U.texel.value.set(1/R.volSize.x, 1/R.volSize.y);
+  R.renderer.setRenderTarget(R.volRT); R.renderer.render(R.scene, R.camera); R.renderer.setRenderTarget(null);
+  const U = R.volMat.uniforms, sun = R.sun, cam = R.camera;
   U.projInv.value.copy(cam.projectionMatrixInverse); U.camWorld.value.copy(cam.matrixWorld); U.camPos.value.copy(cam.position);
   U.sunDir.value.copy(sun.position).sub(sun.target.position).normalize();
   U.sunCol.value.copy(sun.color).multiplyScalar(sun.intensity);
@@ -6654,7 +6589,6 @@ function r3Draw(dark){
   const h = modOf(S.minute)/60, low = Math.max(0, 1 - Math.abs(Math.sin((h-6)/12*Math.PI))*1.6); // low sun at dawn and dusk
   U.haze.value = 0.03 + low*0.03 + (S.weather==='Fog' ? 0.05 : S.weather==='Rain'||S.weather==='Storm' ? 0.025 : S.weather==='Snow' ? 0.02 : 0) + dark*0.02;
   U.strength.value = (2.2 + low*2.5) * (R3.volBoost||1); U.haze.value *= (R3.hazeBoost||1);
-  if (hd){ U.strength.value *= 0.3; U.haze.value *= 0.45; } // HD has its own sky and fog: keep the shafts of light, lose the milkiness
   R.lampLights.forEach((l,i)=>{ U.lampPos.value[i].copy(l.position); U.lampI.value[i] = l.intensity; });
   U.dbg.value = R.volDebug ? 1 : 0; R.renderer.render(R.volScene, R.volCam);
 }
@@ -6703,7 +6637,7 @@ function r3Sky(frac){
   sky.lerp(C(wx==='Snow'?SKY.snow:SKY.grey).multiplyScalar(0.25+0.75*day), overcast*0.8);
   R3.renderer.setClearColor(sky); R3.scene.fog.color.copy(sky);
   const fogNear = wx==='Fog' ? 12 : 55 + R3.dist*0.8, fogFar = wx==='Fog' ? 60 : 150 + R3.dist*2;
-  R3.scene.fog.near = fogNear; R3.scene.fog.far = fogFar; if (typeof HD!=='undefined' && HD.sky){ R3.scene.fog.near = fogNear*1.35; R3.scene.fog.far = fogFar*1.5; }
+  R3.scene.fog.near = fogNear; R3.scene.fog.far = fogFar;
   const tx = cam.x/TILE, tz = cam.y/TILE;
   const sx = Math.cos(ang)*1.2, sy = Math.max(0.2, Math.min(0.62, elev*0.8)), sz = 0.3;
   const L = Math.hypot(sx,sy,sz);
@@ -6716,11 +6650,7 @@ function r3Sky(frac){
   R3.hemi.intensity = 0.4 + 0.8*day*(1-overcast*0.2) + overcast*0.35 + (1-day)*0.55;
   R3.hemi.color.copy(C('#dcecff').lerp(C('#8a9cd8'), 1-day));
   R3.hemi.groundColor.copy(C('#5a6a44').lerp(C('#303a50'), 1-day));
-  if (R3.water.material.color) R3.water.material.color.copy(C('#3e76b0').lerp(C('#1c3052'), 1-day));
-  if (typeof HD!=='undefined' && HD.sky){ hdSky({day, dusk:duskAmt, overcast, snow: wx==='Snow', sunDir: R3.sun.position.clone().sub(R3.sun.target.position).normalize(), sunCol: C(sunI >= moonI ? '#fff4e0' : '#a8bcf0').lerp(C('#ffb070'), duskAmt*0.8).multiplyScalar(Math.max(0.15, sunI/3.4))});
-    R3.hemi.intensity *= 0.55; R3.sun.intensity *= 1.15;
-    // shadows stay crisp: the shadow camera hugs the part of the world in view
-    const ext = clamp(R3.dist*1.15, 16, 70); if (R3.sun.shadow.camera.right !== ext){ Object.assign(R3.sun.shadow.camera, {left:-ext, right:ext, top:ext, bottom:-ext}); R3.sun.shadow.camera.updateProjectionMatrix(); } }
+  R3.water.material.color.copy(C('#3e76b0').lerp(C('#1c3052'), 1-day));
   return dark;
 }
 function r3Weather(dt){
@@ -6740,12 +6670,12 @@ function r3Weather(dt){
 function r3Render(frac, ts){
   const dt = Math.min(0.1,(ts-lastFrameTs)/1000); lastFrameTs = ts;
   resizeCanvas(); buildGround();
-  const r = R3.c3.getBoundingClientRect(), dpr = window.devicePixelRatio||1, pr = typeof HD!=='undefined' && HD.on ? [1, Math.min(dpr, 1.5), Math.min(dpr, 2)][HD.q] : Math.min(dpr, R3.mobile?1.25:1.75);
+  const r = R3.c3.getBoundingClientRect(), pr = Math.min(window.devicePixelRatio||1, R3.mobile?1.25:1.75);
   const W = Math.max(200, Math.round(r.width)), H = Math.max(150, Math.round(r.height));
   if (R3.w!==W || R3.h!==H || R3.pr!==pr){ R3.w=W; R3.h=H; R3.pr=pr; R3.renderer.setPixelRatio(pr); R3.renderer.setSize(W, H, false); R3.camera.aspect = W/H; R3.camera.updateProjectionMatrix(); }
   const wk = `${S.worldVer||0}|${ART.season}|${BUILDINGS.length}|${X0},${Y0},${MW},${MH}`;
   if (wk!==R3.lastWorld){ R3.lastWorld = wk; r3World(); }
-  if (R3.groundKey!==groundKey){ R3.groundKey = groundKey; if (typeof HD!=='undefined' && HD.on){ if (HD.td) hdRefreshTerrainData(); } else R3.groundTex.needsUpdate = true; }
+  if (R3.groundKey!==groundKey){ R3.groundKey = groundKey; R3.groundTex.needsUpdate = true; }
   const pk = `${wk}|${Math.floor(S.minute/60)}|${(S.deceased||[]).length}`;
   if (pk!==R3.lastProps){ R3.lastProps = pk; r3Props(); }
   // camera
@@ -6771,7 +6701,6 @@ function r3Render(frac, ts){
   r3Villagers(frac, ts, dark);
   r3Interiors(tx, tz);
   (R3.flames||[]).forEach((m,i)=>m.userData.flame.forEach((f,k)=>{ f.scale.y = 0.8 + Math.sin(ts/90 + i*3 + k*2)*0.25; f.material.color.setHSL(0.08+0.03*k, 1, 0.5 + 0.1*Math.sin(ts/120+k)); }));
-  if (typeof HD!=='undefined' && HD.on && HD.sky) hdFrame(dt, ts, dark);
   r3Draw(dark);
 }
 // ---------- controls: drag to pan, right-drag or two fingers to turn, wheel or pinch to zoom, tap to pick ----------
@@ -6962,8 +6891,6 @@ window.PT = { get S(){return S;}, simulate(n){ for (let i=0;i<n;i++) simTick(); 
 <script src="civ/civ_housing.js"></script>
 <script src="civ/civ_science.js"></script>
 <script src="civ/civ_transport.js"></script>
-<script src="civ/civ_hd.js"></script>
-<script src="civ/civ_hd_world.js"></script>
 <script src="civ/civ_render.js"></script>
 <script src="civ/civ_3d.js"></script>
 <script src="civ/civ_ui.js"></script>
