@@ -290,17 +290,21 @@ function civEducationWeekly(){
     // the schoolhouse is rebuilt as a proper school: bigger if the ground beside it is free, otherwise on its own footprint
     if (lvl===2 && s && s.def==='school_hut' && civCanBuild('school', lit) && !civProjects().some(p=>p.upgradeOf===s.id)){
       let fits = true; for (let y=s.y;y<s.y+3 && fits;y++) for (let x=s.x;x<s.x+5;x++){ const t = tileAt(x,y), inHut = x<s.x+s.w && y<s.y+s.h; if (!inHut && (t===-1 || !(t===T.GRASS||t===T.FLOWER||t===T.SAND||t===T.TREE) || S.civ.reserved[tkey(x,y)])){ fits = false; break; } }
-      civStartProject('school', fits ? {x:s.x, y:s.y, w:5, h:3} : {x:s.x, y:s.y, w:s.w, h:s.h}, s.owner, {upgradeOf:s.id, purpose:'education', why:'the schoolhouse is too small'}); }
+      civStartProject('school', fits ? {x:s.x, y:s.y, w:5, h:3} : {x:s.x, y:s.y, w:s.w, h:s.h}, civTownOwner(), {upgradeOf:s.id, org:o.id, purpose:'education', pay: civMoneyOn() ? 2 : 0, why:'the schoolhouse is too small'}); } // a public project: the settlement's store and treasury supply it, the school has no money of its own
     if (!o.staff.length){ o.idle = (o.idle||0)+1; if (o.idle>4){ civOrgDissolve(o, 'closed'); if (s){ s.forSale = civMoneyOn(); s.price = s.value; } } } else o.idle = 0;
     // hire another teacher if there are many pupils
-    const pupils = S.citizens.filter(k=>!isAdult(k) && k.age>=6).length; if (pupils > o.staff.length*14){ const t = S.citizens.find(c=>isAdult(c) && !c.civ.job && kn(c,'teaching')+sk(c,'teaching') > 35); if (t){ o.staff.push(t.id); t.civ.employer = o.id; chronicle(`${t.name} joined ${o.name} as a teacher.`, 4, '🧑‍🏫', 'learning'); } }
+    const pupils = S.citizens.filter(k=>!isAdult(k) && k.age>=6).length; if (pupils > o.staff.length*14 || (o.staff.length < 2 && s && s.def!=='school_hut' && pupils >= 8)){ const t = S.citizens.find(c=>isAdult(c) && !c.civ.job && kn(c,'teaching')+sk(c,'teaching') > 35); if (t){ o.staff.push(t.id); t.civ.employer = o.id; chronicle(`${t.name} joined ${o.name} as a teacher.`, 4, '🧑‍🏫', 'learning'); } }
     // school fees or public funds pay teachers
     if (civMoneyOn()) o.staff.forEach(id=>{ const pay = 2*(C.econ.level||1); if (!civMoveMoney({k:'gov'}, {k:'person', id}, pay, 'salary')) civMoveMoney({k:'community'}, {k:'person', id}, pay, 'salary'); });
   });
+  civSpecialSchoolsWeekly();
   // trade school, academy, college, university, research university
   const mentors = S.citizens.filter(c=>c.civ.mentor).length;
   const scholars = S.citizens.filter(c=>Math.max(0, ...SCIENCES.map(s=>kn(c,s))) >= 45);
-  const inst = (def, lvl, stage, text, trade) => { if (civHas(def).length || civProjects().some(p=>p.def===def) || !civCanBuild(def, S.citizens)) return; const site = civFindSite(def, C.center, {margin:1}); if (!site) return; const head = scholars[0] || S.citizens.filter(c=>c.civ.occ==='teacher')[0]; if (!head) return; const o = civNewOrg('school', `${STRUCTURES[def].label} of ${S.civ.stageLabel||'the settlement'}`, [head], {edu:{level:lvl, trade:!!trade}}); o.staff.push(head.id); civStartProject(def, site, {k:'org', id:o.id}, {org:o.id, purpose:'education', why:text}); };
+  const inst = (def, lvl, stage, text, trade) => { if (civHas(def).length || civProjects().some(p=>p.def===def) || !civCanBuild(def, S.citizens)) return; const site = civFindSite(def, C.center, {margin:1}); if (!site) return; const head = scholars[0] || S.citizens.filter(c=>c.civ.occ==='teacher')[0]; if (!head) return;
+    // the institution is founded once; if its building stalls and has to be started again, it is the same institution
+    let o = civOrgs(x=>x.type==='school' && x.edu && x.edu.inst===def)[0]; if (!o){ o = civNewOrg('school', `${STRUCTURES[def].label} of ${S.civ.stageLabel||'the settlement'}`, [head], {edu:{level:lvl, trade:!!trade, inst:def}}); o.staff.push(head.id); }
+    civStartProject(def, site, civTownOwner(), {org:o.id, purpose:'education', pay: civMoneyOn() ? 2 : 0, why:text}); };
   if (E.stage>=4 && mentors>=6) inst('trade_school', 3, 5, 'so apprentices can learn trades properly', true);
   if (civHas('trade_school').length) civEduStage(5, 'A trade school now teaches crafts and building.');
   if (E.stage>=4 && scholars.length>=3 && (C.gov.treasury>200 || S.citizens.some(c=>c.wallet>800))) inst('academy', 4, 6, 'for the settlement\'s scholars');
@@ -310,6 +314,52 @@ function civEducationWeekly(){
   if (E.stage>=7 && scholars.length>=6 && civHas(['laboratory','institute']).length) inst('university', 6, 8, 'a university for the region');
   if (civHas('university').length){ civEduStage(8, 'The settlement has a university.'); if (C.research.filter(r=>r.status==='active').length>=3) civEduStage(9, 'The university has become a research university.'); }
   if (!civHas('library').length && (S.civ.books||[]).length>=10 && !civProjects().some(p=>p.def==='library') && civCanBuild('library', S.citizens)){ const site = civFindSite('library', C.center, {margin:1}); if (site) civStartProject('library', site, C.gov.stage>=4 ? {k:'gov'} : {k:'community'}, {purpose:'education', why:'there are books enough to keep'}); }
+}
+
+// ---------- specialised schools: learning beyond the children's classroom ----------
+// Each kind appears when the settlement has both the need (people who would study) and someone able to teach.
+// Classes meet weekly; students gain knowledge and skill toward their teacher's level and earn a certificate after eight weeks.
+const CIV_EDU_TYPES = {
+  night_school:   {label:'Night school',        icon:'🕯️', teach:['literacy','mathematics'], skills:[], who:c=>isAdult(c) && c.age<60 && kn(c,'literacy')<30,
+                   when:C=>civTechKnown('writing') && S.citizens.filter(c=>isAdult(c) && kn(c,'literacy')<20).length>=8, teacher:c=>kn(c,'literacy')>=40 && kn(c,'literacy')+kn(c,'teaching')>=55, what:'reading, writing and sums for grown-ups, in the evenings'},
+  farm_school:    {label:'Farming school',      icon:'🌾', teach:['agriculture','biology'], skills:['farming','herding'], who:c=>isAdult(c) && c.age<45 && (sk(c,'farming')>5 || c.civ.occ==='farmer' || c.civ.occ==='herder' || c.age<25),
+                   when:C=>civStructsOf(s=>STRUCTURES[s.def].farm).length>=10, teacher:c=>kn(c,'agriculture')>=40 && sk(c,'farming')>=35, what:'crops, soil, seed and animals'},
+  healing_school: {label:'School of healing',   icon:'🩺', teach:['medicine','biology'], skills:['medicine'], who:c=>isAdult(c) && c.age<40 && (c.personality.agreeableness>0.5 || kn(c,'medicine')>10), medical:true,
+                   when:C=>S.citizens.filter(c=>c.civ.occ==='healer').length>=2, teacher:c=>kn(c,'medicine')>=40 && sk(c,'medicine')>=30, what:'herbs, wounds, sickness and surgery'},
+  mining_school:  {label:'School of mines',     icon:'⛏️', teach:['geology','engineering'], skills:['mining','geology'], who:c=>isAdult(c) && c.age<40 && (sk(c,'mining')>5 || kn(c,'geology')>8 || c.personality.openness>0.6),
+                   when:C=>civTechKnown('mining') && (C.deposits||[]).filter(d=>d.known).length>=3, teacher:c=>kn(c,'geology')>=40 || sk(c,'mining')>=45, what:'finding ore, sinking shafts and keeping miners alive'},
+  merchant_school:{label:"Merchants' school",   icon:'🧮', teach:['trade','finance','mathematics'], skills:['accounting','trading'], who:c=>isAdult(c) && c.age<45 && (c.values.includes('Prosperity') || c.civ.employer || c.age<25),
+                   when:C=>civMoneyOn() && civOrgs(o=>o.biz).length>=6, teacher:c=>kn(c,'trade')+kn(c,'finance')>=60 && kn(c,'literacy')>=25, what:'bookkeeping, prices, contracts and credit'}
+};
+function civSpecialSchoolsWeekly(){
+  const C = S.civ, E = C.edu;
+  for (const k in CIV_EDU_TYPES){ const T = CIV_EDU_TYPES[k];
+    let o = civOrgs(x=>x.type==='edu_school' && x.edu && x.edu.kind===k)[0];
+    if (!o && T.when(C)){
+      const t = S.citizens.filter(c=>isAdult(c) && !c.jail && c.age<70 && T.teacher(c)).sort((a,b)=>T.teach.reduce((s,d)=>s+kn(b,d),0)-T.teach.reduce((s,d)=>s+kn(a,d),0))[0];
+      if (t){ o = civNewOrg('edu_school', `Pixel Town ${T.label}`, [t], {edu:{kind:k, level:1, medical:!!T.medical}}); o.staff.push(t.id); o.mgr = t.id; if (!t.civ.job) t.civ.employer = o.id; o.students = {}; o.grads = 0;
+        chronicle(`${t.name} opened ${an(T.label.toLowerCase())} ${T.icon}: ${T.what}.`, 7, '📚', 'learning'); ev('special_schools'); S.week.society.push(`Education: ${T.label}`);
+        const home = civHas(['school','school_hut','hall','library']).find(s=>s.status==='active'); if (home) o.hq = home.id; } }
+    if (!o) continue;
+    o.staff = o.staff.filter(id=>alive(id)); o.students = o.students || {};
+    if (!o.staff.length){ const t = S.citizens.find(c=>isAdult(c) && !c.jail && T.teacher(c)); if (t){ o.staff.push(t.id); o.mgr = t.id; chronicle(`${t.name} took over teaching at ${o.name}.`, 4, '🧑‍🏫', 'learning'); } else { o.idle = (o.idle||0)+1; if (o.idle > 8){ o.status = 'dissolved'; o.ended = civDay(); chronicle(`${o.name} closed: nobody was left to teach.`, 5, '🚪', 'learning'); } continue; } }
+    o.idle = 0;
+    const teachers = o.staff.map(alive).filter(Boolean), cap = teachers.length*12;
+    // who comes: those it suits, keenest learners first; the class fills up to what the teachers can take
+    for (const id in o.students) if (!alive(id) || alive(id).jail) delete o.students[id];
+    if (Object.keys(o.students).length < cap){ S.citizens.filter(c=>!o.students[c.id] && !o.staff.includes(c.id) && T.who(c) && !(c.civ.quals||[]).includes(k)).sort((a,b)=>cog(b,'learning')+b.personality.openness-cog(a,'learning')-a.personality.openness).slice(0, cap - Object.keys(o.students).length).forEach(c=>{ o.students[c.id] = {since:civDay(), weeks:0}; }); }
+    // a week of classes
+    Object.keys(o.students).forEach((id, i)=>{ const c = alive(id), t = teachers[i % teachers.length]; if (!c || !t) return; const st = o.students[id];
+      if (civMoneyOn() && c.wallet >= 2*(C.econ.level||1)) civMoveMoney({k:'person', id:c.id}, {k:'person', id:t.id}, 1*(C.econ.level||1), 'fees');
+      const rate = (1.2 + sk(t,'teaching')/60)*(0.5 + cog(c,'learning'));
+      T.teach.forEach(d=>{ const tv = kn(t,d); if (tv > kn(c,d)) c.civ.know[d] = +Math.min(tv, kn(c,d) + rate*(tv-kn(c,d))/12).toFixed(2); });
+      T.skills.forEach(s=>{ const tv = sk(t,s); if (tv > sk(c,s)) c.civ.skill[s] = +Math.min(tv, sk(c,s) + rate*0.9).toFixed(2); });
+      st.weeks++; ev('special_lessons');
+      if (st.weeks >= 8){ c.civ.quals = (c.civ.quals||[]).concat(k); delete o.students[id]; o.grads = (o.grads||0)+1; remember(c, `I finished my studies at ${o.name}.`, 7); ev('graduates'); if (o.grads % 10 === 1) chronicle(`${c.name} earned a certificate from ${o.name}.`, 4, '🎓', 'learning'); } });
+    teachers.forEach(t=>{ t.civ.skill.teaching = Math.min(100, sk(t,'teaching') + 0.6); });
+    // a full class and a waiting list: another teacher joins
+    if (Object.keys(o.students).length >= cap && teachers.length < 3){ const t2 = S.citizens.find(c=>isAdult(c) && !c.jail && !o.staff.includes(c.id) && T.teacher(c)); if (t2){ o.staff.push(t2.id); chronicle(`${t2.name} began teaching at ${o.name}.`, 4, '🧑‍🏫', 'learning'); } }
+  }
 }
 
 // ---------- health care ----------
@@ -511,7 +561,7 @@ function civImmigrate(n){
       if (B){ for (const k in B) if (k!=='s') c.civ.know[k] = Math.max(kn(c,k), B[k]*(0.6+r()*0.6)); c.civ.skill[B.s] = Math.max(sk(c,B.s), 30+r()*30); }
       n.techs.forEach(t=>{ if (r()<0.3 && civCanGrasp(c,t)) c.civ.techs.push(t); });
       if (civMoneyOn()) c.wallet = Math.round((20 + r()*120)*(C.econ.level||1)); else storeAdd(h.store, 'beads', Math.floor(r()*20)); }
-    c.rt.x = c.rt.ox = 1; c.rt.y = c.rt.oy = clamp(C.center[1],2,OH-3);
+    c.rt.x = c.rt.ox = 1; c.rt.y = c.rt.oy = clamp(C.center[1],2,OH-3); c.civ.arrived = civDay();
     S.citizens.push(c); CBY[c.id] = c; civJoinHH(c, h); mem.push(c);
     c.plan = civPlanDay(c, civDay());
     S.week.arrivals.push(`${c.name}${kid?'':` (from ${n.name})`}`);
@@ -519,9 +569,20 @@ function civImmigrate(n){
   if (mem.length>=2 && isAdult(mem[0]) && isAdult(mem[1]) && mutual(mem[0], mem[1])){ mem[0].partner = mem[1].id; mem[1].partner = mem[0].id; [[mem[0],mem[1]],[mem[1],mem[0]]].forEach(([a,b])=>{ const R = getRel(a,b.id); R.affinity = 80; R.tags = ['Spouse','Family']; }); }
   mem.slice(2).forEach(k=>mem.slice(0,2).forEach(p=>{ const R = getRel(p,k.id); R.affinity = 85; R.tags = ['Family']; getRel(k,p.id).tags = ['Family']; }));
   storeAdd(h.store, 'preserved', size*4); storeAdd(h.store, 'water', size*2); storeAdd(h.store, 'tools', 1);
+  // most families come prepared: savings from selling up at home, and a cart of timber and thatch for a house of their own
+  const adultsIn = mem.filter(isAdult), prepared = adultsIn.length && r() < 0.62;
+  let homeDef = null;
+  if (prepared){
+    adultsIn.forEach(a=>{ if (civMoneyOn()) a.wallet += Math.round((120 + r()*280)*(C.econ.level||1)); else storeAdd(h.store, 'beads', 10 + Math.floor(r()*25)); });
+    homeDef = civBestHomeDef(adultsIn, civHHWealth(h), size);
+    if (homeDef==='longhouse' || STRUCTURES[homeDef].home.cap < size) homeDef = size > 5 && civCanBuild('longhouse', adultsIn) ? 'longhouse' : 'crude_hut';
+    const D = STRUCTURES[homeDef]; for (const g in D.mat) storeAdd(h.store, g, Math.ceil(D.mat[g]*(1 + r()*0.2)));
+    ev('immigrants_prepared');
+  }
   n.pop = Math.max(40, n.pop - size); C.migration.in += size; ev('immigrants', size);
   indexCitizens();
-  chronicle(`${mem.map(x=>x.name.split(' ')[0]).join(', ')} ${sur} arrived from ${n.name}, ${bg ? `people who know ${bg}` : 'looking for a new start'}.`, 6, '🧳', 'arrival');
+  chronicle(`${mem.map(x=>x.name.split(' ')[0]).join(', ')} ${sur} arrived from ${n.name}, ${bg ? `people who know ${bg}` : 'looking for a new start'}${homeDef ? `, with savings and materials for ${an(STRUCTURES[homeDef].label.toLowerCase())} of their own` : ''}.`, 6, '🧳', 'arrival');
+  if (homeDef && adultsIn[0]) civHousingGoals(adultsIn[0], h, null);
   civProblem('growth', 1); civProblem('housing', 0.5);
 }
 function civRemovePerson(c, kind, cause){
@@ -549,5 +610,84 @@ function civSocietyDaily(){
   if (civFoodDaysAll() < 0.6 && civDay()%5===0){ const n = S.civ.neighbors.filter(n=>n.rel >= 5 && civNbFoodDays(n) > 25).sort((a,b)=>b.rel-a.rel)[0];
     if (n && rnd() < 0.35 + n.rel/200){ const q = Math.round(Math.min(n.food*0.03, S.citizens.length*6)); if (q>20){ n.food -= q; n.rel -= 3; S.civ.shipments.push({id:'sh_'+(++S.civ.shSeq), from:n.id, fromName:n.name, goods:{grain:q}, q, cost:0, price:0, ordered:civDay(), arrive:civDay()+n.dist, status:'en route', why:'relief'}); chronicle(`${n.name} heard of the hunger and is sending ${q} units of grain as relief.`, 8, '🤲', 'food'); ev('relief'); } } }
 }
-function civSocietyWeekly(){ civLawsWeekly(); civElectionsWeekly(); civCivilWeekly(); civEducationWeekly(); civSportWeekly(); for (const k in S.civ.problems) S.civ.problems[k] = +(S.civ.problems[k]*0.7).toFixed(1); }
+function civSocietyWeekly(){ civLawsWeekly(); civElectionsWeekly(); civSafe('districts-w', civDistrictsWeekly); civCivilWeekly(); civEducationWeekly(); civSportWeekly(); for (const k in S.civ.problems) S.civ.problems[k] = +(S.civ.problems[k]*0.7).toFixed(1); }
 function civSocietyMonthly(){ S.civ.monthlyPop = (S.civ.monthlyPop||[]).concat({day:civDay(), pop:S.citizens.length}).slice(-60); }
+
+// ---------- districts: local leaders, all elected, answering to the leader of the whole settlement ----------
+// As the valley fills it splits into wards (first by the river, then into quarters), and every established frontier
+// district becomes its own district. Once a district has enough adults it elects a head and, when larger, councillors.
+// District heads sit together on the council of districts under the settlement's leader, who from then on is also elected.
+const CIV_DISTRICT_TITLE = {'council of elders':'Elder', 'merchant council':'Alderman', 'chieftaincy':'Headman', 'assembly':'Speaker', 'theocratic circle':'Warden', 'republic':'Councillor', 'oligarchy':'Magistrate'};
+function civDistrictTitle(){ return CIV_DISTRICT_TITLE[S.civ.gov.form] || 'Reeve'; }
+function civWardKey(x, y){
+  const G = S.civ.gov, split = G.wardSplit || 0; if (!split) return 'w:all';
+  const side = x < riverX(clamp(y, 0, 40)) ? 'W' : 'E'; if (split===1) return 'w:'+side;
+  return 'w:'+(y < S.civ.center[1] ? 'N' : 'S')+side;
+}
+const CIV_WARD_NAMES = {'w:all':'the valley', 'w:W':'West Bank', 'w:E':'East Bank', 'w:NW':'Northwest Quarter', 'w:NE':'Northeast Quarter', 'w:SW':'Southwest Quarter', 'w:SE':'Southeast Quarter'};
+function civDistrictKeyOf(c){
+  const s = c && c.home && S.civ.structs[c.home]; if (!s) return null;
+  const r = typeof civRegionAt==='function' ? civRegionAt(s.x, s.y) : null;
+  if (r) return r.state==='established' ? 'r:'+r.id : null; // frontier land answers to the valley until it is established
+  return civWardKey(s.x, s.y);
+}
+function civDistrictName(key){ if (key.startsWith('r:')){ const cell = Object.values(S.world.cells).find(c=>c.id===key.slice(2)); return cell ? cell.name : 'a district'; } return CIV_WARD_NAMES[key] || key; }
+function civDistrictsWeekly(){
+  const C = S.civ, G = C.gov, d = civDay(); if (G.stage < 3) return;
+  G.districts = G.districts || {};
+  // the valley splits into wards as it grows: never merges back
+  const valley = S.citizens.filter(c=>{ const s = c.home && C.structs[c.home]; return s && !(typeof civRegionAt==='function' && civRegionAt(s.x, s.y)); }).length;
+  const split = valley >= 320 ? 2 : valley >= 170 ? 1 : 0;
+  if (split > (G.wardSplit||0)){ G.wardSplit = split; for (const k in G.districts) if (k.startsWith('w:')) civDissolveDistrict(k, 'the valley was divided into new wards');
+    chronicle(split===1 ? 'The valley has grown too big to run as one: it was divided into the West Bank and East Bank wards.' : 'The valley was divided again, into four quarters, each with its own leadership.', 7, '🗺️', 'gov'); }
+  const res = {}; S.citizens.forEach(c=>{ if (!isAdult(c) || c.jail) return; const k = civDistrictKeyOf(c); if (!k || k==='w:all') return; (res[k] = res[k] || []).push(c); });
+  const title = civDistrictTitle();
+  for (const k in res){ const D0 = G.districts[k];
+    if (!D0 && res[k].length >= 12){ G.districts[k] = {key:k, name:civDistrictName(k), since:d, head:null, council:[], elections:[], budget:0, asks:[]}; chronicle(`${civDistrictName(k)} has ${res[k].length} adults and will choose its own ${title.toLowerCase()} to speak for it.`, 7, '🏘️', 'gov'); ev('districts'); } }
+  for (const k in G.districts){ const D = G.districts[k], voters = res[k] || [];
+    D.name = civDistrictName(k); D.adults = voters.length;
+    const head = D.head && alive(D.head);
+    if (head && civDistrictKeyOf(head)!==k){ head.office = null; D.head = null; chronicle(`${head.name} moved away and gave up leading ${D.name}.`, 5, '🏘️', 'gov'); }
+    D.council = D.council.filter(id=>{ const x = alive(id); return x && civDistrictKeyOf(x)===k; });
+    const last = D.elections.length ? D.elections[D.elections.length-1].day : -999;
+    if (voters.length >= 6 && (!(D.head && alive(D.head)) || d - last >= 56)) civDistrictElection(D, voters, !D.elections.length ? 'its first election' : !(D.head && alive(D.head)) ? 'the seat was empty' : 'the term was up');
+  }
+  // once there are districts, the leader of the whole settlement is chosen by everyone too
+  const n = Object.keys(G.districts).length;
+  if (n >= 2 && !G.federation){ G.federation = d; chronicle(`The ${title.toLowerCase()}s of ${n} districts now meet as the council of districts, under the settlement's ${G.title||'leader'}.`, 8, '🏛️', 'gov'); if (!G.elections.length){ civElection('the districts want a leader chosen by everyone'); if (G.stage < 5) civGovStage(5, 'The settlement held its first election.'); } }
+  if (G.federation && d % 28 === 0) civDistrictRequests();
+}
+function civDissolveDistrict(k, why){ const G = S.civ.gov, D = G.districts[k]; if (!D) return; [D.head].concat(D.council).map(alive).filter(Boolean).forEach(x=>{ if (x.office && x.office.includes(D.name)) x.office = null; }); delete G.districts[k]; }
+function civDistrictElection(D, voters, why){
+  const title = civDistrictTitle();
+  const cands = voters.filter(c=>!c.office || c.office.includes(D.name)).map(c=>({c, s:c.politics.civicEngagement + (c.traits.includes('Ambitious')?0.3:0) + civInfluence(c)/60})).sort((a,b)=>b.s-a.s).slice(0, Math.min(4, Math.max(2, Math.ceil(voters.length/15)))).map(x=>x.c);
+  if (!cands.length) return;
+  const tally = civVote(voters, cands), order = cands.slice().sort((a,b)=>(tally[b.id]||0)-(tally[a.id]||0)), win = order[0];
+  [D.head].concat(D.council).map(alive).filter(Boolean).forEach(x=>{ if (x.office && x.office.includes(D.name)) x.office = null; });
+  D.head = win.id; win.office = `${title} of ${D.name}`;
+  D.council = voters.length >= 40 ? order.slice(1, voters.length >= 90 ? 4 : 3).map(x=>x.id) : [];
+  D.council.forEach(id=>{ const x = alive(id); if (x) x.office = `Councillor for ${D.name}`; });
+  D.elections.push({day:civDay(), winner:win.id, votes:tally[win.id]||0, turnout:voters.length, why}); D.elections = D.elections.slice(-12);
+  chronicle(`${D.name} elected ${win.name} as ${title.toLowerCase()} with ${tally[win.id]||0} of ${voters.length} votes (${why})${D.council.length ? `; councillors: ${D.council.map(id=>(alive(id)||{}).name).filter(Boolean).join(', ')}` : ''}.`, 6, '🗳️', 'gov'); ev('district_elections');
+  remember(win, `The people of ${D.name} chose me to speak for them.`, 8);
+}
+// each month district heads bring their district's needs to the leader, who funds what the treasury can bear
+function civDistrictRequests(){
+  const C = S.civ, G = C.gov, lead = G.leader && alive(G.leader);
+  Object.values(G.districts).forEach(D=>{
+    const head = D.head && alive(D.head); if (!head) return;
+    const homes = civStructsOf(s=>STRUCTURES[s.def].home && s.occ && civDistrictKeyOf(hhMembers(C.hh[s.occ]||{members:[]})[0])===D.key); if (!homes.length) return;
+    const mx = homes.reduce((a,s)=>a+s.x,0)/homes.length, my = homes.reduce((a,s)=>a+s.y,0)/homes.length, near = defs => civHas(defs).some(s=>Math.hypot(s.x-mx, s.y-my) < 16);
+    const kids = S.citizens.filter(c=>!isAdult(c) && c.age>=5 && civDistrictKeyOf(c)===D.key).length;
+    const want = !near(['well']) && civCanBuild('well', S.citizens.filter(isAdult)) ? ['well', 'the walk for water'] : D.adults >= 30 && !near(['healer_hut','clinic','hospital']) && civCanBuild('healer_hut', S.citizens.filter(isAdult)) ? ['healer_hut', 'a healer close by'] : kids >= 8 && !near(['school_hut','school']) && civCanBuild('school_hut', S.citizens.filter(isAdult)) ? ['school_hut', 'a school for its children'] : null;
+    if (!want || civProjects().some(p=>p.def===want[0] && p.meta && p.meta.district===D.key)) return;
+    const cost = Object.entries(STRUCTURES[want[0]].mat).reduce((a,[g,q])=>a+q*civPrice(g),0) + STRUCTURES[want[0]].labor;
+    const ok = !civMoneyOn() || (G.treasury||0) - cost >= civTreasuryReserve();
+    D.asks.push({day:civDay(), what:want[0], ok}); D.asks = D.asks.slice(-8);
+    if (!ok){ if (rnd()<0.5) chronicle(`${head.name} asked ${lead ? lead.name : 'the council'} for ${want[1]} in ${D.name}, but the treasury could not stretch to it.`, 4, '🏘️', 'gov'); return; }
+    const site = civFindSite(want[0], [Math.round(mx), Math.round(my)], {margin:1, maxR:14, anySide:true}); if (!site) return;
+    if (civMoneyOn()) G.treasury -= Math.round(cost*0.5);
+    civStartProject(want[0], site, civTownOwner(), {purpose:'civic', meta:{district:D.key}, pay: civMoneyOn() ? 2 : 0, why:`${head.name} asked for ${want[1]} in ${D.name}`});
+    chronicle(`${lead ? lead.name : 'The council'} approved ${head.name}'s request: ${an(STRUCTURES[want[0]].label.toLowerCase())} for ${D.name}.`, 6, '🏛️', 'gov'); ev('district_projects');
+  });
+}

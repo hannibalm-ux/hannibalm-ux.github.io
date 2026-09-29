@@ -199,6 +199,7 @@ function civApplyStruct(s){
   if (D.prop){ for (let y=s.y;y<s.y+s.h;y++) for (let x=s.x;x<s.x+s.w;x++) if (tileAt(x,y)!==-1) MAP[y][x] = T.OBJ;
     LOC[s.id] = {id:s.id, name:s.name, indoor:false, rects:[[s.x-1,s.y+s.h,s.x+s.w,s.y+s.h]]}; return; }
   const b = {id:s.id, name:s.name, x:s.x, y:s.y, w:s.w, h:s.h, style:D.style, crude: CRUDE_DEFS.has(s.def), roof:s.roof || D.roof || HOUSE_ROOFS[hash(s.id)%HOUSE_ROOFS.length], house: D.cat==='home', cap: D.home ? D.home.cap : 0, type:s.def, biz: D.cat!=='home' ? s.def : null, sign: s.sign || D.sign || null, civ:true, cond:s.cond};
+  if (D.mine && s.meta && s.meta.deposit){ const dp = (S.civ.deposits||[]).find(x=>x.id===s.meta.deposit); if (dp) b.ore = dp.min; }
   b.door = [b.x+Math.floor(b.w/2), b.y+b.h];
   BUILDINGS.push(b); LOC[b.id] = {id:b.id, name:b.name, indoor:true, door:b.door, b};
   for (let y=b.y;y<b.y+b.h;y++) for (let x=b.x;x<b.x+b.w;x++) if (tileAt(x,y)!==-1) MAP[y][x] = T.BUILD;
@@ -225,8 +226,14 @@ function civAddStruct(def, x, y, owner, opts){
   const s = {id, def, x, y, w: opts.w||D.w, h: opts.h||D.h, owner: owner||{k:'community'}, name: opts.name || civStructName(def, civOwnerObj(owner)), built: civDay(), cond: opts.cond ?? 100,
     status:'active', value:0, forSale:false, occ:null, roof: opts.roof||null, meta: opts.meta||{}, tiles: opts.tiles||null, org: opts.org||null, age0: opts.age0||0};
   C.structs[id] = s; civApplyStruct(s); civParcelFor(s); civValue(s);
+  // a mine needs a working yard: the trees and scrub around the shaft are cleared, so it can be seen and reached
+  civMineYard(s);
   S.civ.dirtyGround = true; bumpWorld();
   return s;
+}
+function civMineYard(s){
+  const C = S.civ, D = STRUCTURES[s.def]; if (!D.mine || D.mine.fluid || s.meta.yard) return; s.meta.yard = 1;
+  for (let j=s.y-2; j<s.y+s.h+2; j++) for (let i=s.x-2; i<s.x+s.w+2; i++){ const t = tileAt(i,j); if ((t===T.TREE || t===T.FLOWER || t===T.GRASS) && !civStructAt(i,j)){ if (t===T.TREE){ delete C.tree[tkey(i,j)]; C.stumps[tkey(i,j)] = civDay(); } civSetTile(i,j,T.SAND); } }
 }
 function civRemoveStruct(s, how, salvage){
   if (!s || !S.civ.structs[s.id]) return;
@@ -604,6 +611,7 @@ function civStructsDaily(){
   const d = civDay();
   Object.values(S.civ.structs).forEach(s=>{
     const D = STRUCTURES[s.def]; if (!D) return;
+    if (D.mine && !s.meta.yard) civMineYard(s); // older saves: give existing mines their yard
     const dur = D.home ? D.home.dur : D.bridge ? D.bridge.dur : 70;
     const storm = S.weather==='Storm' ? 3 : 1, age = d - s.built;
     s.cond = Math.max(0, s.cond - (0.12 + (100-dur)/260)*storm*(age>200?1.4:1));
@@ -612,10 +620,13 @@ function civStructsDaily(){
     if (s.status==='active' && s.cond<70){ const users = civUsers(s); if (users.length && hashf(s.x,s.y,d+1) < (D.home && s.cond < 35 ? 0.5 : 0.25)){
       // repairs use the owner's materials, then the family's, then the common store; a home of wood, thatch, clay or stone
       // can always be patched with what the family gathers, so an occupied hut is not left to fall down around them
-      const mat = D.mat && Object.keys(D.mat)[0], stores = [civOwnerStore(s.owner), (hhOf(users[0])||{}).store, S.civ.commons].filter(Boolean);
-      const natural = D.home && Object.keys(D.mat||{}).every(g=>['wood','thatch','clay','stone','fibre'].includes(g));
-      if (!mat || stores.some(st=>storeTake(st, mat, 2)>=1)) s.cond = Math.min(100, s.cond + 6);
-      else if (natural){ s.cond = Math.min(100, s.cond + 4); ev('homes_patched'); } } }
+      // any of the building's materials will do (or a stand-in: wood for planks, stone for brick); a building people still use
+      // is never left to fall down around them: failing proper materials, they patch it with what they can find
+      const mats = Object.keys(D.mat||{}), subs = mats.flatMap(g=>(typeof CIV_SUBST!=='undefined' && CIV_SUBST[g] || []).map(x=>x[0])), stores = [civOwnerStore(s.owner), (hhOf(users[0])||{}).store, S.civ.commons].filter(Boolean);
+      const natural = D.home && mats.every(g=>['wood','thatch','clay','stone','fibre'].includes(g));
+      if (!mats.length || mats.concat(subs).some(g=>stores.some(st=>storeTake(st, g, 2)>=1))) s.cond = Math.min(100, s.cond + 6);
+      else if (natural){ s.cond = Math.min(100, s.cond + 4); ev('homes_patched'); }
+      else { s.cond = Math.min(100, s.cond + 3); ev('buildings_patched'); } } }
     if (D.bridge && s.cond<=0){ civRemoveStruct(s, 'collapse'); civProblem('infrastructure', 3); return; }
     if (s.cond<=0 && D.cat!=='farm' && D.cat!=='ranch'){ civRemoveStruct(s, 'collapse'); civProblem('housing', 1); return; }
     if (s.status==='active' && !civUsers(s).length && !D.bridge && !D.tile && age>30 && s.cond<35 && hashf(s.x,s.y,d+2)<0.03){ s.status = 'abandoned'; chronicle(`${s.name} stands empty and is falling apart.`, 3, '🏚️', 'land'); }

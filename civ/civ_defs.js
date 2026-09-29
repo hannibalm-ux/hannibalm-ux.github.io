@@ -412,6 +412,7 @@ const ORG_TYPES = {
   team:        {label:'Sports club',         own:'multi'},
   league:      {label:'Sports league',       own:'members'},
   school:      {label:'School',              own:'none'},
+  edu_school:  {label:'Specialised school',  own:'none'},
   institute:   {label:'Research institute',  own:'none'},
   government:  {label:'Government',          own:'none'},
   exchange:    {label:'Stock exchange',      own:'members'}

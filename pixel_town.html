@@ -18,8 +18,10 @@ header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:10px
 h1{font:14px/1 "Press Start 2P",monospace;margin:0;color:var(--accent);letter-spacing:1px}
 #clock{font:22px/1 VT323,monospace;display:flex;gap:14px;flex-wrap:wrap;align-items:baseline}
 #clock b{color:var(--accent);font-weight:normal;font-size:26px}
-.speed{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
-.speed button,.btn{background:var(--panel-2);border:2px solid var(--line);border-radius:4px;padding:4px 9px;cursor:pointer}
+#speed{position:absolute;left:8px;top:8px;z-index:2;display:flex;gap:3px;align-items:center;flex-wrap:wrap;max-width:calc(100% - 240px);background:rgba(20,21,32,.78);border:1px solid rgba(255,255,255,.22);border-radius:6px;padding:3px}
+#speed button{background:rgba(20,21,32,.85);border:1px solid rgba(255,255,255,.3);border-radius:4px;color:#fff;min-width:34px;height:30px;padding:0 7px;cursor:pointer;font-size:13px}
+#speed .rate{font-size:12px;color:#cfd2e0;padding:0 6px;white-space:nowrap}
+.btn{background:var(--panel-2);border:2px solid var(--line);border-radius:4px;padding:4px 9px;cursor:pointer}
 .speed button.on,.btn.on{border-color:var(--accent);color:var(--accent)}
 .btn:hover,.speed button:hover{border-color:var(--muted)}
 .btn.primary{background:var(--accent);color:#1a1405;border-color:var(--accent)}
@@ -110,7 +112,8 @@ a{color:var(--link)}
 @media (max-width:980px){
   main{grid-template-columns:minmax(0,1fr)}
   aside{border-left:0;border-top:2px solid var(--line);max-height:none;position:static}
-  .speed{margin-left:0}
+  #speed{max-width:calc(100% - 156px)}
+  #speed .rate{display:none}
   #stage{padding:10px 16px}
   #viewWrap{height:clamp(300px,58vh,640px)}
   #mini{width:132px;height:60px}
@@ -121,13 +124,13 @@ a{color:var(--link)}
 <header>
   <h1>PIXEL TOWN</h1>
   <div id="clock"></div>
-  <div class="speed" id="speed"></div>
 </header>
 <main>
   <section id="stage">
     <div id="viewWrap">
       <canvas id="view"></canvas>
       <canvas id="mini" width="220" height="100" title="Minimap: tap to jump"></canvas>
+      <div class="speed" id="speed"></div>
       <div class="camctl">
         <button id="zOut" title="Zoom out">−</button>
         <button id="zIn" title="Zoom in">+</button>
@@ -4616,6 +4619,11 @@ function makeBuilding(b, season){
     for (let y=dy;y<oy+H;y++){ p.set(dx+1,y,WOOD_R[3]); p.set(dx+2,y,WOOD_R[2]); p.set(dx+17,y,WOOD_R[3]); p.set(dx+18,y,WOOD_R[1]); }
     for (let x=dx-1;x<dx+21;x++){ p.set(x,dy+2,WOOD_R[4]); p.set(x,dy+3,WOOD_R[2]); p.set(x,dy+4,WOOD_R[1]); }
     p.rect(dx+21,dy+6,3,4,'#2a2a30'); p.rect(dx+21,dy+7,3,2,'#f8d070');
+    // a timber headframe with its winding wheel over the shaft, and a heap of ore beside it, so a mine reads as a mine
+    const hx = ox+W/2, top = Math.max(1, oy-14); p.line(hx-7, dy+2, hx-1, top, WOOD_R[2]); p.line(hx+7, dy+2, hx+1, top, WOOD_R[2]); p.line(hx-4, top+8, hx+4, top+8, WOOD_R[3]);
+    for (let a=0;a<12;a++){ const t = a/12*Math.PI*2; p.set(Math.round(hx+Math.cos(t)*3), Math.round(top+2+Math.sin(t)*3), '#3a3a44'); } p.set(hx, top+2, '#3a3a44');
+    const oc = (typeof ORE_COL!=='undefined' && b.ore && ORE_COL[b.ore]) || '#b0a080';
+    for (let k=0;k<14;k++){ const x = ox+W-8+Math.round(hashf(k,s,5)*8), y = oy+H-3-Math.round(hashf(k,s,6)*5); p.set(x, y, k%3 ? ROCK_R[2] : oc); }
     b.windows=[]; b.lights=[[b.x*TILE+W/2, b.y*TILE+H-10]]; b.chimney=null;
     return p.outline().done();
   }
@@ -5433,6 +5441,8 @@ function drawMiniBase(){ const g=miniBase.getContext('2d'); MINI.s = Math.min(22
   STATIC_ENTS.forEach(e=>{ if (e.img.width>40){ g.fillStyle='rgba(160,90,60,0.9)'; g.fillRect(miniX(e.x), miniY(e.y)+2*k, e.w*MINI.s, e.h*MINI.s-2*k); } else if (e.img.height>=40){ g.fillStyle='rgba(30,70,40,0.8)'; g.fillRect(miniX(e.x+e.w/2)-k,miniY(e.key)-2*k,2*k,2*k); } }); }
 function drawMini(){
   mctx.imageSmoothingEnabled=false; mctx.drawImage(miniBase,0,0);
+  // mines and known ore deposits, so they can be found on a big map
+  if (CIV) (S.civ.deposits||[]).forEach(d=>{ if (!d.known && !d.suspected) return; const mined = d.mine && S.civ.structs[d.mine]; mctx.fillStyle = mined ? '#ff8a3a' : (typeof ORE_COL!=='undefined' && ORE_COL[d.min]) || '#c070ff'; mctx.fillRect(miniX(d.x*TILE)-1, miniY(d.y*TILE)-1, 3, 3); mctx.fillStyle = '#000'; mctx.fillRect(miniX(d.x*TILE), miniY(d.y*TILE), 1, 1); });
   S.citizens.forEach(c=>{ if (!visibleCitizen(c)) return; mctx.fillStyle = c.id===ui.sel ? '#f2c14e' : '#ffffff'; mctx.fillRect(miniX(c.rt.x*TILE), miniY(c.rt.y*TILE)-1, 2, 2); });
   const {vx,vy,vw,vh} = viewRect(); mctx.strokeStyle='#f2c14e'; mctx.lineWidth=1; mctx.strokeRect(miniX(vx)+.5, miniY(vy)+.5, vw*MINI.s, vh*MINI.s);
   const dark = darknessAt(modOf(S.minute)); if (dark>0.05){ mctx.fillStyle=`rgba(18,24,62,${nightShade(dark)*0.8})`; mctx.fillRect(0,0,220,100); }
@@ -5442,12 +5452,15 @@ function drawMini(){
 const ui = {tab:'chron', sel:null, dirty:true, lastRender:0, filter:5, q:'', prof:''};
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+// speed levels shown on the map; the top one aims for one game day every real second
+const SPEEDS = [['⏸','pause','Pause'],['1×',1,'Real time (1 real hour = 1 game day)'],['10×',10,'10× speed'],['60×',60,'60× speed (1 game day a minute)'],['360×',360,'360× speed'],['⏩ Day/s',3600,'Fastest: aims for 1 game day every second']];
+const simRate = {t:0, m:0, dps:0};
+function speedLabel(){ if (clock.paused) return 'Paused'; if (clock.speed===1) return 'Live'; if (clock.speed>=3600) return simRate.dps ? `${simRate.dps.toFixed(simRate.dps<1?2:1)} days/s` : 'Day/s'; return `${clock.speed}×`; }
 function renderHeader(){
   const d=dayOf(S.minute), mod=modOf(S.minute);
   const wx = {Clear:'☀ Clear',Cloudy:'☁ Cloudy',Rain:'🌧 Rain',Storm:'⛈ Storm',Fog:'🌫 Fog',Snow:'❄ Snow'}[S.weather];
   $('clock').innerHTML = `<b>${fmtClock(S.minute)}</b><span>${esc(fmtDate(d))}</span><span class="muted">Day ${d+1} · Week ${weekNo(d)} · ${phaseOf(mod)}</span><span>${wx}${S.festival?' · 🎉 Festival':''}</span>`;
-  const ms = clock.paused ? 'Paused' : clock.speed===1 ? 'Live · 1 real hour = 1 day' : `${clock.speed}× speed`;
-  $('speed').innerHTML = [['⏸','pause'],['1×',1],['10×',10],['60×',60],['360×',360]].map(([l,v])=>`<button data-v="${v}" class="${(v==='pause'&&clock.paused)||(!clock.paused&&clock.speed===v)?'on':''}" title="${v==='pause'?'Pause':v===1?'Real time (1 real hour = 1 game day)':v+'× speed'}">${l}</button>`).join('') + `<span class="muted" style="align-self:center;font-size:12px;margin-left:6px">${ms}</span>`;
+  $('speed').innerHTML = SPEEDS.map(([l,v,t])=>`<button data-v="${v}" class="${(v==='pause'&&clock.paused)||(!clock.paused&&clock.speed===v)?'on':''}" title="${t}">${l}</button>`).join('') + `<span class="rate">${speedLabel()}</span>`;
   if (CIV) return civRenderHeader();
   const mood = S.citizens.reduce((a,c)=>a+c.mood.valence,0)/S.citizens.length;
   const law = activeLaws().length, pend = S.gov.proposals.find(p=>p.status==='Debating'||p.status==='Voting');
@@ -6433,6 +6446,15 @@ function r3Building(b){
     m.scale.set(b.w*0.62, 2.1, b.h*0.75); m.position.set(cx, 0.3, cz-0.2); m.castShadow = m.receiveShadow = true; grp.add(m);
     const door = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.5), new THREE.MeshBasicMaterial({color:0x0a080e})); door.position.set(cx, 0.75, b.y+b.h+0.05); grp.add(door);
     const beam = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.18, 0.2), lam({color:0x8a6038})); beam.position.set(cx, 1.55, b.y+b.h+0.08); grp.add(beam);
+    // headframe and winding wheel standing over the shaft, an ore cart on its rails and a heap of ore: visible from far off
+    const wood = lam({color:0x7a5230, flatShading:true}), iron = lam({color:0x3a3a44, flatShading:true}), fz = b.y+b.h+0.9, fh = 3.2;
+    [[-0.7,-0.35],[0.7,-0.35],[-0.7,0.35],[0.7,0.35]].forEach(([x,z])=>{ const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, fh, 0.12), wood); leg.position.set(cx+x*0.75, fh/2, fz+z*0.75); leg.rotation.z = -x*0.18; leg.rotation.x = z*0.18; leg.castShadow = true; grp.add(leg); });
+    [1.1, 2.1].forEach(y=>{ const bar = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 0.08), wood); bar.position.set(cx, y, fz); grp.add(bar); });
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.06, 5, 14), iron); wheel.position.set(cx, fh+0.1, fz); wheel.castShadow = true; grp.add(wheel);
+    const oreCol = (typeof ORE_COL!=='undefined' && b.ore && ORE_COL[b.ore]) || '#b0a080';
+    const cart = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.4, 0.5), iron); cart.position.set(cx+1.3, 0.35, fz+0.5); cart.castShadow = true; grp.add(cart);
+    const load = new THREE.Mesh(new THREE.DodecahedronGeometry(0.28, 0), lam({color:oreCol, flatShading:true})); load.scale.set(1.1, 0.5, 0.8); load.position.set(cx+1.3, 0.6, fz+0.5); grp.add(load);
+    for (let k=0;k<6;k++){ const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22+hashf(k,b.x,7)*0.15, 0), lam({color: k%2 ? oreCol : 0x6a666e, flatShading:true})); r.position.set(cx-1.4+(k%3)*0.35, 0.15+(k>2?0.18:0), fz+0.3+Math.floor(k/3)*0.3); r.castShadow = true; grp.add(r); }
     return grp;
   }
   const F = b.fac, fh = F.y1 - F.y0, wallH = Math.max(1.2, fh/16*WALL_K);
@@ -6818,10 +6840,11 @@ function frame(ts){
   if (!catchingUp){
     const target = Math.floor(clock.now());
     const backlog = target - S.minute;
-    if (backlog > 2000){ catchUp(backlog, 'Pixel Town kept running while this tab was in the background.'); }
+    if (backlog > Math.max(2000, clock.speed*4)){ catchUp(backlog, 'Pixel Town kept running while this tab was in the background.'); }
     else {
-      let n=0; const t0=performance.now();
-      while (S.minute < target && n < 400 && performance.now()-t0 < 12){ simTick(); n++; if (modOf(S.minute)%60===0) saveGame(); }
+      let n=0; const t0=performance.now(), budget = clock.speed>=3600 ? 26 : 12, cap = clock.speed>=3600 ? 1440 : 400;
+      while (S.minute < target && n < cap && performance.now()-t0 < budget){ simTick(); n++; if (modOf(S.minute)%60===0) saveGame(); }
+      if (ts - simRate.t > 2000){ if (simRate.t) simRate.dps = (S.minute - simRate.m)/1440/((ts - simRate.t)/1000); simRate.t = ts; simRate.m = S.minute; }
       if (S.minute < target-60) clock.rebase(S.minute);
       if (n) syncAnimals();
     }
