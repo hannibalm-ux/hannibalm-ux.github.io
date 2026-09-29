@@ -433,7 +433,7 @@ function civLearnTech(c, t, from){
   C.tech[t].knowers++;
   if (first){ C.tech[t].by = c.id; C.tech[t].day = civDay(); ev('techs');
     chronicle(from ? `${c.name} learned ${TECHS[t].label.toLowerCase()} from ${from.name}, bringing it back into use.` : `${c.name} worked out ${TECHS[t].label.toLowerCase()}. Nobody here knew how before.`, 8, '💡', 'science');
-    remember(c, `I figured out ${TECHS[t].label.toLowerCase()}.`, 9); c.civ.respect += 5; }
+    remember(c, `I figured out ${TECHS[t].label.toLowerCase()}.`, 9); c.civ.respect += 5; if (typeof civOnTechTransport==='function') civOnTechTransport(t); }
   else if (from && hash(c.id+t)%4===0) remember(c, `${from.name} showed me ${TECHS[t].label.toLowerCase()}.`, 5, [from.id]);
 }
 

@@ -5194,6 +5194,7 @@ function render(frac, ts){
   const ents = [];
   for (const e of STATIC_ENTS) if (inView(e.x,e.y,e.w,e.h)) ents.push(e);
   for (const a of ANIMALS) if (inView(a.x-12,a.y-16,24,20)) ents.push({animal:a, key:a.y});
+  if (CIV) civVehicleEnts(ents, inView);
   const cits = [];
   for (const c of S.citizens){ if (!visibleCitizen(c)) continue; const p=citizenPos(c,frac); const X=p.x*TILE, Y=p.y*TILE; if (!inView(X-4,Y-20,28,40)) continue; const e={cit:c, p, X, Y, key:Y+15}; ents.push(e); cits.push(e); }
   if (!CIV) [[43,43],[37,46]].forEach(([bx,by],i)=>{ const X=bx*TILE, Y=by*TILE+Math.sin(ts/700+i)*1.2; if (inView(X,Y,26,12)) ents.push({img:ART.boat, x:X, y:Math.round(Y), key:Y+10, w:26, h:12}); });
@@ -5212,6 +5213,7 @@ function render(frac, ts){
   ents.sort((a,b)=>a.key-b.key);
   for (const e of ents){
     if (e.cit) drawCitizen(e, ts);
+    else if (e.veh) civDrawVehicle(ctx, e.veh, ts);
     else if (e.animal){ const a=e.animal; const img = ART.animals[a.kind][a.variant][a.walk>0 && Math.floor(a.walk)%2 ? 1 : 0]; ctx.save(); ctx.translate(Math.round(a.x), Math.round(a.y)); if (a.face<0) ctx.scale(-1,1); ctx.fillStyle='rgba(0,0,0,0.22)'; ctx.fillRect(-img.width/2+2, -2, img.width-4, 2); ctx.drawImage(img, -Math.round(img.width/2), -img.height+1); ctx.restore(); }
     else ctx.drawImage(e.tag==='fire' && ART.civ ? ART.civ.fire[Math.floor(ts/150)%3] : e.img, Math.round(e.x), Math.round(e.y));
   }
@@ -5235,7 +5237,7 @@ function render(frac, ts){
     if (lightCv.width!==lw || lightCv.height!==lh){ lightCv=mk(lw,lh); lctx=lightCv.getContext('2d'); }
     const lx0=Math.floor(vx), ly0=Math.floor(vy);
     lctx.globalCompositeOperation='source-over'; lctx.clearRect(0,0,lw,lh);
-    lctx.fillStyle = `rgba(14,16,48,${clamp(dark,0,0.82)})`; lctx.fillRect(0,0,lw,lh);
+    lctx.fillStyle = `rgba(18,24,62,${nightShade(dark)})`; lctx.fillRect(0,0,lw,lh); // moonlit: dim and blue, never black
     lctx.globalCompositeOperation='destination-out';
     lights.forEach(([x,y,r,a])=>{ const g=lctx.createRadialGradient(x-lx0,y-ly0,0,x-lx0,y-ly0,r); g.addColorStop(0,`rgba(0,0,0,${a})`); g.addColorStop(0.55,`rgba(0,0,0,${a*0.45})`); g.addColorStop(1,'rgba(0,0,0,0)'); lctx.fillStyle=g; lctx.fillRect(x-lx0-r,y-ly0-r,r*2,r*2); });
     ctx.imageSmoothingEnabled=true; ctx.drawImage(lightCv, lx0, ly0); ctx.imageSmoothingEnabled=false;
@@ -5243,7 +5245,7 @@ function render(frac, ts){
     lights.forEach(([x,y,r,a,col])=>{ const g=ctx.createRadialGradient(x,y,0,x,y,r*0.75); g.addColorStop(0,col||`rgba(255,180,90,${0.2*a})`); g.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=g; ctx.fillRect(x-r,y-r,r*2,r*2); });
     ctx.globalCompositeOperation='source-over';
     if (dark>0.12){ BUILDINGS.forEach(b=>{ if (!b.windows || !litBuilding(b)) return; b.windows.forEach(([x,y,w,h])=>{ if (!inView(x,y,w,h)) return; ctx.fillStyle='#ffcf6e'; ctx.fillRect(x,y,w,h); ctx.fillStyle='#fff0b0'; ctx.fillRect(x+1,y+1,w/2-1,h/2-1); ctx.fillStyle='#d8a040'; ctx.fillRect(x+w/2,y,1,h); ctx.fillRect(x,y+4,w,1); }); });
-      LAMPS.forEach(([x,y])=>{ ctx.fillStyle='#fff4c0'; ctx.fillRect(x*TILE+6,y*TILE-8,4,4); }); }
+      LAMPS.forEach(([x,y])=>{ ctx.fillStyle='#fff4c0'; ctx.fillRect(x*TILE+6,y*TILE-8,4,4); }); if (CIV) civLampHeads(ctx); }
   }
   const h = mod/60;
   let tint=null; if (h>=5&&h<7.5) tint=`rgba(255,140,80,${0.14*(1-Math.abs(h-6)/1.5)})`; else if (h>=17.5&&h<20.5) tint=`rgba(210,90,150,${0.14*(1-Math.abs(h-19)/1.5)})`;
@@ -5304,6 +5306,8 @@ function drawCitizen(e, ts){
   if (!p.moving && c.rt.state==='Socializing' && Math.floor(ts/700+hash(c.id))%4===0){ ctx.fillStyle='#ffffff'; ctx.fillRect(dx+15,dy-2,2,2); ctx.fillRect(dx+18,dy-4,2,2); }
 }
 function litBuilding(b){ if (b.style==='hall') return false; return S.citizens.some(c=>c.rt.loc===b.id && !c.rt.path && c.rt.state!=='Sleeping'); }
+// how much the night overlay hides: capped so buildings and people stay visible by moonlight
+function nightShade(dark){ return clamp(dark*0.66, 0, 0.5); }
 function darknessAt(mod){ const h = mod/60; if (h<5) return 0.68; if (h<7) return 0.68*(1-(h-5)/2); if (h<18) return 0; if (h<21) return 0.68*((h-18)/3); return 0.68; }
 function collectLights(vx, vy, vw, vh){
   const L=[]; const inV=(x,y,r)=> x+r>vx && y+r>vy && x-r<vx+vw && y-r<vy+vh;
@@ -5344,7 +5348,7 @@ function drawMini(){
   mctx.imageSmoothingEnabled=false; mctx.drawImage(miniBase,0,0);
   S.citizens.forEach(c=>{ if (!visibleCitizen(c)) return; mctx.fillStyle = c.id===ui.sel ? '#f2c14e' : '#ffffff'; mctx.fillRect(miniX(c.rt.x*TILE), miniY(c.rt.y*TILE)-1, 2, 2); });
   const {vx,vy,vw,vh} = viewRect(); mctx.strokeStyle='#f2c14e'; mctx.lineWidth=1; mctx.strokeRect(miniX(vx)+.5, miniY(vy)+.5, vw*MINI.s, vh*MINI.s);
-  const dark = darknessAt(modOf(S.minute)); if (dark>0.05){ mctx.fillStyle=`rgba(14,16,48,${dark*0.6})`; mctx.fillRect(0,0,220,100); }
+  const dark = darknessAt(modOf(S.minute)); if (dark>0.05){ mctx.fillStyle=`rgba(18,24,62,${nightShade(dark)*0.8})`; mctx.fillRect(0,0,220,100); }
 }
 
 // ---------- UI ----------
@@ -6399,7 +6403,7 @@ function r3Props(){
   const grp = new THREE.Group();
   const skip = new Set([].concat(ART.pines||[], ART.oaks||[], ART.bushes||[], Object.values(ART.bld)));
   R3.flames = [];
-  const place = (img, x, y, k, tag) => { const m = r3PropMesh({img, tag}); if (m){ m.position.set((x+img.width/2)/16, 0, (y+img.height)/16 - 0.3); m.rotation.y = (hash(String(x)+y)%4)*0.15; grp.add(m); if (m.userData.flame) R3.flames.push(m); return m; }
+  const place = (img, x, y, k, tag) => { const m = r3PropMesh({img, tag}); if (m){ m.position.set((x+img.width/2)/16, 0, (y+img.height)/16 - 0.3); if (!(tag && tag.startsWith('light:'))) m.rotation.y = (hash(String(x)+y)%4)*0.15; grp.add(m); if (m.userData.flame) R3.flames.push(m); return m; }
     const s = r3Sprite(img, k); s.position.set((x+img.width/2)/16, 0, (y+img.height)/16 - 0.05); grp.add(s); return s; };
   STATIC_ENTS.forEach(e=>{ if (!skip.has(e.img)) place(e.img, e.x, e.y, 1, e.tag); });
   if (CIV) Object.values(S.civ.projects).forEach(p=>{ const D = STRUCTURES[p.def]; if (D.tile || D.prop) return; const f = p.done/p.labor; if (f<0.1) return; const m = new THREE.Mesh(lpMerge([lpPart(lpG().box, '#a88a5a', [p.x+p.w/2, f*1.2/2, p.y+p.h/2], [0,0,0], [p.w*0.9, f*1.2, p.h*0.9])]), new THREE.MeshLambertMaterial({color:0xffffff, vertexColors:true, transparent:true, opacity:0.55})); grp.add(m); });
@@ -6414,11 +6418,15 @@ function r3Props(){
   (S.deceased||[]).slice(0, GRAVE_SLOTS.length).forEach((g,i)=>{ const [gx,gy] = GRAVE_SLOTS[i]; place(ART.graves[i%3], gx, gy); });
   R3.boats = CIV ? [] : [[43,43],[37,46]].map(([bx,by])=>{ const s = place(ART.boat, bx*TILE, by*TILE); s.userData.base = s.position.y; return s; });
   // lamp glows
-  R3.glows = LAMPS.map(([x,y])=>{ const g = new THREE.Sprite(R3.glowMat); g.scale.set(2.6,2.6,1); g.position.set(x+0.72, 1.55, y+0.2); grp.add(g); return g; });
+  R3.glows = r3LampList().map(L=>{ const g = new THREE.Sprite(r3GlowMat(L.kind)); const k = L.kind==='electric' ? 3.4 : L.kind==='torch' ? 2.0 : 2.6; g.scale.set(k,k,1); g.position.set(L.x, L.h, L.z); grp.add(g); return g; });
   R3.scene.add(R3.props = grp);
 }
 // villagers are drawn with the low-poly figures in civ/civ_3d.js (lpBuild / lpAnimate)
 
+// every lamp in world space: the classic town's lamp posts, or the civilization's street lights
+const LAMP3_HEX = {lamp:0xffc070, torch:0xff8a30, lantern:0xffb060, gas:0xffe0a0, electric:0xe0ecff};
+function r3LampList(){ if (CIV && typeof r3CivLamps==='function') return r3CivLamps(); return LAMPS.map(([x,y])=>({x:x+0.72, z:y+0.2, h:1.55, kind:'lamp'})); }
+function r3GlowMat(kind){ R3.glowMats = R3.glowMats || {}; if (kind==='lamp' || !kind) return R3.glowMat; return R3.glowMats[kind] || (R3.glowMats[kind] = Object.assign(R3.glowMat.clone(), {color:new THREE.Color(LAMP3_HEX[kind])})); }
 // ---------- volumetric light: sunlit haze with real shadow shafts, and glowing lamp halos at night ----------
 // The scene is drawn to an offscreen target; a full-screen pass then marches each view ray through the air,
 // asking the sun's shadow map whether every point is lit, so shafts of light and shadow show in the haze.
@@ -6519,6 +6527,7 @@ function r3Villagers(frac, ts, dark){
   for (const [id,g] of R3.vox) if (!seen.has(id)){ if (!cById(id) || cById(id).dead || !S.citizens.includes(cById(id))){ lpDispose(g); R3.vox.delete(id); } else g.visible = false; }
   // animals: real 3D models
   r3Animals(ts, dark);
+  if (CIV && typeof r3Vehicles==='function') r3Vehicles(ts, dark);
   R3.blobs.count = nb; R3.blobs.instanceMatrix.needsUpdate = true;
   // selected villager: ring and name tag
   const sel = ui.sel && cById(ui.sel), ss = sel && R3.vox.get(sel.id);
@@ -6530,7 +6539,7 @@ function r3Villagers(frac, ts, dark){
   else { R3.ring.visible = false; R3.tag.visible = false; }
 }
 // ---------- sky, sun, weather ----------
-const SKY = {day:'#8ec5ea', dusk:'#f0a070', night:'#0c1224', grey:'#8e98a6', snow:'#c8d4e0'};
+const SKY = {day:'#8ec5ea', dusk:'#f0a070', night:'#1a2644', grey:'#8e98a6', snow:'#c8d4e0'};
 function r3Sky(frac){
   const mod = modOf(S.minute) + frac, dark = darknessAt(mod), day = 1 - dark/0.68;
   const hour = mod/60, ang = (hour-6)/12*Math.PI;
@@ -6547,13 +6556,15 @@ function r3Sky(frac){
   const sx = Math.cos(ang)*1.2, sy = Math.max(0.2, Math.min(0.62, elev*0.8)), sz = 0.3;
   const L = Math.hypot(sx,sy,sz);
   R3.sun.position.set(tx + sx/L*80, sy/L*80, tz + sz/L*80); R3.sun.target.position.set(tx, 0, tz);
-  R3.sun.intensity = Math.max(0, elev>0 ? 3.4*Math.min(1, elev*2.5+0.15) : 0) * (1-overcast*0.75);
-  R3.sun.color.copy(C('#ffffff').lerp(C('#ffb070'), duskAmt*0.8));
+  // after sunset the moon takes over: a cool, soft light so the town can still be seen
+  const sunI = Math.max(0, elev>0 ? 3.4*Math.min(1, elev*2.5+0.15) : 0) * (1-overcast*0.75), moonI = (1-day)*0.9*(1-overcast*0.5);
+  R3.sun.intensity = Math.max(sunI, moonI);
+  R3.sun.color.copy(sunI >= moonI ? C('#ffffff').lerp(C('#ffb070'), duskAmt*0.8) : C('#a8bcf0'));
   R3.moon = R3.moon || null;
-  R3.hemi.intensity = 0.4 + 0.8*day*(1-overcast*0.2) + overcast*0.35;
-  R3.hemi.color.copy(C('#dcecff').lerp(C('#5a70b0'), 1-day));
-  R3.hemi.groundColor.copy(C('#5a6a44').lerp(C('#1a2030'), 1-day));
-  R3.water.material.color.copy(C('#3e76b0').lerp(C('#10203a'), 1-day));
+  R3.hemi.intensity = 0.4 + 0.8*day*(1-overcast*0.2) + overcast*0.35 + (1-day)*0.55;
+  R3.hemi.color.copy(C('#dcecff').lerp(C('#8a9cd8'), 1-day));
+  R3.hemi.groundColor.copy(C('#5a6a44').lerp(C('#303a50'), 1-day));
+  R3.water.material.color.copy(C('#3e76b0').lerp(C('#1c3052'), 1-day));
   return dark;
 }
 function r3Weather(dt){
@@ -6597,7 +6608,8 @@ function r3Render(frac, ts){
   r3Weather(dt);
   if (ts - R3.winT > 500){ R3.winT = ts; (R3.bldGroups||[]).forEach(g=>{ const m = g.userData.frontMat; if (m) m.emissiveIntensity = dark>0.12 && litBuilding(g.userData.b) ? 0.9*dark/0.68+0.25 : 0; }); }
   if (R3.glows) R3.glows.forEach(g=>{ g.visible = dark>0.08; g.material.opacity = Math.min(1, dark*1.6); });
-  if (ts - R3.lampT > 400){ R3.lampT = ts; const near = LAMPS.map(([x,y])=>[x,y,Math.hypot(x-tx,y-tz)]).sort((a,b)=>a[2]-b[2]); R3.lampLights.forEach((l,i)=>{ const n = near[i]; if (!n || dark<0.08){ l.intensity = 0; return; } l.position.set(n[0]+0.72, 1.5, n[1]+0.2); l.intensity = 6*dark; }); }
+  if (ts - R3.lampT > 400){ R3.lampT = ts; const near = r3LampList().map(L=>Object.assign({d:Math.hypot(L.x-tx,L.z-tz)}, L)).sort((a,b)=>a.d-b.d); R3.lampLights.forEach((l,i)=>{ const n = near[i]; if (!n || dark<0.08){ l.intensity = 0; return; } l.position.set(n.x, n.h-0.05, n.z); l.color.setHex(LAMP3_HEX[n.kind]||0xffc070); l.intensity = (n.kind==='electric' ? 9 : n.kind==='torch' ? 4.5 : 6)*dark; l.distance = n.kind==='electric' ? 12 : 9; }); }
+  if (CIV && typeof r3LightDaylight==='function') r3LightDaylight(dark);
   if (R3.boats) R3.boats.forEach((b,i)=>{ b.position.y = -0.1 + Math.sin(ts/700+i)*0.04; });
   R3.water.position.y = Math.sin(ts/1400)*0.015;
   r3Villagers(frac, ts, dark);
@@ -6654,6 +6666,7 @@ function frame(ts){
     }
     const frac = clamp(clock.now() - S.minute, 0, 1);
     updateAnimals(Math.min(0.1,(ts-lastFrameTs)/1000));
+    if (CIV) civUpdateVehicles(Math.min(0.1,(ts-lastFrameTs)/1000), clock.paused ? 0 : Math.min(4, 0.6+clock.speed*0.05));
     if (R3.on && R3.ready) r3Render(frac, ts); else render(frac, ts);
     music.update();
     renderPanels(false);
@@ -6782,6 +6795,7 @@ window.PT = { get S(){return S;}, simulate(n){ for (let i=0;i<n;i++) simTick(); 
 <script src="civ/civ_frontier.js"></script>
 <script src="civ/civ_housing.js"></script>
 <script src="civ/civ_science.js"></script>
+<script src="civ/civ_transport.js"></script>
 <script src="civ/civ_render.js"></script>
 <script src="civ/civ_3d.js"></script>
 <script src="civ/civ_ui.js"></script>

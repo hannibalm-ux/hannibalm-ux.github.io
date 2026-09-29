@@ -75,7 +75,7 @@ function civCanExplore(c){ return isAdult(c) && c.age>=18 && c.age<=55 && !c.awa
 function civExpPlan(dir){
   const cells = frontierCells(dir); if (!cells.length) return null;
   const t = cells[0], n = 3, winter = seasonOf(civDay())===3;
-  const days = 3 + t.ring*2 + (hash(S.world.seed+t.cx+','+t.cy)%3) + (winter?2:0) + (S.weather==='Storm'?1:0);
+  const days = Math.max(2, Math.round((3 + t.ring*2 + (hash(S.world.seed+t.cx+','+t.cy)%3) + (winter?2:0) + (S.weather==='Storm'?1:0)) / civTravelSpeed())); // horses, trains and cars shorten the trip
   const risk = clamp(0.08 + t.ring*0.06 + (winter?0.12:0), 0, 0.9);
   return {dir, cx:t.cx, cy:t.cy, ring:t.ring, n, days, food:n*days*3, tools:Math.ceil(n/2), coin: civMoneyOn() ? Math.round((15 + t.ring*12)*(S.civ.econ.level||1)) : 0, risk};
 }

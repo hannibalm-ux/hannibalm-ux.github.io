@@ -54,6 +54,7 @@ function civGroundOverlay(g){
   g.setTransform(1,0,0,1,-WX0,-WY0);
   FORDS.forEach(k=>{ const [x, y] = tdec(k), X = x*TILE, Y = y*TILE; for (let i=0;i<3;i++){ const sx = X+3+i*5+(hashf(x,i,3)*2|0), sy = Y+5+(hashf(y,i,4)*6|0); g.fillStyle = STONE_R[3]; g.fillRect(sx,sy,4,3); g.fillStyle = STONE_R[5]; g.fillRect(sx,sy,3,1); g.fillStyle = 'rgba(210,235,255,0.6)'; g.fillRect(sx-1,sy+3,6,1); } });
   (S.civ.deposits||[]).forEach(d=>{ if (!d.seep) return; const X = d.x*TILE, Y = d.y*TILE; g.fillStyle = 'rgba(16,12,20,0.75)'; g.beginPath(); g.ellipse(X+8, Y+9, 7, 4, 0, 0, Math.PI*2); g.fill(); g.fillStyle = 'rgba(120,100,160,0.35)'; g.fillRect(X+5, Y+7, 4, 1); });
+  civRailGround(g);
   for (const k in S.civ.stumps){ const [x, y] = tdec(k); if (tileAt(x,y)!==T.GRASS) continue; const X = x*TILE, Y = y*TILE; g.fillStyle = WOOD_R[2]; g.fillRect(X+6,Y+8,5,4); g.fillStyle = '#c8a070'; g.fillRect(X+6,Y+8,5,1); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(X+5,Y+12,7,1); }
 }
 // ---------- static things on the map ----------
@@ -61,6 +62,7 @@ function civStaticEnts(push){
   civArt();
   const [cx, cy] = S.civ.center;
   push(ART.civ.fire[0], cx*TILE-1, cy*TILE-4, cy*TILE+12, 'fire');
+  civLightEnts(push);
   if (storeFood(S.civ.commons) > 0) push(ART.civ.sacks, (cx+4)*TILE, cy*TILE-2, cy*TILE+12);
   Object.values(S.civ.structs).forEach(s=>{
     const D = STRUCTURES[s.def];
@@ -104,6 +106,7 @@ function civLights(L, inV){
   const [cx, cy] = S.civ.center, X = cx*TILE+8, Y = cy*TILE+6;
   if (inV(X,Y,90)) L.push([X, Y, 86, 1, 'rgba(255,140,50,0.35)']);
   civStructsOf(s=>STRUCTURES[s.def].prop==='firepit').forEach(s=>{ const x = (s.x+1.5)*TILE, y = (s.y+1.5)*TILE; if (inV(x,y,70)) L.push([x,y,64,0.9,'rgba(255,140,50,0.3)']); });
+  civTransportLights(L, inV);
 }
 // ---------- hover text ----------
 function civHover(x, y){

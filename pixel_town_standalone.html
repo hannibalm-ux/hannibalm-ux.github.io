@@ -5194,6 +5194,7 @@ function render(frac, ts){
   const ents = [];
   for (const e of STATIC_ENTS) if (inView(e.x,e.y,e.w,e.h)) ents.push(e);
   for (const a of ANIMALS) if (inView(a.x-12,a.y-16,24,20)) ents.push({animal:a, key:a.y});
+  if (CIV) civVehicleEnts(ents, inView);
   const cits = [];
   for (const c of S.citizens){ if (!visibleCitizen(c)) continue; const p=citizenPos(c,frac); const X=p.x*TILE, Y=p.y*TILE; if (!inView(X-4,Y-20,28,40)) continue; const e={cit:c, p, X, Y, key:Y+15}; ents.push(e); cits.push(e); }
   if (!CIV) [[43,43],[37,46]].forEach(([bx,by],i)=>{ const X=bx*TILE, Y=by*TILE+Math.sin(ts/700+i)*1.2; if (inView(X,Y,26,12)) ents.push({img:ART.boat, x:X, y:Math.round(Y), key:Y+10, w:26, h:12}); });
@@ -5212,6 +5213,7 @@ function render(frac, ts){
   ents.sort((a,b)=>a.key-b.key);
   for (const e of ents){
     if (e.cit) drawCitizen(e, ts);
+    else if (e.veh) civDrawVehicle(ctx, e.veh, ts);
     else if (e.animal){ const a=e.animal; const img = ART.animals[a.kind][a.variant][a.walk>0 && Math.floor(a.walk)%2 ? 1 : 0]; ctx.save(); ctx.translate(Math.round(a.x), Math.round(a.y)); if (a.face<0) ctx.scale(-1,1); ctx.fillStyle='rgba(0,0,0,0.22)'; ctx.fillRect(-img.width/2+2, -2, img.width-4, 2); ctx.drawImage(img, -Math.round(img.width/2), -img.height+1); ctx.restore(); }
     else ctx.drawImage(e.tag==='fire' && ART.civ ? ART.civ.fire[Math.floor(ts/150)%3] : e.img, Math.round(e.x), Math.round(e.y));
   }
@@ -5235,7 +5237,7 @@ function render(frac, ts){
     if (lightCv.width!==lw || lightCv.height!==lh){ lightCv=mk(lw,lh); lctx=lightCv.getContext('2d'); }
     const lx0=Math.floor(vx), ly0=Math.floor(vy);
     lctx.globalCompositeOperation='source-over'; lctx.clearRect(0,0,lw,lh);
-    lctx.fillStyle = `rgba(14,16,48,${clamp(dark,0,0.82)})`; lctx.fillRect(0,0,lw,lh);
+    lctx.fillStyle = `rgba(18,24,62,${nightShade(dark)})`; lctx.fillRect(0,0,lw,lh); // moonlit: dim and blue, never black
     lctx.globalCompositeOperation='destination-out';
     lights.forEach(([x,y,r,a])=>{ const g=lctx.createRadialGradient(x-lx0,y-ly0,0,x-lx0,y-ly0,r); g.addColorStop(0,`rgba(0,0,0,${a})`); g.addColorStop(0.55,`rgba(0,0,0,${a*0.45})`); g.addColorStop(1,'rgba(0,0,0,0)'); lctx.fillStyle=g; lctx.fillRect(x-lx0-r,y-ly0-r,r*2,r*2); });
     ctx.imageSmoothingEnabled=true; ctx.drawImage(lightCv, lx0, ly0); ctx.imageSmoothingEnabled=false;
@@ -5243,7 +5245,7 @@ function render(frac, ts){
     lights.forEach(([x,y,r,a,col])=>{ const g=ctx.createRadialGradient(x,y,0,x,y,r*0.75); g.addColorStop(0,col||`rgba(255,180,90,${0.2*a})`); g.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=g; ctx.fillRect(x-r,y-r,r*2,r*2); });
     ctx.globalCompositeOperation='source-over';
     if (dark>0.12){ BUILDINGS.forEach(b=>{ if (!b.windows || !litBuilding(b)) return; b.windows.forEach(([x,y,w,h])=>{ if (!inView(x,y,w,h)) return; ctx.fillStyle='#ffcf6e'; ctx.fillRect(x,y,w,h); ctx.fillStyle='#fff0b0'; ctx.fillRect(x+1,y+1,w/2-1,h/2-1); ctx.fillStyle='#d8a040'; ctx.fillRect(x+w/2,y,1,h); ctx.fillRect(x,y+4,w,1); }); });
-      LAMPS.forEach(([x,y])=>{ ctx.fillStyle='#fff4c0'; ctx.fillRect(x*TILE+6,y*TILE-8,4,4); }); }
+      LAMPS.forEach(([x,y])=>{ ctx.fillStyle='#fff4c0'; ctx.fillRect(x*TILE+6,y*TILE-8,4,4); }); if (CIV) civLampHeads(ctx); }
   }
   const h = mod/60;
   let tint=null; if (h>=5&&h<7.5) tint=`rgba(255,140,80,${0.14*(1-Math.abs(h-6)/1.5)})`; else if (h>=17.5&&h<20.5) tint=`rgba(210,90,150,${0.14*(1-Math.abs(h-19)/1.5)})`;
@@ -5304,6 +5306,8 @@ function drawCitizen(e, ts){
   if (!p.moving && c.rt.state==='Socializing' && Math.floor(ts/700+hash(c.id))%4===0){ ctx.fillStyle='#ffffff'; ctx.fillRect(dx+15,dy-2,2,2); ctx.fillRect(dx+18,dy-4,2,2); }
 }
 function litBuilding(b){ if (b.style==='hall') return false; return S.citizens.some(c=>c.rt.loc===b.id && !c.rt.path && c.rt.state!=='Sleeping'); }
+// how much the night overlay hides: capped so buildings and people stay visible by moonlight
+function nightShade(dark){ return clamp(dark*0.66, 0, 0.5); }
 function darknessAt(mod){ const h = mod/60; if (h<5) return 0.68; if (h<7) return 0.68*(1-(h-5)/2); if (h<18) return 0; if (h<21) return 0.68*((h-18)/3); return 0.68; }
 function collectLights(vx, vy, vw, vh){
   const L=[]; const inV=(x,y,r)=> x+r>vx && y+r>vy && x-r<vx+vw && y-r<vy+vh;
@@ -5344,7 +5348,7 @@ function drawMini(){
   mctx.imageSmoothingEnabled=false; mctx.drawImage(miniBase,0,0);
   S.citizens.forEach(c=>{ if (!visibleCitizen(c)) return; mctx.fillStyle = c.id===ui.sel ? '#f2c14e' : '#ffffff'; mctx.fillRect(miniX(c.rt.x*TILE), miniY(c.rt.y*TILE)-1, 2, 2); });
   const {vx,vy,vw,vh} = viewRect(); mctx.strokeStyle='#f2c14e'; mctx.lineWidth=1; mctx.strokeRect(miniX(vx)+.5, miniY(vy)+.5, vw*MINI.s, vh*MINI.s);
-  const dark = darknessAt(modOf(S.minute)); if (dark>0.05){ mctx.fillStyle=`rgba(14,16,48,${dark*0.6})`; mctx.fillRect(0,0,220,100); }
+  const dark = darknessAt(modOf(S.minute)); if (dark>0.05){ mctx.fillStyle=`rgba(18,24,62,${nightShade(dark)*0.8})`; mctx.fillRect(0,0,220,100); }
 }
 
 // ---------- UI ----------
@@ -6399,7 +6403,7 @@ function r3Props(){
   const grp = new THREE.Group();
   const skip = new Set([].concat(ART.pines||[], ART.oaks||[], ART.bushes||[], Object.values(ART.bld)));
   R3.flames = [];
-  const place = (img, x, y, k, tag) => { const m = r3PropMesh({img, tag}); if (m){ m.position.set((x+img.width/2)/16, 0, (y+img.height)/16 - 0.3); m.rotation.y = (hash(String(x)+y)%4)*0.15; grp.add(m); if (m.userData.flame) R3.flames.push(m); return m; }
+  const place = (img, x, y, k, tag) => { const m = r3PropMesh({img, tag}); if (m){ m.position.set((x+img.width/2)/16, 0, (y+img.height)/16 - 0.3); if (!(tag && tag.startsWith('light:'))) m.rotation.y = (hash(String(x)+y)%4)*0.15; grp.add(m); if (m.userData.flame) R3.flames.push(m); return m; }
     const s = r3Sprite(img, k); s.position.set((x+img.width/2)/16, 0, (y+img.height)/16 - 0.05); grp.add(s); return s; };
   STATIC_ENTS.forEach(e=>{ if (!skip.has(e.img)) place(e.img, e.x, e.y, 1, e.tag); });
   if (CIV) Object.values(S.civ.projects).forEach(p=>{ const D = STRUCTURES[p.def]; if (D.tile || D.prop) return; const f = p.done/p.labor; if (f<0.1) return; const m = new THREE.Mesh(lpMerge([lpPart(lpG().box, '#a88a5a', [p.x+p.w/2, f*1.2/2, p.y+p.h/2], [0,0,0], [p.w*0.9, f*1.2, p.h*0.9])]), new THREE.MeshLambertMaterial({color:0xffffff, vertexColors:true, transparent:true, opacity:0.55})); grp.add(m); });
@@ -6414,11 +6418,15 @@ function r3Props(){
   (S.deceased||[]).slice(0, GRAVE_SLOTS.length).forEach((g,i)=>{ const [gx,gy] = GRAVE_SLOTS[i]; place(ART.graves[i%3], gx, gy); });
   R3.boats = CIV ? [] : [[43,43],[37,46]].map(([bx,by])=>{ const s = place(ART.boat, bx*TILE, by*TILE); s.userData.base = s.position.y; return s; });
   // lamp glows
-  R3.glows = LAMPS.map(([x,y])=>{ const g = new THREE.Sprite(R3.glowMat); g.scale.set(2.6,2.6,1); g.position.set(x+0.72, 1.55, y+0.2); grp.add(g); return g; });
+  R3.glows = r3LampList().map(L=>{ const g = new THREE.Sprite(r3GlowMat(L.kind)); const k = L.kind==='electric' ? 3.4 : L.kind==='torch' ? 2.0 : 2.6; g.scale.set(k,k,1); g.position.set(L.x, L.h, L.z); grp.add(g); return g; });
   R3.scene.add(R3.props = grp);
 }
 // villagers are drawn with the low-poly figures in civ/civ_3d.js (lpBuild / lpAnimate)
 
+// every lamp in world space: the classic town's lamp posts, or the civilization's street lights
+const LAMP3_HEX = {lamp:0xffc070, torch:0xff8a30, lantern:0xffb060, gas:0xffe0a0, electric:0xe0ecff};
+function r3LampList(){ if (CIV && typeof r3CivLamps==='function') return r3CivLamps(); return LAMPS.map(([x,y])=>({x:x+0.72, z:y+0.2, h:1.55, kind:'lamp'})); }
+function r3GlowMat(kind){ R3.glowMats = R3.glowMats || {}; if (kind==='lamp' || !kind) return R3.glowMat; return R3.glowMats[kind] || (R3.glowMats[kind] = Object.assign(R3.glowMat.clone(), {color:new THREE.Color(LAMP3_HEX[kind])})); }
 // ---------- volumetric light: sunlit haze with real shadow shafts, and glowing lamp halos at night ----------
 // The scene is drawn to an offscreen target; a full-screen pass then marches each view ray through the air,
 // asking the sun's shadow map whether every point is lit, so shafts of light and shadow show in the haze.
@@ -6519,6 +6527,7 @@ function r3Villagers(frac, ts, dark){
   for (const [id,g] of R3.vox) if (!seen.has(id)){ if (!cById(id) || cById(id).dead || !S.citizens.includes(cById(id))){ lpDispose(g); R3.vox.delete(id); } else g.visible = false; }
   // animals: real 3D models
   r3Animals(ts, dark);
+  if (CIV && typeof r3Vehicles==='function') r3Vehicles(ts, dark);
   R3.blobs.count = nb; R3.blobs.instanceMatrix.needsUpdate = true;
   // selected villager: ring and name tag
   const sel = ui.sel && cById(ui.sel), ss = sel && R3.vox.get(sel.id);
@@ -6530,7 +6539,7 @@ function r3Villagers(frac, ts, dark){
   else { R3.ring.visible = false; R3.tag.visible = false; }
 }
 // ---------- sky, sun, weather ----------
-const SKY = {day:'#8ec5ea', dusk:'#f0a070', night:'#0c1224', grey:'#8e98a6', snow:'#c8d4e0'};
+const SKY = {day:'#8ec5ea', dusk:'#f0a070', night:'#1a2644', grey:'#8e98a6', snow:'#c8d4e0'};
 function r3Sky(frac){
   const mod = modOf(S.minute) + frac, dark = darknessAt(mod), day = 1 - dark/0.68;
   const hour = mod/60, ang = (hour-6)/12*Math.PI;
@@ -6547,13 +6556,15 @@ function r3Sky(frac){
   const sx = Math.cos(ang)*1.2, sy = Math.max(0.2, Math.min(0.62, elev*0.8)), sz = 0.3;
   const L = Math.hypot(sx,sy,sz);
   R3.sun.position.set(tx + sx/L*80, sy/L*80, tz + sz/L*80); R3.sun.target.position.set(tx, 0, tz);
-  R3.sun.intensity = Math.max(0, elev>0 ? 3.4*Math.min(1, elev*2.5+0.15) : 0) * (1-overcast*0.75);
-  R3.sun.color.copy(C('#ffffff').lerp(C('#ffb070'), duskAmt*0.8));
+  // after sunset the moon takes over: a cool, soft light so the town can still be seen
+  const sunI = Math.max(0, elev>0 ? 3.4*Math.min(1, elev*2.5+0.15) : 0) * (1-overcast*0.75), moonI = (1-day)*0.9*(1-overcast*0.5);
+  R3.sun.intensity = Math.max(sunI, moonI);
+  R3.sun.color.copy(sunI >= moonI ? C('#ffffff').lerp(C('#ffb070'), duskAmt*0.8) : C('#a8bcf0'));
   R3.moon = R3.moon || null;
-  R3.hemi.intensity = 0.4 + 0.8*day*(1-overcast*0.2) + overcast*0.35;
-  R3.hemi.color.copy(C('#dcecff').lerp(C('#5a70b0'), 1-day));
-  R3.hemi.groundColor.copy(C('#5a6a44').lerp(C('#1a2030'), 1-day));
-  R3.water.material.color.copy(C('#3e76b0').lerp(C('#10203a'), 1-day));
+  R3.hemi.intensity = 0.4 + 0.8*day*(1-overcast*0.2) + overcast*0.35 + (1-day)*0.55;
+  R3.hemi.color.copy(C('#dcecff').lerp(C('#8a9cd8'), 1-day));
+  R3.hemi.groundColor.copy(C('#5a6a44').lerp(C('#303a50'), 1-day));
+  R3.water.material.color.copy(C('#3e76b0').lerp(C('#1c3052'), 1-day));
   return dark;
 }
 function r3Weather(dt){
@@ -6597,7 +6608,8 @@ function r3Render(frac, ts){
   r3Weather(dt);
   if (ts - R3.winT > 500){ R3.winT = ts; (R3.bldGroups||[]).forEach(g=>{ const m = g.userData.frontMat; if (m) m.emissiveIntensity = dark>0.12 && litBuilding(g.userData.b) ? 0.9*dark/0.68+0.25 : 0; }); }
   if (R3.glows) R3.glows.forEach(g=>{ g.visible = dark>0.08; g.material.opacity = Math.min(1, dark*1.6); });
-  if (ts - R3.lampT > 400){ R3.lampT = ts; const near = LAMPS.map(([x,y])=>[x,y,Math.hypot(x-tx,y-tz)]).sort((a,b)=>a[2]-b[2]); R3.lampLights.forEach((l,i)=>{ const n = near[i]; if (!n || dark<0.08){ l.intensity = 0; return; } l.position.set(n[0]+0.72, 1.5, n[1]+0.2); l.intensity = 6*dark; }); }
+  if (ts - R3.lampT > 400){ R3.lampT = ts; const near = r3LampList().map(L=>Object.assign({d:Math.hypot(L.x-tx,L.z-tz)}, L)).sort((a,b)=>a.d-b.d); R3.lampLights.forEach((l,i)=>{ const n = near[i]; if (!n || dark<0.08){ l.intensity = 0; return; } l.position.set(n.x, n.h-0.05, n.z); l.color.setHex(LAMP3_HEX[n.kind]||0xffc070); l.intensity = (n.kind==='electric' ? 9 : n.kind==='torch' ? 4.5 : 6)*dark; l.distance = n.kind==='electric' ? 12 : 9; }); }
+  if (CIV && typeof r3LightDaylight==='function') r3LightDaylight(dark);
   if (R3.boats) R3.boats.forEach((b,i)=>{ b.position.y = -0.1 + Math.sin(ts/700+i)*0.04; });
   R3.water.position.y = Math.sin(ts/1400)*0.015;
   r3Villagers(frac, ts, dark);
@@ -6654,6 +6666,7 @@ function frame(ts){
     }
     const frac = clamp(clock.now() - S.minute, 0, 1);
     updateAnimals(Math.min(0.1,(ts-lastFrameTs)/1000));
+    if (CIV) civUpdateVehicles(Math.min(0.1,(ts-lastFrameTs)/1000), clock.paused ? 0 : Math.min(4, 0.6+clock.speed*0.05));
     if (R3.on && R3.ready) r3Render(frac, ts); else render(frac, ts);
     music.update();
     renderPanels(false);
@@ -7084,7 +7097,17 @@ const STRUCTURES = {
   waterworks:   {label:'Waterworks',          cat:'infra',w:4,h:3, style:'stone', mat:{brick:80, metal:30}, labor:260, tech:'plumbing', water:true},
   sewage:       {label:'Sewage works',        cat:'infra',w:4,h:3, style:'stone', mat:{brick:80, metal:20}, labor:240, tech:'sanitation', sanit:true},
   power_plant:  {label:'Power station',       cat:'infra',w:5,h:4, style:'stone', mat:{brick:160, steel:60}, labor:520, tech:'electricity', power:true},
-  station:      {label:'Transit station',     cat:'infra',w:5,h:3, style:'hall', roof:'#4a4a5a', mat:{brick:120, steel:40}, labor:420, tech:'railways'},
+  station:      {label:'Railway station',     cat:'transport',w:5,h:3, style:'hall', roof:'#4a4a5a', mat:{brick:120, steel:40}, labor:420, tech:'railways'},
+  // street lighting: each kind upgrades to the next as the town learns more and grows
+  torch_post:   {label:'Torch post',          cat:'lighting',w:1,h:1, prop:'torch', mat:{wood:3}, labor:2, light:{kind:'torch', r:40, stage:0}, up:['oil_lantern']},
+  oil_lantern:  {label:'Oil lantern post',    cat:'lighting',w:1,h:1, prop:'lantern', mat:{wood:3, clay:2}, labor:4, tech:'pottery', light:{kind:'lantern', r:52, stage:1}, up:['gas_lamp']},
+  gas_lamp:     {label:'Gas street lamp',     cat:'lighting',w:1,h:1, prop:'gaslamp', mat:{metal:4, glass:1}, labor:8, tech:'gas_lighting', light:{kind:'gas', r:64, stage:2}, up:['electric_lamp']},
+  electric_lamp:{label:'Electric street light',cat:'lighting',w:1,h:1, prop:'streetlight', mat:{steel:3, glass:1}, labor:10, tech:'electricity', light:{kind:'electric', r:84, stage:3, power:true}},
+  // transport: the places vehicles are kept, built and boarded
+  stable:       {label:'Stable',              cat:'transport',w:3,h:2, style:'barn', roof:'#8a5a2a', mat:{wood:28, thatch:6}, labor:32, tech:'riding', transport:'stable'},
+  boathouse:    {label:'Boathouse',           cat:'transport',w:3,h:2, style:'barn', roof:'#5a6a7a', mat:{wood:30, thatch:6}, labor:36, tech:'boatbuilding', transport:'boats', up:['shipyard']},
+  shipyard:     {label:'Shipyard & harbour',  cat:'transport',w:5,h:3, style:'barn', roof:'#4a5a6a', mat:{lumber:60, stone:30, rope:10}, labor:160, tech:'sailing', transport:'ships'},
+  airfield:     {label:'Airfield',            cat:'transport',w:9,h:3, tile:'PLAZA', mat:{stone:60, cement:20}, labor:160, tech:'aviation', transport:'planes'},
   latrine:      {label:'Latrines',            cat:'infra',w:2,h:1, style:'hut', roof:'#6a5a3a', mat:{wood:10}, labor:10, sanit:0.4},
   // leisure and sport
   sports_field: {label:'Sports field',        cat:'leisure',w:6,h:4, tile:'GRASS', prop:'goals', mat:{wood:10}, labor:20},
@@ -7251,7 +7274,17 @@ const TECHS = {
   canning:       {label:'Canning',              cat:'food', need:{foodcraft:40, chemistry:30}, any:[['th_germs','ironworking']], disc:'chemistry', store:{veg:2.5, meat:2.5, fish:2.5, game:2, milk:1.5, berries:2}},
   refrigeration: {label:'Refrigeration',        cat:'food', need:{physics:56, chemistry:50}, any:[['steam_power','th_heat_work']], disc:'physics', store:{all:2}},
   electricity:   {label:'Electricity',          cat:'energy', need:{physics:62}, any:[['th_electromagnetism','steelmaking']], disc:'physics'},
-  telegraph:     {label:'The telegraph',        cat:'communication', need:{physics:58}, any:[['electricity']], disc:'physics'}
+  telegraph:     {label:'The telegraph',        cat:'communication', need:{physics:58}, any:[['electricity']], disc:'physics'},
+  gas_lighting:  {label:'Gas lighting',         cat:'energy', need:{chemistry:38}, any:[['ironworking','th_combustion'],['refining']], disc:'chemistry'},
+  // getting about: each one puts new vehicles on the roads, rivers and sky
+  riding:        {label:'Horse riding',         cat:'transport', need:{husbandry:18}, any:[['domestication']], prac:'herd', disc:'biology'},
+  boatbuilding:  {label:'Boatbuilding',         cat:'transport', need:{crafts:14, wilderness:12}, any:[['carpentry'],['weaving']], prac:'fish', disc:'engineering'},
+  wagons:        {label:'Horse-drawn wagons',   cat:'transport', need:{engineering:22}, any:[['wheel','riding']], disc:'engineering'},
+  sailing:       {label:'Sailing ships',        cat:'transport', need:{engineering:30}, any:[['boatbuilding','weaving']], disc:'engineering'},
+  steamships:    {label:'Steamships',           cat:'transport', need:{engineering:50}, any:[['sailing','steam_power']], disc:'engineering'},
+  combustion_engine:{label:'The combustion engine', cat:'energy', need:{engineering:56, chemistry:46}, any:[['refining','steelmaking']], disc:'engineering'},
+  automobiles:   {label:'Motor cars',           cat:'transport', need:{engineering:58}, any:[['combustion_engine','road_building']], disc:'engineering'},
+  aviation:      {label:'Powered flight',       cat:'transport', need:{physics:60, engineering:64}, any:[['combustion_engine']], disc:'physics'}
 };
 for (const k in TECHS) TECHS[k].id = k;
 
@@ -7713,6 +7746,7 @@ function civDaily(d){
   civSafe('society', civSocietyDaily);      // gatherings, government, justice, education, sport, imports
   civSafe('science', civScienceDaily);      // prospecting, mines, research
   civSafe('trails', civTrailsDaily);
+  civSafe('transport', ()=>civTransportDaily(d)); // street lights, stables, stations, harbours
   if (d%7===0) civSafe('weekly', ()=>civWeekly(d));
   if (d%28===0) civSafe('monthly', ()=>civMonthly(d));
   if (S.civ.animKey !== civAnimKey()) civSafe('animals', civSyncAnimals);
@@ -7725,7 +7759,7 @@ function civMonthly(d){ civSafe('projects-m', civProjectsMonthly); civSafe('migr
 
 // ---------- the settlement's stage (a label, earned by what exists, never a trigger) ----------
 function civStage(){
-  const C = S.civ, n = S.citizens.length, inst = Object.keys(C.orgs).length, str = Object.keys(C.structs).length;
+  const C = S.civ, n = S.citizens.length, inst = Object.keys(C.orgs).length, str = Object.values(C.structs).filter(s=>!(STRUCTURES[s.def]||{}).light).length;
   const score = n + inst*6 + str*2 + (C.econ.stage>=4?40:0) + (C.gov.stage>=3?30:0) + Object.keys(C.tech).length*3;
   let lab = SETTLEMENT_STAGES[0][1]; SETTLEMENT_STAGES.forEach(([k,l])=>{ if (score>=k) lab = l; });
   if (lab!==C.stageLabel){ if (C.stageLabel) chronicle(`The settlement has become a ${lab.toLowerCase()}.`, 8, '🏘️', 'founding'); C.stageLabel = lab; }
@@ -8692,7 +8726,7 @@ function civLearnTech(c, t, from){
   C.tech[t].knowers++;
   if (first){ C.tech[t].by = c.id; C.tech[t].day = civDay(); ev('techs');
     chronicle(from ? `${c.name} learned ${TECHS[t].label.toLowerCase()} from ${from.name}, bringing it back into use.` : `${c.name} worked out ${TECHS[t].label.toLowerCase()}. Nobody here knew how before.`, 8, '💡', 'science');
-    remember(c, `I figured out ${TECHS[t].label.toLowerCase()}.`, 9); c.civ.respect += 5; }
+    remember(c, `I figured out ${TECHS[t].label.toLowerCase()}.`, 9); c.civ.respect += 5; if (typeof civOnTechTransport==='function') civOnTechTransport(t); }
   else if (from && hash(c.id+t)%4===0) remember(c, `${from.name} showed me ${TECHS[t].label.toLowerCase()}.`, 5, [from.id]);
 }
 
@@ -8857,8 +8891,8 @@ function civStartProject(def, site, owner, opts){
   const p = {id, def, x:site.x, y:site.y, w:site.w, h:site.h, tiles:site.tiles||null, owner, purpose:opts.purpose||D.cat, upgradeOf:opts.upgradeOf||null, need, have:{}, labor:Math.round(labor), done:0,
     started:civDay(), workers:{}, pay:opts.pay||0, fund:opts.fund||0, name: opts.name || `${D.label} for ${civOwnerLabel(owner)}`, forHH: opts.forHH||null, meta: opts.meta||{}, org:opts.org||null};
   C.projects[id] = p; civReserve(p, true);
-  chronicle(`${civOwnerLabel(owner)[0].toUpperCase()+civOwnerLabel(owner).slice(1)} began work on ${an(D.label.toLowerCase())}${opts.why?` (${opts.why})`:''}.`, D.cat==='bridge'||D.cat==='civic'||D.cat==='education'||D.cat==='storage' ? 6 : 4, '🏗️', 'land');
-  S.week.builds.push(`${D.label} started (${civOwnerLabel(owner)})`); ev('projects');
+  if (!opts.quiet) chronicle(`${civOwnerLabel(owner)[0].toUpperCase()+civOwnerLabel(owner).slice(1)} began work on ${an(D.label.toLowerCase())}${opts.why?` (${opts.why})`:''}.`, D.cat==='bridge'||D.cat==='civic'||D.cat==='education'||D.cat==='storage' ? 6 : 4, '🏗️', 'land');
+  if (!opts.quiet) S.week.builds.push(`${D.label} started (${civOwnerLabel(owner)})`); ev('projects');
   return p;
 }
 function civProjectMatFrac(p){ let need=0, have=0; for (const g in p.need){ need += p.need[g]; have += Math.min(p.need[g], p.have[g]||0); } return need ? have/need : 1; }
@@ -8923,8 +8957,8 @@ function civFinishProject(p){
   if (D.bridge) s.meta.toll = 0;
   indexCitizens(); bumpWorld(); ev('built'); if (D.cat==='bridge') ev('bridges_built'); if (D.farm) ev('fields_built'); if (D.ranch) ev('pens_built');
   const top = Object.entries(p.workers).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([id])=>alive(id)).filter(Boolean);
-  chronicle(`${s.name} is finished${top.length?`, built by ${top.map(x=>x.name.split(' ')[0]).join(', ')}`:''}.`, D.cat==='bridge'||D.cat==='civic'||D.cat==='education'||D.cat==='storage'||D.cat==='medical' ? 8 : 5, D.cat==='bridge'?'🌉':D.farm?'🌾':D.ranch?'🐐':'🏠', 'land');
-  S.week.builds.push(`${s.name} finished`);
+  if (!D.light) chronicle(`${s.name} is finished${top.length?`, built by ${top.map(x=>x.name.split(' ')[0]).join(', ')}`:''}.`, D.cat==='bridge'||D.cat==='civic'||D.cat==='education'||D.cat==='storage'||D.cat==='medical' ? 8 : 5, D.cat==='bridge'?'🌉':D.farm?'🌾':D.ranch?'🐐':'🏠', 'land');
+  if (!D.light) S.week.builds.push(`${s.name} finished`);
   top.forEach(w=>{ remember(w, `We finished ${s.name}.`, 6); w.civ.respect += 1; });
   S.civ.history.push({t:S.minute, kind:'built', def:p.def, name:s.name, owner:civOwnerLabel(p.owner)});
   if (typeof civOnStructBuilt==='function') civOnStructBuilt(s, p);
@@ -9156,6 +9190,7 @@ function civOnStructBuilt(s, p){
   if (D.road){ civStructsOf(x=>x.id===s.id); }
   if (typeof civOnStructBuiltEcon==='function') civOnStructBuiltEcon(s, p);
   if (typeof civOnStructBuiltScience==='function') civOnStructBuiltScience(s, p);
+  if (typeof civOnStructBuiltTransport==='function') civOnStructBuiltTransport(s, p);
 }
 
 // ---------- roads: worn trails become roads when someone pays to improve them ----------
@@ -10255,7 +10290,7 @@ function civCaravansWeekly(){
   const t = traders[hash(String(civDay()))%traders.length], n = C.neighbors.slice().sort((a,b)=>a.dist-b.dist + (b.rel-a.rel)/50)[0]; if (!n) return;
   const h = hhOf(t); if (!h) return;
   const sp = civSurplus(h, t).filter(([g])=>!n.res.includes(g)); let value = 0;
-  sp.slice(0,3).forEach(([g,q])=>{ const sell = Math.floor(q*0.7); storeTake(h.store, g, sell); value += sell*n.prices[g]*0.9; });
+  const haul = civHaulBonus(); sp.slice(0, 3 + haul).forEach(([g,q])=>{ const sell = Math.floor(q*Math.min(0.9, 0.7 + haul*0.04)); storeTake(h.store, g, sell); value += sell*n.prices[g]*0.9; });
   if (value < 5) return;
   const buy = n.res.find(g=>CG[g] && CG[g].cat!=='food') || n.res[0]; const q = Math.floor(value/Math.max(0.5, n.prices[buy]));
   storeAdd(h.store, buy, q); n.lastTrade = civDay(); n.rel = clamp(n.rel+3, -100, 100); t.civ.log.trade = (t.civ.log.trade||0) + 8; ev('caravans');
@@ -10465,7 +10500,7 @@ function civCrimeScene(k, offender, xy, sev){
   const near = civWitnesses(xy[0], xy[1], 7, [offender.id]).sort((a,b)=>Math.hypot(a.rt.x-xy[0],a.rt.y-xy[1])-Math.hypot(b.rt.x-xy[0],b.rt.y-xy[1])).slice(0, 14);
   near.forEach(o=>{
     const dist = Math.max(Math.abs(o.rt.x-xy[0]), Math.abs(o.rt.y-xy[1]));
-    const pSee = (civNight() ? 0.3 : 0.75) * (0.45 + o.civ.cog.attention*0.6) * (1 - dist/9);
+    const pSee = (civDarkAt(xy[0], xy[1]) ? 0.3 : 0.75) * (0.45 + o.civ.cog.attention*0.6) * (1 - dist/9);
     if (rnd() > pSee){ if (rnd() < 0.35) k.pending.push({by:o.id, acc:offender.id, conf:0.2, around:true}); return; } // saw someone about, no more
     const fam = Math.max(0, peekRel(o, offender.id).familiarity||0);
     let who = offender;
@@ -10473,7 +10508,7 @@ function civCrimeScene(k, offender, xy, sev){
       const pool = S.citizens.filter(x=>x!==o && x!==offender && isAdult(x) && !x.jail && !x.away && Math.abs(x.rt.x-xy[0])<16 && Math.abs(x.rt.y-xy[1])<16);
       const dis = pool.filter(x=>peekRel(o,x.id).affinity < -20);
       const from = dis.length && rnd()<0.5 ? dis : pool; if (from.length) who = from[Math.floor(rnd()*from.length)]; }
-    const conf = clamp((who===offender ? 0.45 + o.civ.cog.attention*0.4 : 0.25 + rnd()*0.35) * (civNight() ? 0.75 : 1), 0.1, 0.95);
+    const conf = clamp((who===offender ? 0.45 + o.civ.cog.attention*0.4 : 0.25 + rnd()*0.35) * (civDarkAt(xy[0], xy[1]) ? 0.75 : 1), 0.1, 0.95);
     // loyalty: people are slow to name a friend or family member
     const close = peekRel(o, who.id).tags.includes('Family') || peekRel(o, who.id).affinity > 55;
     k.pending.push({by:o.id, acc:who.id, conf, withhold:close});
@@ -11030,7 +11065,7 @@ function civCanExplore(c){ return isAdult(c) && c.age>=18 && c.age<=55 && !c.awa
 function civExpPlan(dir){
   const cells = frontierCells(dir); if (!cells.length) return null;
   const t = cells[0], n = 3, winter = seasonOf(civDay())===3;
-  const days = 3 + t.ring*2 + (hash(S.world.seed+t.cx+','+t.cy)%3) + (winter?2:0) + (S.weather==='Storm'?1:0);
+  const days = Math.max(2, Math.round((3 + t.ring*2 + (hash(S.world.seed+t.cx+','+t.cy)%3) + (winter?2:0) + (S.weather==='Storm'?1:0)) / civTravelSpeed())); // horses, trains and cars shorten the trip
   const risk = clamp(0.08 + t.ring*0.06 + (winter?0.12:0), 0, 0.9);
   return {dir, cx:t.cx, cy:t.cy, ring:t.ring, n, days, food:n*days*3, tools:Math.ceil(n/2), coin: civMoneyOn() ? Math.round((15 + t.ring*12)*(S.civ.econ.level||1)) : 0, risk};
 }
@@ -11628,6 +11663,394 @@ function civScienceWeekly(){
 }
 
 </script>
+<script>/* civ/civ_transport.js */
+/* =====================================================================
+   Pixel Town — civilization mode: street lighting and transport
+   The town lights its streets once it can: torches first, then oil lanterns, gas lamps and
+   electric street lights, each needing both the technique and a big enough town.
+   What people know decides what moves about: riders, carts and wagons on the tracks, boats and
+   ships on the water, trains on the railway, motor cars on the roads and aeroplanes in the sky.
+   ===================================================================== */
+
+// ---------- the town's level: 0 camp, 1 hamlet, 2 village, 3 town, 4 city, 5 major city ----------
+function civStageIdx(){ const L = S.civ.stageLabel; const i = SETTLEMENT_STAGES.findIndex(([,l])=>l===L); return Math.max(0, i); }
+function civStageName(i){ return (SETTLEMENT_STAGES[i]||SETTLEMENT_STAGES[0])[1]; }
+
+// ---------- street lighting ----------
+const CIV_LIGHT_KINDS = ['torch_post','oil_lantern','gas_lamp','electric_lamp'];
+const CIV_LIGHT_COL = {torch:'rgba(255,120,40,0.36)', lantern:'rgba(255,170,80,0.34)', gas:'rgba(255,222,160,0.32)', electric:'rgba(214,232,255,0.34)'};
+const CIV_LIGHT_HEX = {torch:0xff8a30, lantern:0xffb060, gas:0xffe0a0, electric:0xe0ecff};
+function civLightNeeds(def){ const D = STRUCTURES[def], out = []; if (D.tech && !civTechKnown(D.tech)) out.push(TECHS[D.tech].label); if (civStageIdx() < D.light.stage) out.push(`a ${civStageName(D.light.stage).toLowerCase()}`); if (D.light.power && !civHas('power_plant').length) out.push('a power station'); return out; }
+function civLightOK(def){ return !civLightNeeds(def).length; }
+function civBestLight(){ let best = null; CIV_LIGHT_KINDS.forEach(k=>{ if (civLightOK(k)) best = k; }); return best; }
+function civLamps(){ return civStructsOf(s=>STRUCTURES[s.def] && STRUCTURES[s.def].light); }
+function civLitAt(x, y){ return civLamps().some(s=>Math.hypot(s.x+0.5-x, s.y+0.5-y) <= STRUCTURES[s.def].light.r/TILE); }
+// a crime at night is harder to see, unless the street is lit
+function civDarkAt(x, y){ return civNight() && !civLitAt(x, y); }
+// where people are: the fire, doors of homes and public buildings; the darkest of them gets the next light
+function civLightAnchors(){
+  const C = S.civ, out = [C.center.slice()];
+  civStructsOf(s=>{ const D = STRUCTURES[s.def]; return !D.tile && !D.prop && !D.light && s.status==='active'; }).forEach(s=>out.push([s.x+Math.floor(s.w/2), s.y+s.h]));
+  return out;
+}
+function civLightSite(){
+  const C = S.civ, lamps = civLamps().map(s=>[s.x, s.y]).concat(civProjects().filter(p=>STRUCTURES[p.def].light).map(p=>[p.x, p.y]));
+  const doors = new Set(BUILDINGS.map(b=>b.door && tkey(b.door[0], b.door[1])));
+  const gap = xy => lamps.length ? Math.min(...lamps.map(([a,b])=>Math.hypot(a-xy[0], b-xy[1]))) : 99;
+  const anchors = civLightAnchors().map(a=>[a, gap(a)]).filter(([,g])=>g >= 4).sort((a,b)=>b[1]-a[1] || hash(a[0]+'')-hash(b[0]+''));
+  for (const [[ax, ay]] of anchors.slice(0, 12)){
+    for (let r=1; r<=3; r++) for (let j=-r; j<=r; j++) for (let i=-r; i<=r; i++){
+      if (Math.max(Math.abs(i), Math.abs(j))!==r) continue;
+      const x = ax+i, y = ay+j, t = tileAt(x, y);
+      if (!(t===T.GRASS || t===T.FLOWER || t===T.SAND) || S.civ.reserved[tkey(x,y)] || doors.has(tkey(x,y))) continue;
+      if (!civSiteInLand(x, y, 1, 1) || gap([x,y]) < 3.5) continue;
+      // beside a way people walk, never boxing in a door
+      const nb = [[1,0],[-1,0],[0,1],[0,-1]].map(([a,b])=>[x+a, y+b]);
+      if (!nb.some(([a,b])=>tileAt(a,b)===T.PATH || tileAt(a,b)===T.PLAZA || doors.has(tkey(a,b)))) continue;
+      if (nb.some(([a,b])=>doors.has(tkey(a,b)) && nb.filter(([c,d])=>WALK.has(tileAt(c,d))).length < 2)) continue;
+      return {x, y, w:1, h:1};
+    }
+  }
+  return null;
+}
+function civLightingDaily(){
+  const C = S.civ, n = S.citizens.length, d = civDay();
+  // the town keeps its lights in repair: nobody lives in a lamp post, but it is still in use
+  civLamps().forEach(s=>{ if (s.status==='abandoned') s.status = 'active'; if (s.cond < 60 && hashf(s.x, s.y, d) < 0.15) s.cond = Math.min(100, s.cond + 30); });
+  if (n < 5) return;
+  const best = civBestLight(); if (!best) return;
+  const lamps = civLamps(), busy = civProjects().filter(p=>STRUCTURES[p.def].light).length;
+  if (busy >= 3 || civHomelessHH().length >= 3 || !civBuildSeasonOK() || civFoodDaysAll() < 3) return;
+  const owner = civTownOwner(), rank = k => CIV_LIGHT_KINDS.indexOf(k);
+  // better lights replace old ones, starting in the middle of town
+  const old = lamps.filter(s=>rank(s.def) < rank(best) && !civProjects().some(p=>p.upgradeOf===s.id)).sort((a,b)=>Math.hypot(a.x-C.center[0], a.y-C.center[1]) - Math.hypot(b.x-C.center[0], b.y-C.center[1]));
+  if (old.length){ old.slice(0, 3-busy).forEach(s=>civStartProject(best, {x:s.x, y:s.y, w:1, h:1}, s.owner, {upgradeOf:s.id, purpose:'lighting', quiet:true})); return; }
+  const want = Math.min(70, Math.ceil(n/5) + civStageIdx()*3);
+  if (lamps.length + busy >= want) return;
+  const site = civLightSite(); if (site) civStartProject(best, site, owner, {purpose:'lighting', quiet:true});
+}
+
+// ---------- transport: what the town can build to move people and goods ----------
+// kind → the technique, the vehicles it adds, the place it needs, the town level
+const CIV_VEHICLES = {
+  cart:      {label:'Handcarts',          icon:'🛒', tech:'wheel'},
+  horse:     {label:'Riders on horseback',icon:'🐎', tech:'riding'},
+  wagon:     {label:'Horse-drawn wagons', icon:'🐴', tech:'wagons'},
+  boat:      {label:'Rowing boats',       icon:'🛶', tech:'boatbuilding'},
+  ship:      {label:'Sailing ships',      icon:'⛵', tech:'sailing', needs:'shipyard'},
+  steamship: {label:'Steamships',         icon:'🚢', tech:'steamships', needs:'shipyard'},
+  train:     {label:'Steam trains',       icon:'🚂', tech:'railways', needs:'station'},
+  car:       {label:'Motor cars',         icon:'🚗', tech:'automobiles'},
+  truck:     {label:'Lorries',            icon:'🚚', tech:'automobiles', stage:3},
+  plane:     {label:'Aeroplanes',         icon:'✈️', tech:'aviation', needs:'airfield'}
+};
+const CIV_TRANSPORT_BUILD = [ ['stable', 1], ['boathouse', 1], ['shipyard', 2], ['power_plant', 3], ['station', 3], ['airfield', 3] ];
+function civVehicleNeeds(k){ const V = CIV_VEHICLES[k], out = []; if (!civTechKnown(V.tech)) out.push(TECHS[V.tech].label); if (V.stage && civStageIdx() < V.stage) out.push(`a ${civStageName(V.stage).toLowerCase()}`); if (V.needs && !civHas(V.needs).length) out.push(`a ${STRUCTURES[V.needs].label.toLowerCase()}`); return out; }
+function civVehicleOK(k){ return !civVehicleNeeds(k).length; }
+// how much faster people and goods get about
+function civTravelSpeed(){ if (!S.civ) return 1; let v = 1; if (civTechKnown('wheel')) v += 0.05; if (civTechKnown('riding')) v += 0.15; if (civTechKnown('wagons')) v += 0.1; if (civVehicleOK('train')) v += 0.3; if (civTechKnown('automobiles')) v += 0.3; if (civVehicleOK('plane')) v += 0.3; return v; }
+function civHaulBonus(){ if (!S.civ) return 0; return (civTechKnown('wheel')?1:0) + (civTechKnown('wagons')?1:0) + (civVehicleOK('ship')||civVehicleOK('steamship')?1:0) + (civVehicleOK('train')?2:0) + (civVehicleOK('truck')?1:0); }
+// shore points on settled land, nearest the middle of town first, spread out so each try looks somewhere new
+function civShores(near){ const out = [];
+  for (let y=Y0;y<Y0+MH;y++) for (let x=X0;x<X0+MW;x++){ if (MAP[y][x]!==T.WATER || !civClaimedTile(x,y)) continue; if (![[1,0],[-1,0],[0,1],[0,-1]].some(([a,b])=>WALK.has(tileAt(x+a,y+b)))) continue; out.push([x, y, Math.hypot(x-near[0], y-near[1])]); }
+  out.sort((a,b)=>a[2]-b[2]); const picked = []; out.forEach(p=>{ if (picked.length < 8 && picked.every(q=>Math.hypot(p[0]-q[0], p[1]-q[1]) > 8)) picked.push(p); }); return picked; }
+function civTransportWeekly(){
+  const C = S.civ, lvl = civStageIdx(), adults = S.citizens.filter(isAdult);
+  if (civProjects().some(p=>STRUCTURES[p.def].transport || p.def==='power_plant') || civHomelessHH().length >= 3 || !civBuildSeasonOK()) return;
+  for (const [def, need] of CIV_TRANSPORT_BUILD){
+    if (lvl < need || civHas(def).length || !civCanBuild(def, adults)) continue;
+    if (def==='power_plant' && !civTechKnown('electricity')) continue;
+    let site = null;
+    if (def==='boathouse' || def==='shipyard'){ for (const w of civShores(C.center)){ site = civFindSite(def, w, {margin:1, maxR:8, anySide:true, test:(x,y,W,H)=>civNearWater(x,y,W,H,2)}); if (site) break; } }
+    else if (def==='station') site = civFindSite(def, C.center, {margin:1, test:(x,y,w,h)=>!!civTrack({x, y, w, h})}); // somewhere the line can run
+    else site = civFindSite(def, C.center, {margin:1});
+    if (!site) continue;
+    const why = {stable:'to keep horses for riders and wagons', boathouse:'to build and keep boats', shipyard:'to build ships and a harbour for them', power_plant:'to bring electric light to the streets', station:'to bring the railway to town', airfield:'so aeroplanes can land'}[def];
+    civStartProject(def, site, civTownOwner(), {purpose:'transport', why});
+    return;
+  }
+}
+// the railway runs along the station's front, as far as open ground allows
+function civTrack(s){
+  const y = s.y + s.h + 1, mine = 'rail:'+s.id, ok = x => { const t = tileAt(x, y), r = S.civ.reserved[tkey(x, y)]; return t!==-1 && t!==T.WATER && t!==T.ROCK && t!==T.BUILD && t!==T.FOG && t!==T.OBJ && civClaimedTile(x, y) && (!r || r===mine); };
+  let x0 = s.x, x1 = s.x + s.w - 1; if (!ok(x0) || !ok(x1)) return null;
+  while (x0 > s.x - 40 && ok(x0-1)) x0--; while (x1 < s.x + s.w + 40 && ok(x1+1)) x1++;
+  return x1 - x0 >= 8 ? {y, x0, x1} : null;
+}
+// the line is kept clear: nobody may build on it
+function civSetTrack(s, t){ const R = S.civ.reserved, mine = 'rail:'+s.id; for (const k in R) if (R[k]===mine) delete R[k]; s.meta.track = t; if (t) for (let x=t.x0; x<=t.x1; x++) if (!R[tkey(x, t.y)]) R[tkey(x, t.y)] = mine; S.civ.dirtyGround = true; }
+function civTracksWeekly(){ const R = S.civ.reserved; for (const k in R) if (typeof R[k]==='string' && R[k].startsWith('rail:') && !S.civ.structs[R[k].slice(5)]) delete R[k];
+  civHas('station').forEach(s=>{ const t = civTrack(s); if (JSON.stringify(t)!==JSON.stringify(s.meta.track||null)) civSetTrack(s, t); }); }
+function civOnStructBuiltTransport(s, p){
+  const D = STRUCTURES[s.def], C = S.civ; C.firsts = C.firsts || {};
+  if (D.light && !C.firsts[s.def]){ C.firsts[s.def] = civDay(); chronicle(`The first ${D.label.toLowerCase()} was lit${s.def==='torch_post'?' beside the path':''}. The streets are ${s.def==='electric_lamp'?'as bright as day':'safer after dark'}.`, 6, s.def==='electric_lamp'?'💡':'🔥', 'infrastructure'); ev('lights_first'); }
+  if (D.light) ev('lights_built');
+  if (s.def==='station'){ civSetTrack(s, civTrack(s)); if (s.meta.track) chronicle('The railway has reached the town. The first train steamed into the new station.', 9, '🚂', 'infrastructure'); }
+  if (s.def==='airfield') chronicle('The first aeroplane landed on the new airfield.', 9, '✈️', 'infrastructure');
+  if (s.def==='shipyard') chronicle('The shipyard launched its first ship.', 8, '⛵', 'infrastructure');
+}
+function civOnTechTransport(t){
+  const lines = {riding:'People have started riding horses.', wheel:'The first handcarts are rolling along the paths.', wagons:'Horses now pull wagons of goods through town.', boatbuilding:'Boats are out on the water.', automobiles:'Motor cars have appeared on the roads.', aviation:'People are learning to fly.', gas_lighting:'Gas can light the streets now.', electricity:'Electric light is possible, once there is a power station.'};
+  if (lines[t]) chronicle(lines[t], 7, CIV_VEHICLES[Object.keys(CIV_VEHICLES).find(k=>CIV_VEHICLES[k].tech===t)]?.icon || '💡', 'science');
+}
+function civTransportDaily(d){ civLightingDaily(); if (d%7===3){ civTransportWeekly(); civTracksWeekly(); } }
+
+// =====================================================================
+// vehicles on screen: a light, local simulation of traffic (it never touches the game's dice)
+// =====================================================================
+const VEHICLES = [];
+let VEH_KEY = '';
+function civVehKey(){ const C = S.civ; return Object.keys(CIV_VEHICLES).filter(civVehicleOK).join(',') + '|' + Math.floor(S.citizens.length/10) + '|' + civHas(['station','airfield','shipyard','boathouse']).length + '|' + (S.worldVer||0); }
+function civVehTiles(){
+  const land = [], road = [], water = [], open = [];
+  for (let y=Y0;y<Y0+MH;y++) for (let x=X0;x<X0+MW;x++){ const t = MAP[y][x];
+    if (t===T.WATER){ water.push([x,y]); if ([[1,0],[-1,0],[0,1],[0,-1]].every(([a,b])=>tileAt(x+a,y+b)===T.WATER)) open.push([x,y]); }
+    else if (t===T.PATH || t===T.BRIDGE){ road.push([x,y]); land.push([x,y]); }
+    else if (t===T.GRASS || t===T.PLAZA || t===T.SAND) land.push([x,y]); }
+  return {land, road, water, open};
+}
+const VEH_SPEC = {
+  cart:{on:'land', v:10, day:true}, horse:{on:'land', v:26, day:true}, wagon:{on:'land', v:15, day:true}, boat:{on:'water', v:9, day:true},
+  ship:{on:'open', v:8}, steamship:{on:'open', v:13}, car:{on:'road', v:38}, truck:{on:'road', v:30}, train:{on:'rail', v:70}, plane:{on:'air', v:95}
+};
+function civSyncVehicles(){
+  VEH_KEY = civVehKey();
+  const n = S.citizens.length, TL = civVehTiles(), C = S.civ, want = [];
+  const add = (kind, k) => { for (let i=0;i<k;i++) want.push(kind+i); };
+  const later = k => civVehicleOK(k);
+  if (later('cart')) add('cart', Math.min(3, Math.ceil(n/35)) - (later('wagon') ? 1 : 0));
+  if (later('horse')) add('horse', Math.min(4, Math.ceil(n/30)) - (later('car') ? 2 : 0));
+  if (later('wagon')) add('wagon', Math.min(3, Math.ceil(n/45)) - (later('truck') ? 1 : 0));
+  if (later('boat') && TL.water.length > 12) add('boat', Math.min(3, 1 + Math.floor(n/60)));
+  if (TL.open.length > 20){ if (later('steamship')) add('steamship', 1); else if (later('ship')) add('ship', Math.min(2, 1 + Math.floor(n/150))); }
+  if (later('car') && TL.road.length > 20) add('car', Math.min(10, Math.ceil(n/18)));
+  if (later('truck') && TL.road.length > 20) add('truck', Math.min(3, Math.ceil(n/80)));
+  if (later('train') && civHas('station').some(s=>s.meta.track)) add('train', 1);
+  if (later('plane')) add('plane', 1 + (n > 250 ? 1 : 0));
+  const keep = new Map(VEHICLES.map(v=>[v.id, v])); VEHICLES.length = 0;
+  want.forEach((id,i)=>{ const kind = id.replace(/\d+$/,''); let v = keep.get(id); if (!v){ v = civSpawnVehicle(id, kind, TL, i); if (!v) return; } VEHICLES.push(v); });
+  civVehTL = TL;
+}
+let civVehTL = null;
+function civSpawnVehicle(id, kind, TL, i){
+  const sp = VEH_SPEC[kind], r = mapRand(hash(id + S.civ.seed));
+  const v = {id, kind, variant: hash(id)%5, x:0, y:0, px:0, py:0, tx:null, ty:null, cur:null, prev:null, face:1, dx:1, dy:0, wait:r()*4, phase:r()*10};
+  if (sp.on==='air'){ civPlaneRoute(v, r); return v; }
+  if (sp.on==='rail'){ const st = civHas('station').find(s=>s.meta.track); if (!st) return null; const T0 = st.meta.track; v.track = T0; v.x = (st.x + st.w/2)*TILE; v.y = (T0.y + 0.5)*TILE; v.dir = 1; v.wait = 6; return v; }
+  const pool = TL[sp.on==='open' ? 'open' : sp.on]; if (!pool.length) return null;
+  const [cx, cy] = S.civ.center, near = sp.on==='land' || sp.on==='road' ? pool.filter(([x,y])=>Math.abs(x-cx)<30 && Math.abs(y-cy)<22) : pool;
+  const [x, y] = (near.length ? near : pool)[Math.floor(r()*(near.length || pool.length))];
+  v.cur = [x, y]; v.x = (x+0.5)*TILE; v.y = (y+0.5)*TILE; return v;
+}
+function civPlaneRoute(v, r){ r = r || Math.random; const H = MH*TILE, west = r() < 0.5; v.x = (west ? X0*TILE - 80 : (X0+MW)*TILE + 80); v.y = Y0*TILE + H*(0.15 + r()*0.7); v.vy = (r()-0.5)*14; v.face = west ? 1 : -1; v.dx = v.face; v.dy = 0; v.wait = 3 + r()*20; v.flying = false; }
+// a vehicle is on screen unless it is stabled for the night or an aeroplane waiting to come over
+function civVehShown(v){ return !v.hidden && !(v.kind==='plane' && !v.flying); }
+// the parts of a train on the track (engine first), each only while it is between the track's ends
+function civTrainParts(v){ const T0 = v.track; if (!T0) return []; const a = T0.x0*TILE + 6, b = (T0.x1+1)*TILE - 6, dir = v.dir||1;
+  return [{x:v.x, loco:true}].concat([1,2,3].map(k=>({x:v.x - dir*(4 + k*33), car:k}))).filter(p=>p.x >= a && p.x <= b); }
+function civVehAllowed(kind, x, y){ const t = tileAt(x, y), on = VEH_SPEC[kind].on;
+  if (on==='water') return t===T.WATER; if (on==='open') return t===T.WATER && [[1,0],[-1,0],[0,1],[0,-1]].every(([a,b])=>tileAt(x+a,y+b)===T.WATER);
+  if (on==='road') return t===T.PATH || t===T.BRIDGE; return t===T.PATH || t===T.BRIDGE || t===T.GRASS || t===T.PLAZA || t===T.SAND; }
+function civVehNext(v){
+  const [x, y] = v.cur, dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  let opts = dirs.map(([a,b])=>[x+a, y+b]).filter(([a,b])=>civVehAllowed(v.kind, a, b) && (civClaimedTile(a,b)));
+  // land vehicles keep to the paths when there are any
+  if (VEH_SPEC[v.kind].on==='land'){ const paths = opts.filter(([a,b])=>tileAt(a,b)===T.PATH || tileAt(a,b)===T.BRIDGE); if (paths.length) opts = paths; }
+  const fwd = opts.filter(([a,b])=>!(v.prev && a===v.prev[0] && b===v.prev[1]));
+  if (fwd.length) opts = fwd;
+  if (!opts.length) return null;
+  // mostly keep going straight
+  const straight = opts.find(([a,b])=>a-x===v.dx && b-y===v.dy);
+  return straight && Math.random() < 0.7 ? straight : opts[Math.floor(Math.random()*opts.length)];
+}
+function civVehNight(){ const m = modOf(S.minute); return m < 330 || m > 1290; }
+function civUpdateVehicles(dt, sp){
+  if (!S.civ) return;
+  const now = performance.now(); if (!VEHICLES.t || now - VEHICLES.t > 1000 || !sp){ VEHICLES.t = now; if (VEH_KEY !== civVehKey()) civSyncVehicles(); }
+  const night = civVehNight();
+  VEHICLES.forEach(v=>{
+    const spec = VEH_SPEC[v.kind]; v.px = v.x; v.py = v.y;
+    v.hidden = !!(spec.day && night);
+    if (v.hidden || !sp) return;
+    // aeroplanes wait out of sight, then cross the whole sky
+    if (spec.on==='air'){ if (v.wait > 0){ v.wait -= dt*sp; v.flying = false; return; } v.flying = true; v.x += v.face*spec.v*sp*dt; v.y += v.vy*sp*dt*0.2; if ((v.face > 0 && v.x > (X0+MW)*TILE + 120) || (v.face < 0 && v.x < X0*TILE - 120)) civPlaneRoute(v); return; }
+    // the train runs the length of the track, stops at the station, and leaves town at each end before coming back
+    if (spec.on==='rail'){ const st = civHas('station').find(s=>s.meta.track); if (!st){ v.hidden = true; return; } const T0 = v.track = st.meta.track; v.y = (T0.y + 0.5)*TILE;
+      if (v.wait > 0){ v.wait -= dt*sp; return; }
+      v.x += v.dir*spec.v*sp*dt; v.face = v.dx = v.dir; v.dy = 0;
+      const mid = (st.x + st.w/2)*TILE; if (!v.stopped && Math.abs(v.x - mid) < spec.v*sp*dt + 1){ v.x = mid; v.wait = 8; v.stopped = true; return; } if (Math.abs(v.x - mid) > 40) v.stopped = false;
+      const a = T0.x0*TILE, b = (T0.x1+1)*TILE; if (v.dir > 0 && v.x > b + 160){ v.dir = -1; v.wait = 10; } else if (v.dir < 0 && v.x < a - 160){ v.dir = 1; v.wait = 10; }
+      return; }
+    if (v.wait > 0){ v.wait -= dt*sp; return; }
+    if (v.tx===null){ const n = civVehNext(v); if (!n){ v.wait = 2; v.prev = null; return; } v.prev = v.cur; v.dx = n[0]-v.cur[0]; v.dy = n[1]-v.cur[1]; v.cur = n; v.tx = (n[0]+0.5)*TILE; v.ty = (n[1]+0.5)*TILE; if (v.dx) v.face = v.dx; }
+    const dx = v.tx - v.x, dy = v.ty - v.y, d = Math.hypot(dx, dy), step = spec.v*sp*dt;
+    if (d <= step){ v.x = v.tx; v.y = v.ty; v.tx = null; if (Math.random() < 0.03) v.wait = 1 + Math.random()*4; }
+    else { v.x += dx/d*step; v.y += dy/d*step; }
+  });
+}
+
+// ---------- 2D art ----------
+function civTransportArt(){
+  const A = ART.civ; if (!A || A.veh) return;
+  const V = A.veh = {};
+  const CAR = ['#c83a3a','#3a6ac8','#3a8a4a','#2a2a30','#e8d8a8'];
+  // riders and horses: the horse from the animal art, with a rider on top
+  V.horse = [0,1].map(f=>{ const h = ART.animals.horse[0][f], p = mk(h.width, h.height+10), g = p.getContext('2d'); g.drawImage(h, 0, 10); const x = Math.round(h.width*0.42);
+    g.fillStyle='#3a5a8a'; g.fillRect(x-1, 6, 5, 7); g.fillStyle='#f0c8a0'; g.fillRect(x, 1, 4, 5); g.fillStyle='#5a3a22'; g.fillRect(x-1, 0, 6, 2); g.fillStyle='#2a2a30'; g.fillRect(x+1, 13, 2, 5); g.fillStyle='#1b1320'; g.fillRect(x+3,3,1,1); return p; });
+  V.cart = (()=>{ const p = new Pix(18,14); p.rect(2,5,12,5,WOOD_R[3]); p.rect(2,5,12,1,WOOD_R[5]); p.line(14,6,17,3,WOOD_R[2]); blob(p,[{x:6,y:4,r:2.6},{x:10,y:4,r:2.4}],['#8a7050','#a08860','#c0a878','#d8c090','#e8d8a8'],{}); p.ellipse(8,11,2.5,2.5,'#3a2a1e'); p.set(8,11,'#8a6038'); return p.outline().done(); })();
+  V.wagon = [0,1].map(f=>{ const h = ART.animals.horse[1] ? ART.animals.horse[1][f] : ART.animals.horse[0][f], p = mk(h.width+26, h.height+6), g = p.getContext('2d');
+    const w = new Pix(28, h.height+6); for (let y=4;y<14;y++){ const k = Math.sin((y-4)/10*Math.PI); for (let x=2;x<26;x++) w.set(x, y+(k>0?0:0), y<6||x<3||x>24 ? '#c8c0a8' : '#ece6d4'); } w.rect(1,13,26,5,WOOD_R[2]); w.rect(1,13,26,1,WOOD_R[4]); w.ellipse(6,h.height+2,3,3,'#2a2018'); w.ellipse(21,h.height+2,3,3,'#2a2018'); w.set(6,h.height+2,'#8a6038'); w.set(21,h.height+2,'#8a6038'); g.drawImage(w.outline().done(), 0, 0);
+    g.drawImage(h, 24, 6); g.fillStyle = WOOD_R[3]; g.fillRect(24, h.height-2, 8, 1); return p; });
+  V.boat = (()=>{ const b = ART.boat, p = mk(b.width, b.height+6), g = p.getContext('2d'); g.drawImage(b, 0, 6); g.fillStyle='#8a3a2a'; g.fillRect(11,3,5,6); g.fillStyle='#f0c8a0'; g.fillRect(12,0,3,3); g.fillStyle=WOOD_R[3]; g.fillRect(4,9,18,1); return p; })();
+  const hull = (p, w, h, top, col) => { for (let y=top;y<top+h;y++){ const k = (y-top)/h, inset = Math.round(k*k*6); for (let x=inset;x<w-inset-Math.round(k*4);x++) p.set(x, y, y===top ? '#e8e0d0' : col); } };
+  V.ship = [0,1].map(f=>{ const p = new Pix(44,40); hull(p, 44, 9, 30, '#6a4428'); p.rect(0,33,44,1,'#e8c84a'); p.rect(20,4,2,27,'#5a3a22'); p.rect(9,8,24,1,'#5a3a22');
+    for (let y=9;y<27;y++){ const bw = 11 - Math.abs(y-17)*0.25 + (f?1:0); for (let x=Math.round(21-bw);x<=Math.round(21+bw);x++) p.set(x, y, (x+y)%9===0 ? '#d8d0c0' : '#f4f0e6'); }
+    p.line(21,3,40,29,'#8a7a60'); p.rect(20,1,6,3,'#c83a3a'); return p.outline().done(); });
+  V.steamship = (()=>{ const p = new Pix(48,30); hull(p, 48, 10, 19, '#2a2a34'); p.rect(0,23,48,2,'#a83030'); p.rect(10,12,24,7,'#e8e4dc'); for (let x=12;x<32;x+=4) p.rect(x,14,2,2,'#3a5a8a'); p.rect(22,2,5,10,'#1e1e24'); p.rect(22,4,5,2,'#c83a3a'); return p.outline().done(); })();
+  V.car = CAR.map(col=>{ const p = new Pix(24,13); p.rect(1,5,22,5,col); p.rect(6,1,11,5,col); p.rect(7,2,4,3,'#a8d0f0'); p.rect(12,2,4,3,'#a8d0f0'); p.rect(22,6,1,2,'#fff0a0'); p.rect(1,6,1,2,'#c83a3a'); p.rect(1,9,22,1,'#1e1e24');
+    [5,18].forEach(x=>{ p.ellipse(x,10.5,2.4,2.4,'#1e1e24'); p.set(x,10,'#9a9aa8'); }); return p.outline().done(); });
+  V.truck = (()=>{ const p = new Pix(32,17); p.rect(1,1,20,11,'#6a7a4a'); p.rect(1,1,20,1,'#8a9a6a'); p.rect(22,4,9,8,'#c8a030'); p.rect(25,5,5,3,'#a8d0f0'); p.rect(30,9,1,2,'#fff0a0'); p.rect(1,12,30,1,'#1e1e24'); [5,11,26].forEach(x=>{ p.ellipse(x,13.5,2.4,2.4,'#1e1e24'); p.set(x,13,'#9a9aa8'); }); return p.outline().done(); })();
+  V.loco = (()=>{ const p = new Pix(36,22); p.rect(4,7,24,10,'#2a2a34'); p.rect(4,7,24,1,'#4a4a58'); p.rect(20,2,10,15,'#8a2a2a'); p.rect(22,4,6,4,'#f0d880'); p.rect(6,0,4,7,'#1e1e24'); p.rect(0,15,4,3,'#6a6a78'); p.rect(2,17,32,1,'#1e1e24');
+    [8,15,24,30].forEach(x=>{ p.ellipse(x,18.5,2.8,2.8,'#1e1e24'); p.set(x,18,'#c83a3a'); }); p.rect(1,10,2,2,'#fff4c0'); return p.outline().done(); })();
+  V.carriage = ['#3a5a3a','#6a3a2a'].map(col=>{ const p = new Pix(32,20); p.rect(1,4,30,11,col); p.rect(1,3,30,2,'#3a3a44'); for (let x=4;x<28;x+=6) p.rect(x,7,4,4,'#f0e0a0'); p.rect(1,15,30,1,'#1e1e24'); [6,26].forEach(x=>{ p.ellipse(x,16.5,2.6,2.6,'#1e1e24'); p.set(x,16,'#8a8a94'); }); return p.outline().done(); });
+  V.plane = (()=>{ const p = new Pix(40,18); p.rect(4,7,32,5,'#dcdce4'); p.rect(4,7,32,1,'#f4f4f8'); p.ellipse(36,9.5,3,2.5,'#dcdce4'); p.rect(0,2,6,6,'#c83a3a'); p.rect(0,9,8,2,'#b8b8c4'); p.rect(14,9,14,3,'#a8a8b4'); p.rect(14,4,12,3,'#c8c8d4');
+    for (let x=12;x<32;x+=4) p.rect(x,8,2,2,'#3a5a8a'); p.rect(38,8,2,3,'#3a3a44'); return p.outline().done(); })();
+  // street lights
+  const L = A.light = {};
+  L.torch = (()=>{ const p = new Pix(8,22); p.ellipse(4,20.5,3,1,'#000000',60); p.rect(3,6,2,15,WOOD_R[2]); p.set(3,8,WOOD_R[4]); p.rect(2,4,4,3,'#4a3a2a'); p.rect(3,0,2,4,'#f8a030'); p.set(3,0,'#f8e070'); p.set(4,1,'#f8e070'); return p.outline().done(); })();
+  L.lantern = (()=>{ const p = new Pix(10,24); p.ellipse(5,22.5,3.5,1.2,'#000000',60); p.rect(4,5,2,17,WOOD_R[2]); p.rect(4,4,5,1,WOOD_R[3]); p.rect(6,5,3,4,'#3a2a1e'); p.rect(7,6,1,2,'#f8c060'); return p.outline().done(); })();
+  L.gas = (()=>{ const p = new Pix(10,28); p.ellipse(5,26.5,3.5,1.2,'#000000',60); p.rect(4,7,2,19,'#1e2a24'); p.rect(3,24,4,2,'#1e2a24'); p.rect(2,1,6,6,'#1e2a24'); p.rect(3,2,4,4,'#f4e4b0'); p.rect(3,0,4,1,'#1e2a24'); p.set(4,3,'#fff8e0'); return p.outline().done(); })();
+  L.electric = (()=>{ const p = new Pix(16,36); p.ellipse(4,34.5,3.5,1.2,'#000000',60); p.rect(3,3,2,31,'#7a7a88'); p.set(3,4,'#9a9aa8'); p.rect(3,2,9,2,'#7a7a88'); p.rect(10,3,5,2,'#5a5a66'); p.rect(11,5,3,1,'#f0f4ff'); return p.outline().done(); })();
+}
+const CIV_LIGHT_ART = {torch_post:'torch', oil_lantern:'lantern', gas_lamp:'gas', electric_lamp:'electric'};
+function civLightHead(s){ const k = CIV_LIGHT_ART[s.def], X = s.x*TILE, Y = s.y*TILE; return k==='torch' ? [X+7, Y-6, 2, 3] : k==='lantern' ? [X+9, Y-4, 1, 2] : k==='gas' ? [X+6, Y-10, 4, 4] : [X+11, Y-17, 3, 1]; }
+// light posts stand on their tile like a prop
+function civLightEnts(push){ civTransportArt(); civLamps().forEach(s=>{ const k = CIV_LIGHT_ART[s.def], img = ART.civ.light[k]; const x = s.x*TILE + 8 - img.width/2, y = s.y*TILE + 14 - img.height; push(img, x, y, s.y*TILE+14, 'light:'+k); }); }
+function civLightPoints(){ return civLamps().map(s=>{ const D = STRUCTURES[s.def], [hx, hy, hw, hh] = civLightHead(s); return {x:hx+hw/2, y:hy+hh/2, r:D.light.r, kind:D.light.kind, s}; }); }
+// bright lamp heads, drawn over the darkness
+function civLampHeads(g){ civLamps().forEach(s=>{ const [x,y,w,h] = civLightHead(s), k = CIV_LIGHT_ART[s.def]; g.fillStyle = k==='torch' ? (Math.floor(performance.now()/150+s.x)%2 ? '#ffd060' : '#ff9a30') : k==='electric' ? '#ffffff' : '#fff0c0'; g.fillRect(x, y, w, h); }); }
+// vehicles in the 2D scene, depth-sorted with everything else
+function civVehicleEnts(ents, inView){
+  civTransportArt();
+  VEHICLES.forEach(v=>{ if (!civVehShown(v)) return;
+    if (v.kind==='train'){ if (civTrainParts(v).length && inView(v.x-140, v.y-30, 280, 40)) ents.push({veh:v, key:v.y+6}); return; }
+    if (v.kind==='plane'){ ents.push({veh:v, key:1e9}); return; }
+    if (inView(v.x-30, v.y-40, 60, 50)) ents.push({veh:v, key:v.y+6}); });
+}
+function civDrawVehicle(g, v, ts){
+  const V = ART.civ.veh, X = Math.round(v.x), Y = Math.round(v.y), bob = Math.sin(ts/500 + v.phase);
+  const draw = (img, dx, dy, flip) => { g.save(); g.translate(X, Y); if (flip) g.scale(-1, 1); g.drawImage(img, dx, dy); g.restore(); };
+  const shadow = (w) => { g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(X - w/2, Y + 3, w, 2); };
+  const left = v.face < 0, frame = Math.floor(ts/160 + v.phase)%2;
+  switch (v.kind){
+    case 'horse': shadow(20); draw(V.horse[frame], -Math.round(V.horse[0].width/2), -V.horse[0].height+4, left); break;
+    case 'cart': shadow(14); draw(V.cart, -9, -10, left); break;
+    case 'wagon': shadow(40); draw(V.wagon[frame], -Math.round(V.wagon[0].width/2), -V.wagon[0].height+5, left); break;
+    case 'boat': draw(V.boat, -13, -14 + Math.round(bob), left); break;
+    case 'ship': draw(V.ship[frame], -22, -36 + Math.round(bob), left); break;
+    case 'steamship': draw(V.steamship, -24, -26 + Math.round(bob*0.6), left); if (Math.random() < 0.3) particles.push({x:X, y:Y-24, vx:left?4:-4, vy:-7, life:2.2, max:2.2, col:'#9a9aa8', a:0.5, w:2}); break;
+    case 'car': shadow(20); draw(V.car[v.variant], -12, -10, left); break;
+    case 'truck': shadow(28); draw(V.truck, -16, -14, left); break;
+    case 'train': { const dir = v.dir||1, parts = civTrainParts(v); // the engine's art faces left, so it is flipped to run right
+      parts.slice().reverse().forEach(p=>{ g.save(); g.translate(Math.round(p.x), Y); if (p.loco && dir > 0) g.scale(-1, 1); if (p.loco) g.drawImage(V.loco, -18, -19); else g.drawImage(V.carriage[p.car%2], -16, -17); g.restore(); });
+      if (!v.wait && parts.some(p=>p.loco) && Math.random() < 0.4) particles.push({x:X + dir*10, y:Y-22, vx:-dir*6, vy:-10, life:2.5, max:2.5, col:'#c8c8d0', a:0.55, w:3}); break; }
+    case 'plane': { const alt = 70; g.fillStyle = 'rgba(0,0,0,0.16)'; g.fillRect(X-14, Y+4, 28, 3); draw(V.plane, -20, -alt-9, left); break; }
+  }
+}
+// rails drawn into the ground layer
+function civRailGround(g){
+  civHas('station').forEach(s=>{ const T0 = s.meta.track; if (!T0) return; const Y = T0.y*TILE;
+    for (let x=T0.x0; x<=T0.x1; x++){ const X = x*TILE; g.fillStyle = WOOD_R[1]; for (let k=1;k<16;k+=4) g.fillRect(X+k, Y+2, 2, 12); g.fillStyle = '#8a8a98'; g.fillRect(X, Y+4, 16, 2); g.fillRect(X, Y+10, 16, 2); g.fillStyle = '#b8b8c8'; g.fillRect(X, Y+4, 16, 1); g.fillRect(X, Y+10, 16, 1); } });
+}
+// headlights and lamps for the lighting pass
+function civTransportLights(L, inV){
+  civLightPoints().forEach(p=>{ if (inV(p.x, p.y, p.r)) L.push([p.x, p.y, p.r, 1, CIV_LIGHT_COL[p.kind]]); });
+  VEHICLES.forEach(v=>{ if (!civVehShown(v)) return;
+    if (v.kind==='car' || v.kind==='truck'){ const x = v.x + (v.dx||v.face)*14, y = v.y + (v.dy||0)*10 - 4; if (inV(x, y, 30)) L.push([x, y, 26, 0.8, 'rgba(255,240,190,0.3)']); }
+    if (v.kind==='train'){ const x = v.x + (v.dir||1)*20, y = v.y - 8; if (civTrainParts(v).some(p=>p.loco) && inV(x, y, 40)) L.push([x, y, 38, 0.9, 'rgba(255,240,190,0.32)']); }
+    if (v.kind==='steamship' || v.kind==='ship'){ if (inV(v.x, v.y-10, 30)) L.push([v.x, v.y-10, 24, 0.7, 'rgba(255,200,120,0.28)']); } });
+}
+
+// ---------- 3D ----------
+const CIV_LIGHT_H = {torch:1.25, lantern:1.45, gas:1.85, electric:2.5};
+function civLightMesh(kind){
+  const g = lpG(), P = [];
+  R3.lightMats = R3.lightMats || {};
+  if (kind==='torch') P.push(lpPart(g.cyl, '#6e4a2c', [0,0.55,0], [0,0,0], [0.05,1.1,0.05]), lpPart(g.cyl, '#3a2a1e', [0,1.12,0], [0,0,0], [0.08,0.12,0.08]));
+  else if (kind==='lantern') P.push(lpPart(g.box, '#6e4a2c', [0,0.7,0], [0,0,0], [0.08,1.4,0.08]), lpPart(g.box, '#6e4a2c', [0.14,1.38,0], [0,0,0], [0.34,0.05,0.05]), lpPart(g.box, '#3a2a1e', [0.26,1.26,0], [0,0,0], [0.14,0.03,0.14]));
+  else if (kind==='gas') P.push(lpPart(g.cyl, '#1e2a24', [0,0.85,0], [0,0,0], [0.05,1.7,0.05]), lpPart(g.cyl, '#1e2a24', [0,0.08,0], [0,0,0], [0.1,0.16,0.1]), lpPart(g.cone, '#1e2a24', [0,1.98,0], [0,Math.PI/4,0], [0.18,0.14,0.18]));
+  else P.push(lpPart(g.cyl, '#7a7a88', [0,1.25,0], [0,0,0], [0.05,2.5,0.05]), lpPart(g.box, '#7a7a88', [0.3,2.48,0], [0,0,0], [0.62,0.05,0.06]), lpPart(g.box, '#5a5a66', [0.56,2.44,0], [0,0,0], [0.22,0.06,0.12]));
+  let geo = LP.cache.get('light:'+kind); if (!geo){ geo = lpMerge(P); LP.cache.set('light:'+kind, geo); }
+  const m = new THREE.Mesh(geo, lpMat()); m.userData.shared = true; m.castShadow = true;
+  const mat = R3.lightMats[kind] || (R3.lightMats[kind] = new THREE.MeshBasicMaterial({color:CIV_LIGHT_HEX[kind]}));
+  const head = kind==='torch' ? new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.26, 6), mat) : new THREE.Mesh(new THREE.BoxGeometry(kind==='electric'?0.16:0.12, kind==='electric'?0.03:0.16, kind==='electric'?0.08:0.12), mat);
+  head.position.set(kind==='lantern' ? 0.26 : kind==='electric' ? 0.56 : 0, kind==='torch' ? 1.3 : kind==='lantern' ? 1.15 : kind==='gas' ? 1.85 : 2.4, 0); m.add(head);
+  if (kind==='torch') m.userData.flame = [head];
+  return m;
+}
+// where the lamps are in world space, for the glow sprites and the real point lights
+function r3CivLamps(){ return civLamps().map(s=>{ const k = STRUCTURES[s.def].light.kind; return {x:s.x+0.5 + (k==='lantern'?0.26:k==='electric'?0.56:0), z:s.y+0.575, h:CIV_LIGHT_H[k], kind:k}; }); }
+function r3LightDaylight(dark){ const on = dark > 0.08; for (const k in (R3.lightMats||{})) R3.lightMats[k].color.set(on ? CIV_LIGHT_HEX[k] : k==='torch' ? 0xff8a30 : 0x8a8a80); }
+function r3VehMesh(v){
+  const g = lpG(), P = [], grp = new THREE.Group(), CAR = ['#c83a3a','#3a6ac8','#3a8a4a','#2a2a30','#e8d8a8'];
+  const add = (parts, key) => { let geo = key && LP.cache.get('veh:'+key); if (!geo){ geo = lpMerge(parts); if (key) LP.cache.set('veh:'+key, geo); } const m = new THREE.Mesh(geo, lpMat()); m.castShadow = true; m.receiveShadow = true; if (key) m.userData.shared = true; grp.add(m); return m; };
+  const wheel = (x, z, r) => lpPart(g.cyl, '#1e1e24', [x, r, z], [Math.PI/2,0,0], [r, 0.1, r]);
+  const lamp = (x, y, z, col) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.1), new THREE.MeshBasicMaterial({color:col||0xfff0b0})); m.position.set(x, y, z); grp.add(m); return m; };
+  const horse = (x) => { const h = an3Build('horse', 0); h.rotation.y = Math.PI/2; h.position.x = x; grp.add(h); grp.userData.horse = h; };
+  switch (v.kind){
+    case 'horse': horse(0); add([lpPart(g.box, '#3a5a8a', [-0.05,1.05,0], [0,0,0], [0.22,0.36,0.24]), lpPart(g.sph, '#e0b890', [-0.05,1.34,0], [0,0,0], [0.1,0.11,0.1]), lpPart(g.cyl, '#5a3a22', [-0.05,1.43,0], [0,0,0], [0.12,0.05,0.12]), lpPart(g.box, '#2a2a30', [-0.05,0.86,0.12], [0,0,0], [0.08,0.26,0.07]), lpPart(g.box, '#2a2a30', [-0.05,0.86,-0.12], [0,0,0], [0.08,0.26,0.07])], 'rider'); break;
+    case 'cart': add([lpPart(g.box, '#8a6038', [0,0.4,0], [0,0,0], [0.8,0.08,0.55]), lpPart(g.box, '#6e4a2c', [0,0.52,0.26], [0,0,0], [0.8,0.2,0.04]), lpPart(g.box, '#6e4a2c', [0,0.52,-0.26], [0,0,0], [0.8,0.2,0.04]), lpPart(g.tor, '#4a3222', [0,0.25,0.32], [0,0,0], [0.24,0.24,0.24]), lpPart(g.tor, '#4a3222', [0,0.25,-0.32], [0,0,0], [0.24,0.24,0.24]), lpPart(g.cyl, '#6e4a2c', [0.6,0.45,0.18], [0,0,Math.PI/2+0.2], [0.03,0.5,0.03]), lpPart(g.cyl, '#6e4a2c', [0.6,0.45,-0.18], [0,0,Math.PI/2+0.2], [0.03,0.5,0.03]), lpPart(g.ico, '#c8b080', [-0.1,0.58,0], [0,0,0], [0.2,0.16,0.18])], 'cart'); break;
+    case 'wagon': horse(0.95); add([lpPart(g.box, '#6e4a2c', [-0.35,0.55,0], [0,0,0], [1.5,0.12,0.8]), lpPart(g.cyl, '#ece6d4', [-0.35,0.72,0], [0,0,Math.PI/2], [0.42,1.4,0.42]), lpPart(g.box, '#6e4a2c', [-0.35,0.7,0], [0,0,0], [1.45,0.3,0.84]), wheel(0.2,0.44,0.3), wheel(0.2,-0.44,0.3), wheel(-0.9,0.44,0.3), wheel(-0.9,-0.44,0.3), lpPart(g.box, '#5a3a22', [0.5,0.5,0], [0,0,0], [0.5,0.05,0.05])], 'wagon'); break;
+    case 'boat': add([lpPart(g.box, '#8a5a34', [0,0.05,0], [0,0,0], [1.2,0.22,0.5]), lpPart(g.cone, '#8a5a34', [0.72,0.05,0], [0,0,-Math.PI/2], [0.25,0.3,0.25]), lpPart(g.box, '#8a3a2a', [0,0.3,0], [0,0,0], [0.18,0.3,0.2]), lpPart(g.sph, '#e0b890', [0,0.52,0], [0,0,0], [0.09,0.1,0.09]), lpPart(g.cyl, '#6e4a2c', [0,0.2,0], [0.5,0,0], [0.02,1.3,0.02])], 'boat'); break;
+    case 'ship': add([lpPart(g.box, '#6a4428', [0,0.2,0], [0,0,0], [2.6,0.5,0.9]), lpPart(g.cone, '#6a4428', [1.55,0.2,0], [0,0,-Math.PI/2], [0.45,0.6,0.45]), lpPart(g.box, '#e8c84a', [0,0.44,0], [0,0,0], [2.62,0.05,0.92]), lpPart(g.cyl, '#5a3a22', [0.2,1.7,0], [0,0,0], [0.06,2.8,0.06]), lpPart(g.box, '#f4f0e6', [0.2,1.8,0], [0,0,0], [0.05,1.6,1.6]), lpPart(g.box, '#f4f0e6', [-0.8,1.3,0], [0,0,0], [0.05,1.1,1.1]), lpPart(g.cyl, '#5a3a22', [-0.8,1.2,0], [0,0,0], [0.05,1.8,0.05]), lpPart(g.box, '#c83a3a', [0.2,3.15,0.12], [0,0,0], [0.02,0.18,0.3])], 'ship'); break;
+    case 'steamship': add([lpPart(g.box, '#2a2a34', [0,0.25,0], [0,0,0], [3.2,0.6,1.0]), lpPart(g.cone, '#2a2a34', [1.9,0.25,0], [0,0,-Math.PI/2], [0.5,0.6,0.5]), lpPart(g.box, '#a83030', [0,0.02,0], [0,0,0], [3.22,0.12,1.02]), lpPart(g.box, '#e8e4dc', [-0.2,0.8,0], [0,0,0], [1.8,0.5,0.8]), lpPart(g.cyl, '#1e1e24', [0.1,1.45,0], [0,0,0], [0.18,0.9,0.18]), lpPart(g.cyl, '#c83a3a', [0.1,1.6,0], [0,0,0], [0.19,0.18,0.19])], 'steam'); break;
+    case 'car': add([lpPart(g.box, CAR[v.variant], [0,0.3,0], [0,0,0], [1.1,0.28,0.55]), lpPart(g.box, CAR[v.variant], [-0.08,0.55,0], [0,0,0], [0.6,0.24,0.5]), lpPart(g.box, '#a8d0f0', [0.24,0.55,0], [0,0,0.4], [0.02,0.2,0.46]), wheel(0.34,0.28,0.14), wheel(0.34,-0.28,0.14), wheel(-0.34,0.28,0.14), wheel(-0.34,-0.28,0.14)], 'car'+v.variant); grp.userData.lamps = [lamp(0.56,0.32,0.18), lamp(0.56,0.32,-0.18)]; break;
+    case 'truck': add([lpPart(g.box, '#6a7a4a', [-0.3,0.55,0], [0,0,0], [1.3,0.7,0.7]), lpPart(g.box, '#c8a030', [0.6,0.5,0], [0,0,0], [0.5,0.6,0.64]), lpPart(g.box, '#a8d0f0', [0.86,0.62,0], [0,0,0], [0.02,0.2,0.5]), wheel(0.6,0.34,0.16), wheel(0.6,-0.34,0.16), wheel(-0.6,0.34,0.16), wheel(-0.6,-0.34,0.16)], 'truck'); grp.userData.lamps = [lamp(0.86,0.35,0.22), lamp(0.86,0.35,-0.22)]; break;
+    case 'train': {
+      add([lpPart(g.cyl, '#2a2a34', [0,0.62,0], [0,0,Math.PI/2], [0.34,1.3,0.34]), lpPart(g.box, '#8a2a2a', [-0.55,0.75,0], [0,0,0], [0.55,0.8,0.7]), lpPart(g.box, '#1e1e24', [-0.55,1.18,0], [0,0,0], [0.62,0.06,0.76]), lpPart(g.cyl, '#1e1e24', [0.4,1.1,0], [0,0,0], [0.1,0.4,0.1]), lpPart(g.box, '#3a3a44', [0,0.22,0], [0,0,0], [1.5,0.12,0.6]), wheel(0.45,0.3,0.2), wheel(0.45,-0.3,0.2), wheel(-0.1,0.3,0.2), wheel(-0.1,-0.3,0.2), wheel(-0.55,0.3,0.2), wheel(-0.55,-0.3,0.2)], 'loco');
+      grp.userData.lamps = [lamp(0.72,0.7,0)];
+      const car = (col, key) => { const cg = new THREE.Group(); const m = new THREE.Mesh(LP.cache.get('veh:'+key) || (()=>{ const geo = lpMerge([lpPart(g.box, col, [0,0.62,0], [0,0,0], [1.8,0.7,0.72]), lpPart(g.box, '#3a3a44', [0,1.0,0], [0,0,0], [1.85,0.06,0.78]), lpPart(g.box, '#f0e0a0', [0,0.72,0.37], [0,0,0], [1.5,0.2,0.01]), lpPart(g.box, '#f0e0a0', [0,0.72,-0.37], [0,0,0], [1.5,0.2,0.01]), wheel(0.6,0.3,0.16), wheel(0.6,-0.3,0.16), wheel(-0.6,0.3,0.16), wheel(-0.6,-0.3,0.16)]); LP.cache.set('veh:'+key, geo); return geo; })(), lpMat()); m.userData.shared = true; m.castShadow = true; cg.add(m); return cg; };
+      grp.userData.cars = [car('#3a5a3a','carA'), car('#6a3a2a','carB'), car('#3a5a3a','carA')]; if (R3.scene) grp.userData.cars.forEach(c=>R3.scene.add(c));
+      break; }
+    case 'plane': add([lpPart(g.cyl, '#dcdce4', [0,0,0], [0,0,Math.PI/2], [0.28,2.4,0.28]), lpPart(g.cone, '#dcdce4', [1.35,0,0], [0,0,-Math.PI/2], [0.28,0.3,0.28]), lpPart(g.cone, '#dcdce4', [-1.4,0.05,0], [0,0,Math.PI/2], [0.28,0.5,0.28]), lpPart(g.box, '#c8c8d4', [0.1,-0.05,0], [0,0,0], [0.55,0.05,3.0]), lpPart(g.box, '#c83a3a', [-1.4,0.4,0], [0,0,0], [0.35,0.6,0.04]), lpPart(g.box, '#c8c8d4', [-1.45,0.1,0], [0,0,0], [0.3,0.04,1.0]), lpPart(g.cyl, '#3a3a44', [1.52,0,0], [0,0,Math.PI/2], [0.05,0.06,0.05])], 'plane');
+      grp.userData.blink = [lamp(0.1,-0.05,1.5,0xff3030), lamp(0.1,-0.05,-1.5,0x30ff60)]; break;
+  }
+  grp.userData.kind = v.kind; return grp;
+}
+function r3Vehicles(ts, dark){
+  R3.veh = R3.veh || new Map(); const seen = new Set(), tx = cam.x/TILE, tz = cam.y/TILE;
+  VEHICLES.forEach(v=>{
+    let g = R3.veh.get(v.id);
+    const X = v.x/16, Z = v.y/16;
+    if (!civVehShown(v) || Math.abs(X-tx) > 80 || Math.abs(Z-tz) > 80){ if (g){ g.visible = false; (g.userData.cars||[]).forEach(c=>c.visible = false); } seen.add(v.id); return; }
+    if (!g || g.userData.kind!==v.kind){ if (g) r3VehDispose(g); g = r3VehMesh(v); R3.scene.add(g); R3.veh.set(v.id, g); }
+    seen.add(v.id); g.visible = true;
+    const water = v.kind==='boat' || v.kind==='ship' || v.kind==='steamship', bob = water ? Math.sin(ts/600 + v.phase)*0.04 - 0.12 : 0;
+    const want = -Math.atan2(v.dy||0, v.dx||v.face||1); let d = want - g.rotation.y; while (d > Math.PI) d -= Math.PI*2; while (d < -Math.PI) d += Math.PI*2; g.rotation.y += d*0.2;
+    if (v.kind==='plane'){ g.position.set(X, 9 + Math.sin(ts/2000 + v.phase)*0.3, Z); g.rotation.y = v.face < 0 ? Math.PI : 0; g.rotation.x = Math.sin(ts/1500)*0.05; (g.userData.blink||[]).forEach(b=>b.visible = Math.floor(ts/500)%2===0); }
+    else if (v.kind==='train'){ const dir = v.dir||1, parts = civTrainParts(v); g.rotation.y = dir < 0 ? Math.PI : 0; g.position.set(X, 0, Z); g.visible = parts.some(p=>p.loco);
+      (g.userData.cars||[]).forEach((c,i)=>{ const p = parts.find(q=>q.car===i+1); c.visible = !!p; if (p){ c.position.set(p.x/16, 0, Z); c.rotation.y = g.rotation.y; } }); }
+    else g.position.set(X, bob, Z);
+    if (g.userData.horse){ const U = g.userData.horse.userData, moving = !v.wait && v.tx!==null, ph = ts/140 + U.phase; U.legs.forEach((l,i)=>{ l.rotation.x = moving ? Math.sin(ph + (i%2?Math.PI:0) + (i>1?Math.PI/2:0))*0.5 : 0; }); }
+    (g.userData.lamps||[]).forEach(l=>{ l.material.color.set(dark > 0.08 ? 0xfff4c0 : 0x8a8a80); });
+  });
+  for (const [id, g] of R3.veh) if (!seen.has(id)){ r3VehDispose(g); R3.veh.delete(id); }
+}
+function r3VehDispose(g){ (g.userData.cars||[]).forEach(c=>R3.scene.remove(c)); if (g.userData.horse) lpDispose(g.userData.horse); lpDispose(g); }
+
+// ---------- panel ----------
+function civTransportHtml(){
+  const C = S.civ, lamps = civLamps(), by = {}; lamps.forEach(s=>{ by[s.def] = (by[s.def]||0) + 1; });
+  const best = civBestLight(), next = CIV_LIGHT_KINDS.find(k=>!civLightOK(k) && (!best || CIV_LIGHT_KINDS.indexOf(k) > CIV_LIGHT_KINDS.indexOf(best)));
+  const lightLine = CIV_LIGHT_KINDS.filter(k=>by[k]).map(k=>`<span class="chip">${esc(STRUCTURES[k].label)} ×${by[k]}</span>`).join('') || '<span class="muted">no street lights yet</span>';
+  const vrows = Object.entries(CIV_VEHICLES).map(([k,V])=>{ const need = civVehicleNeeds(k), n = VEHICLES.filter(v=>v.kind===k).length; return `<div style="font-size:12px">${V.icon} ${need.length ? `<span class="muted">${esc(V.label)}: needs ${esc(need.join(', '))}</span>` : `<b>${esc(V.label)}</b>${n?` <span class="muted">· ${n} about town</span>`:''}`}</div>`; }).join('');
+  const infra = ['stable','boathouse','shipyard','station','power_plant','airfield'].map(d=>{ const h = civHas(d), p = civProjects().find(x=>x.def===d); return h.length ? `<span class="chip">✅ <a ${locAttr(h[0].x,h[0].y,h[0].w,h[0].h,h[0].name)}>${esc(STRUCTURES[d].label)}</a></span>` : p ? `<span class="chip">🏗️ ${esc(STRUCTURES[d].label)} ${Math.round(p.done/p.labor*100)}%</span>` : ''; }).join('');
+  return `<div class="card"><b>Street lighting</b> <span class="muted" style="font-size:12px">· ${esc(C.stageLabel||'Camp')}</span><div style="margin-top:4px">${lightLine}</div>
+    <div class="muted" style="font-size:12px;margin-top:4px">${best ? `New lights are ${esc(STRUCTURES[best].label.toLowerCase())}s.` : 'Too few people to light the streets yet.'}${next ? ` Next: ${esc(STRUCTURES[next].label.toLowerCase())}s need ${esc(civLightNeeds(next).join(', '))}.` : ''} Lit streets help witnesses see crimes at night.</div></div>
+    <div class="card"><b>Transport</b>${infra ? `<div style="margin:4px 0">${infra}</div>` : ''}${vrows}<div class="muted" style="font-size:12px;margin-top:4px">Journeys go ${Math.round((civTravelSpeed()-1)*100)}% faster; caravans carry ${civHaulBonus()} more kinds of goods.</div></div>`;
+}
+
+</script>
 <script>/* civ/civ_render.js */
 /* =====================================================================
    Pixel Town — civilization mode: 2D drawing
@@ -11685,6 +12108,7 @@ function civGroundOverlay(g){
   g.setTransform(1,0,0,1,-WX0,-WY0);
   FORDS.forEach(k=>{ const [x, y] = tdec(k), X = x*TILE, Y = y*TILE; for (let i=0;i<3;i++){ const sx = X+3+i*5+(hashf(x,i,3)*2|0), sy = Y+5+(hashf(y,i,4)*6|0); g.fillStyle = STONE_R[3]; g.fillRect(sx,sy,4,3); g.fillStyle = STONE_R[5]; g.fillRect(sx,sy,3,1); g.fillStyle = 'rgba(210,235,255,0.6)'; g.fillRect(sx-1,sy+3,6,1); } });
   (S.civ.deposits||[]).forEach(d=>{ if (!d.seep) return; const X = d.x*TILE, Y = d.y*TILE; g.fillStyle = 'rgba(16,12,20,0.75)'; g.beginPath(); g.ellipse(X+8, Y+9, 7, 4, 0, 0, Math.PI*2); g.fill(); g.fillStyle = 'rgba(120,100,160,0.35)'; g.fillRect(X+5, Y+7, 4, 1); });
+  civRailGround(g);
   for (const k in S.civ.stumps){ const [x, y] = tdec(k); if (tileAt(x,y)!==T.GRASS) continue; const X = x*TILE, Y = y*TILE; g.fillStyle = WOOD_R[2]; g.fillRect(X+6,Y+8,5,4); g.fillStyle = '#c8a070'; g.fillRect(X+6,Y+8,5,1); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(X+5,Y+12,7,1); }
 }
 // ---------- static things on the map ----------
@@ -11692,6 +12116,7 @@ function civStaticEnts(push){
   civArt();
   const [cx, cy] = S.civ.center;
   push(ART.civ.fire[0], cx*TILE-1, cy*TILE-4, cy*TILE+12, 'fire');
+  civLightEnts(push);
   if (storeFood(S.civ.commons) > 0) push(ART.civ.sacks, (cx+4)*TILE, cy*TILE-2, cy*TILE+12);
   Object.values(S.civ.structs).forEach(s=>{
     const D = STRUCTURES[s.def];
@@ -11735,6 +12160,7 @@ function civLights(L, inV){
   const [cx, cy] = S.civ.center, X = cx*TILE+8, Y = cy*TILE+6;
   if (inV(X,Y,90)) L.push([X, Y, 86, 1, 'rgba(255,140,50,0.35)']);
   civStructsOf(s=>STRUCTURES[s.def].prop==='firepit').forEach(s=>{ const x = (s.x+1.5)*TILE, y = (s.y+1.5)*TILE; if (inV(x,y,70)) L.push([x,y,64,0.9,'rgba(255,140,50,0.3)']); });
+  civTransportLights(L, inV);
 }
 // ---------- hover text ----------
 function civHover(x, y){
@@ -12110,6 +12536,7 @@ function r3Animals(ts, dark){
 
 // ---------- props: every map object as a real 3D model ----------
 function r3PropMesh(e){
+  if (e.tag && e.tag.startsWith('light:') && typeof civLightMesh==='function') return civLightMesh(e.tag.slice(6));
   const g = lpG(), P = []; let key = null;
   const img = e.img;
   if (img===ART.well){ key = 'well'; P.push(lpPart(g.cyl, '#8a8478', [0,0.25,0], [0,0,0], [0.42,0.5,0.42]), lpPart(g.cyl, '#1a2a4a', [0,0.49,0], [0,0,0], [0.34,0.02,0.34]), lpPart(g.box, '#6e4a2c', [-0.38,0.8,0], [0,0,0], [0.06,0.9,0.06]), lpPart(g.box, '#6e4a2c', [0.38,0.8,0], [0,0,0], [0.06,0.9,0.06]), lpPart(g.cone, '#8a3a2a', [0,1.35,0], [0,Math.PI/4,0], [0.62,0.35,0.62]), lpPart(g.cyl, '#5a3a22', [0,1.05,0], [0,0,Math.PI/2], [0.04,0.8,0.04])); }
@@ -12297,6 +12724,7 @@ function civRenderLand(){
   $('p-land').innerHTML = `${civFrontierHtml()}<h2>Land & building</h2>
     <p class="muted" style="font-size:12px;margin:2px 0 6px">Click any building, site or find to show it on the map.</p>
     ${civHousingHtml()}
+    ${civTransportHtml()}
     <div class="card"><b>Under construction</b>${projs}</div>
     ${Object.entries(cats).map(([cat, list])=>`<div class="card"><b>${esc(cat[0].toUpperCase()+cat.slice(1))} (${list.length})</b>${list.slice(0,60).map(s=>`<div style="font-size:12px"><a ${locAttr(s.x,s.y,s.w,s.h,s.name)}>${esc(s.name)}</a> <span class="muted">· ${esc(STRUCTURES[s.def].label)} · ${esc(civOwnerLabel(s.owner))} · ${civBar(s.cond)}${civMoneyOn()?` · ${s.value}¢`:''}${s.forSale?' · for sale':''}${s.status!=='active'?' · '+s.status:''}${STRUCTURES[s.def].farm&&s.meta?` · ${s.meta.stage}${s.meta.crop?' '+s.meta.crop:''}`:''}</span></div>`).join('')}</div>`).join('')}
     <div class="card"><b>Resources found</b>${deps}</div>

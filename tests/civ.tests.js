@@ -580,6 +580,61 @@
     const c = adults(x=>x!==a)[0], h = hhOf(c); const p = homeProject(h); const low = CIV_TASK_VALUE.build(c, h, 4); h.store.grain = 4000; const high = CIV_TASK_VALUE.build(c, h, 4); ok(low < high, 'building did not give way to hunger');
   });
 
+  // ============================ LIGHTING AND TRANSPORT ============================
+  const fed = () => Object.values(C().hh).forEach(h=>{ h.store.grain = 2000; });
+  const lightAt = (def) => { const site = civFindSite(def, C().center, {margin:0}); return civAddStruct(def, site.x, site.y, {k:'community'}); };
+  test('CT1', 'Night is dim and blue, never pitch black', ()=>{
+    const deep = darknessAt(0), storm = deep + 0.26;
+    ok(nightShade(deep) <= 0.5 && nightShade(storm) <= 0.5, `the night overlay hides ${Math.round(nightShade(storm)*100)}% of the scene`);
+    ok(nightShade(deep) > 0.3, 'night is not dark at all'); ok(nightShade(darknessAt(12*60)) === 0, 'midday is shaded');
+  });
+  test('CT2', 'The settlement lights its paths with torches', ()=>{
+    fed(); ok(civBestLight()==='torch_post', `first light is ${civBestLight()}`);
+    civLightingDaily(); const p = civProjects().find(x=>STRUCTURES[x.def].light); ok(p && p.def==='torch_post', 'no torch post started');
+    ok([[1,0],[-1,0],[0,1],[0,-1]].some(([a,b])=>[T.PATH,T.PLAZA].includes(tileAt(p.x+a,p.y+b)) || BUILDINGS.some(B=>B.door[0]===p.x+a && B.door[1]===p.y+b)), 'the light is not beside a path or door');
+    const s = finish(p); ok(STRUCTURES[s.def].light && civLitAt(s.x, s.y) && civLitAt(s.x+2, s.y), 'the torch lights nothing');
+    ok(!civLitAt(s.x+20, s.y+20) || civLamps().length > 1, 'the torch lights the whole map');
+  });
+  test('CT3', 'Better lights need both the technique and a bigger town', ()=>{
+    const c = adults()[0]; know(c, ['pottery']); C().stageLabel = 'Camp'; ok(civBestLight()==='torch_post', 'oil lanterns in a camp');
+    C().stageLabel = 'Hamlet'; ok(civBestLight()==='oil_lantern', 'no oil lanterns in a hamlet that knows pottery');
+    know(c, ['gas_lighting']); ok(civBestLight()==='oil_lantern', 'gas lamps in a hamlet'); C().stageLabel = 'Village'; ok(civBestLight()==='gas_lamp', 'no gas lamps in a village with gas lighting');
+    know(c, ['electricity']); C().stageLabel = 'Town'; ok(civBestLight()==='gas_lamp', 'electric lights without a power station');
+    lightAt('power_plant'); ok(civBestLight()==='electric_lamp', 'no electric lights with a power station');
+  });
+  test('CT4', 'Old lights are replaced by better ones where they stand', ()=>{
+    fed(); const old = lightAt('torch_post'); know(adults()[0], ['pottery']); C().stageLabel = 'Hamlet';
+    civLightingDaily(); const p = civProjects().find(x=>x.upgradeOf===old.id); ok(p && p.def==='oil_lantern', 'the torch was not replaced');
+    const s = finish(p); ok(!C().structs[old.id] && s.def==='oil_lantern' && s.x===old.x && s.y===old.y, 'the lantern is not where the torch was');
+  });
+  test('CT5', 'Lights are kept in repair, and lit streets help witnesses at night', ()=>{
+    const s = lightAt('torch_post'); S.minute = civDay()*DAY + 23*60;
+    ok(!civDarkAt(s.x, s.y), 'a lit street counts as dark'); ok(civDarkAt(s.x+25, s.y+25) || civLitAt(s.x+25, s.y+25), 'an unlit street counts as lit');
+    s.cond = 20; s.status = 'abandoned'; for (let i=0;i<40;i++){ S.minute += DAY; civLightingDaily(); }
+    ok(s.status==='active' && s.cond > 20, `the light was left to rot (${s.status}, ${Math.round(s.cond)}%)`);
+  });
+  test('CT6', 'New techniques put new vehicles about town', ()=>{
+    ok(!civVehicleOK('horse') && !civVehicleOK('plane'), 'vehicles before their techniques');
+    const c = adults()[0]; know(c, ['riding','wheel','boatbuilding']); C().stageLabel = 'Town'; civSyncVehicles();
+    ['horse','cart','boat'].forEach(k=>ok(VEHICLES.some(v=>v.kind===k), 'no '+k));
+    know(c, ['aviation']); ok(!civVehicleOK('plane'), 'planes without an airfield'); lightAt('airfield'); civSyncVehicles(); ok(VEHICLES.some(v=>v.kind==='plane'), 'no aeroplane');
+    know(c, ['railways']); const st = lightAt('station'); st.meta.track = civTrack(st); if (st.meta.track){ civSyncVehicles(); ok(VEHICLES.some(v=>v.kind==='train'), 'no train at the station'); }
+    const h = VEHICLES.find(v=>v.kind==='horse'), x0 = h.x, y0 = h.y; h.wait = 0; S.minute = civDay()*DAY + 12*60; for (let i=0;i<60;i++) civUpdateVehicles(0.1, 1); ok(h.x!==x0 || h.y!==y0, 'the rider does not move');
+    ok(tileAt(Math.floor(h.x/TILE), Math.floor(h.y/TILE))!==T.WATER, 'the rider rode into the water');
+  });
+  test('CT7', 'Stables, boathouses and stations are built once the technique is known', ()=>{
+    fed(); know(adults()[0], ['boatbuilding']); C().stageLabel = 'Hamlet'; civTransportWeekly();
+    const p = civProjects().find(x=>x.def==='boathouse'); ok(p, 'no boathouse started'); ok(civNearWater(p.x, p.y, p.w, p.h, 2), 'the boathouse is not by the water');
+  });
+  test('CT8', 'Better transport speeds up journeys and fills caravans', ()=>{
+    const s0 = civTravelSpeed(), h0 = civHaulBonus(); know(adults()[0], ['wheel','riding','wagons']);
+    ok(civTravelSpeed() > s0 && civHaulBonus() > h0, 'horses and wagons change nothing');
+  });
+  test('CT9', 'Street lights and vehicles have 3D models', async ()=>{
+    await three(); ['torch','lantern','gas','electric'].forEach(k=>{ const m = civLightMesh(k); ok(m.isMesh && m.children.length, k+' has no lamp head'); });
+    ['cart','horse','wagon','boat','ship','steamship','car','truck','train','plane'].forEach(k=>{ const g = r3VehMesh({kind:k, variant:1}); ok(g.isGroup && g.children.length, k+' has no model'); });
+  });
+
   async function run(which){
     const out = [];
     for (const t of TESTS){ if (which && !(Array.isArray(which) ? which.includes(t.id) : t.id===which)) continue;
