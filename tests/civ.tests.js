@@ -662,6 +662,62 @@
     ok(hdGroundWorks().isGroup, 'no crops, fences or bridges');
   });
 
+  // ============================ GROWTH FEATURES ============================
+  test('NW1', 'A person\'s profile adds up their net worth: purse, share of home and stores, animals, loans and debts', ()=>{
+    money(0); const c = adults()[0], h = hhOf(c); c.wallet = 50; storeAdd(h.store, 'tools', 3);
+    const P = civPossessions(c); ok(P.items.some(x=>x.cat==='Cash' && x.value===50), 'the purse is missing');
+    ok(P.items.some(x=>x.cat==='Goods' && /tools/.test(x.label)), 'household goods are missing');
+    const o = adults()[1]; civContract('loan', [{k:'person', id:c.id}, {k:'person', id:o.id}], {left:40, rate:0.1}, 7);
+    ok(civPossessions(c).items.some(x=>x.cat==='Owed to them' && x.value===40), 'a loan made is not counted');
+    ok(civPossessions(o).items.some(x=>x.cat==='Debts' && x.value===-40), 'a loan owed is not counted as a debt');
+    ok(civPossessionsHtml(c).includes('Net worth'), 'the profile does not show net worth');
+  });
+  test('NW2', 'Most newcomers arrive with savings and materials and start their own home', ()=>{
+    const n = C().neighbors[0]; let prepared = 0; const before = C().stats.immigrants_prepared||0;
+    for (let i=0;i<20;i++) civImmigrate(n);
+    prepared = (C().stats.immigrants_prepared||0) - before; ok(prepared > 10, `only ${prepared} of 20 families came prepared`);
+    ok(civProjects().filter(p=>p.purpose==='home').length >= 5, 'prepared newcomers did not start homes');
+  });
+  test('NW3', 'A travelling livestock dealer comes, households buy animals, and the town can buy for a common herd', ()=>{
+    money(400); S.citizens.filter(isAdult).forEach(c=>know(c, ['domestication'], {husbandry:30})); C().dealerLast = -999;
+    S.minute = Math.max(S.minute, 0); while (seasonOf(civDay())===3) days(1);
+    civDealerDaily(); ok(C().dealer && C().dealer.status==='here', 'no dealer came');
+    const kinds = Object.keys(C().dealer.stock); ok(kinds.length, 'the dealer brought nothing');
+    const a0 = C().animals.length; for (let i=0;i<4;i++) civDealerDaily(); ok(C().animals.length > a0, 'nobody bought an animal');
+    C().gov.treasury = 1000; const k = Object.keys(C().dealer.stock).find(x=>C().dealer.stock[x]>0);
+    if (k){ const t0 = C().gov.treasury, err = civDealerBuyForTown(k); ok(!err, err); ok(C().gov.treasury < t0, 'the treasury did not pay'); ok(C().animals.some(a=>a.owner.k==='community' || a.owner.k==='gov'), 'no animal joined the common herd'); }
+  });
+  test('NW4', 'Districts elect their own heads and councillors, who answer to an elected settlement leader', ()=>{
+    const G = C().gov; G.stage = 4; G.form = 'assembly'; G.leader = null; know(adults()[0], ['counting']);
+    G.wardSplit = 1; // pretend the valley has split into two wards
+    const homes = civStructsOf(s=>STRUCTURES[s.def].home);
+    ok(homes.length > 5, 'too few homes to test');
+    civDistrictsWeekly();
+    const D = Object.values(G.districts||{}); ok(D.length >= 1, 'no district formed');
+    ok(D.some(d=>d.head && alive(d.head) && alive(d.head).office.includes(d.name)), 'no district head was elected');
+    if (D.length >= 2){ ok(G.federation != null, 'districts did not form a council of districts'); ok(G.elections.length >= 1 && G.leader, 'the settlement leader was not elected'); }
+  });
+  test('NW5', 'Specialised schools open when there are students and a teacher: night school for adults', ()=>{
+    S.citizens.filter(isAdult).forEach(c=>know(c, ['writing']));
+    adults().slice(0,10).forEach(c=>c.civ.know.literacy = 5); const t = adults()[12]; t.civ.know.literacy = 70; t.civ.know.teaching = 30;
+    for (let w=0; w<9; w++) civSpecialSchoolsWeekly();
+    const o = civOrgs(x=>x.type==='edu_school' && x.edu.kind==='night_school')[0]; ok(o, 'no night school opened');
+    ok(adults().slice(0,10).some(c=>kn(c,'literacy') > 5), 'students learned nothing');
+    ok(S.citizens.some(c=>(c.civ.quals||[]).includes('night_school')), 'nobody earned a certificate after eight weeks');
+  });
+  test('NW6', 'Known deposits and mines are marked on the map; a new mine clears a yard around itself', ()=>{
+    const d = C().deposits.find(x=>!MIN[x.min].fluid); d.known = true; d.mine = null;
+    const ents = []; civStaticEnts((img, x, y, z, tag)=>ents.push(tag)); ok(ents.includes('ore:'+d.min), 'a known deposit is not drawn');
+    const site = civFindSite('pit', [d.x, d.y], {margin:0, maxR:6, anySide:true}); ok(site, 'no site for a pit');
+    const s = civAddStruct('pit', site.x, site.y, {k:'community'}, {meta:{deposit:d.id}}); ok(s.meta.yard, 'the mine has no yard');
+    let trees = 0; for (let j=s.y-2;j<s.y+s.h+2;j++) for (let i=s.x-2;i<s.x+s.w+2;i++) if (tileAt(i,j)===T.TREE) trees++; ok(trees===0, 'trees still stand around the mine');
+  });
+  test('NW7', 'The top speed on the map aims for one game day every real second', ()=>{
+    ok(document.querySelector('#viewWrap #speed'), 'the speed controls are not on the map');
+    ok(SPEEDS.some(s=>s[1]===3600), 'no day-per-second speed');
+    ok(Math.abs(3600 * 1000 / MS_PER_GAME_MIN - 1440) < 1, 'the top speed is not one day a second');
+  });
+
   async function run(which){
     const out = [];
     for (const t of TESTS){ if (which && !(Array.isArray(which) ? which.includes(t.id) : t.id===which)) continue;

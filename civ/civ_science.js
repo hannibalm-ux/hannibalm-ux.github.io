@@ -40,7 +40,10 @@ CIV_TARGETS.prospect = c => {
     if (s>bs){ bs = s; best = [x,y]; } }
   return best ? {loc:'wild', xy:best, note:'Prospecting for minerals', extra:{}} : null;
 };
-CIV_TASK_VALUE.prospect = (c) => (c.personality.openness*3 + cog(c,'risk')*3 + kn(c,'geology')/10 + (civHasGoal(c,'wealth')?2:0) + (S.civ.boom && civDay()-S.civ.boom.day<90 ? 6 : 0)) * (civMoneyOn() ? 1.2 : 0.7);
+CIV_TASK_VALUE.prospect = (c) => (c.personality.openness*3 + cog(c,'risk')*3 + kn(c,'geology')/10 + (civHasGoal(c,'wealth')?2:0) + (S.civ.boom && civDay()-S.civ.boom.day<90 ? 6 : 0) + civOreDemand()) * (civMoneyOn() ? 1.2 : 0.7);
+// when every known seam is taken or worked out and people know how to mine, finding the next one pays
+function civOreDemand(){ const C = S.civ, d = civDay(); if (C.oreDemandDay === d) return C.oreDemand; const open = (C.deposits||[]).filter(x=>x.known && !MIN[x.min].fluid && (x.left==null || x.left > 0) && !x.mine).length, mines = civStructsOf(s=>STRUCTURES[s.def].mine && s.status==='active').length;
+  C.oreDemandDay = d; return C.oreDemand = (open >= 2 ? 0 : 4) + (mines ? 0 : 3) + (civTechKnown('mining') || civTechKnown('quarrying') ? 2 : 0) + (S.citizens.some(c=>sk(c,'smithing') >= 30) ? 2 : 0); }
 CIV_WORK.prospect = (c, b, hrs) => {
   if (!b.xy) return {value:0};
   const C = S.civ, [x, y] = b.xy, reach = civReach(c);
@@ -84,11 +87,15 @@ function civClaim(d, who){
 // ---------- mines: a small pit by hand, or a company operation ----------
 function civMinesDaily(){
   const C = S.civ;
+  // a claim whose holder died or moved away lapses; the first person with mining know-how who hears of it takes it up
+  C.deposits.forEach(d=>{ if (!d.known || d.mine || MIN[d.min].fluid || (d.left!=null && d.left<=0)) return; const w = d.claim && d.claim.who, gone = w && ((w.k==='person' && !alive(w.id)) || (w.k==='org' && (!C.orgs[w.id] || C.orgs[w.id].status!=='active')));
+    if (gone) d.claim = null;
+    if (!d.claim && civDay()%7===hash(d.id)%7){ const c = S.citizens.filter(p=>isAdult(p) && !p.jail && (sk(p,'mining')>=8 || kn(p,'geology')>=12 || sk(p,'stonework')>=20)).sort((a,b)=>(kn(b,'geology')+sk(b,'mining'))-(kn(a,'geology')+sk(a,'mining')))[0]; if (c){ civClaim(d, {k:'person', id:c.id}); if (d.claim) chronicle(`${c.name} took up the claim on the ${MIN[d.min].label.toLowerCase()} deposit.`, 5, '⛏️', 'resources'); } } });
   C.deposits.filter(d=>d.known && d.claim && !d.mine && !civProjects().some(p=>p.meta && p.meta.deposit===d.id)).forEach(d=>{
     const M = MIN[d.min], who = d.claim.who, c = who.k==='person' ? alive(who.id) : null;
     if (M.fluid){ const o = who.k==='org' ? C.orgs[who.id] : null; if (o && o.cash > 100 && civTechKnown('drilling')){ const site = civFindSite('oil_well', [d.x, d.y], {margin:0, maxR:4}); if (site) civStartProject(d.min==='gas'?'gas_well':'oil_well', site, {k:'org', id:o.id}, {org:o.id, meta:{deposit:d.id}, why:`to tap the ${M.label.toLowerCase()}`}); } else if (c && !civHasGoal(c,'start_business') && civMoneyOn()) civAddGoal(c, 'start_business', {biz:'oil_co', task:'mine', deposit:d.id}, BIZ_STEPS); return; }
     // a shallow find and someone who knows how to dig: they do it themselves
-    if (c && d.depth<=1 && (sk(c,'mining')>=8 || kn(c,'geology')>=12 || sk(c,'stonework')>=20)){ const site = civFindSite('pit', [d.x, d.y], {margin:0, maxR:3, anySide:true}); if (site){ civStartProject('pit', site, {k:'hh', id:c.civ.hh}, {meta:{deposit:d.id}, why:`${c.name} is digging for ${M.label.toLowerCase()}`}); ev('private_mines'); } return; }
+    if (c && (d.depth<=1 || (d.depth<=2 && civTechKnown('quarrying'))) && (sk(c,'mining')>=8 || kn(c,'geology')>=12 || sk(c,'stonework')>=20)){ const site = civFindSite('pit', [d.x, d.y], {margin:0, maxR:3, anySide:true}); if (site){ civStartProject('pit', site, {k:'hh', id:c.civ.hh}, {meta:{deposit:d.id}, why:`${c.name} is digging for ${M.label.toLowerCase()}`}); ev('private_mines'); } return; }
     // otherwise it takes a company: capital, equipment, workers, and the right technique
     if (c && civMoneyOn() && !civHasGoal(c,'start_business') && civTechKnown('mining')) { civAddGoal(c, 'start_business', {biz:'mining_co', task:'mine', deposit:d.id}, BIZ_STEPS); return; }
     const o = who.k==='org' ? C.orgs[who.id] : null;

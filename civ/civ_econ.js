@@ -227,8 +227,8 @@ function civBusinessStep(c, g){
   const step = g.steps.find(s=>!s.done); if (!step){ civEndGoal(c, g, 'done'); return; }
   const need = Object.entries(B.skills||{});
   switch (step.k){
-    case 'learn': if (need.every(([k,v])=>sk(c,k) >= v*0.8)) step.done = true; else if (!civHasGoal(c,'learn_skill')) civAddGoal(c, 'learn_skill', {skill:need[0][0], task:g.data.task}); break;
-    case 'experience': if ((c.civ.exp[g.data.task]||{n:0}).n >= 2 || B.retail || B.svc) step.done = true; break;
+    case 'learn': if (need.every(([k,v])=>sk(c,k) >= v*0.8) || (B.mine && (sk(c,'mining') >= 15 || kn(c,'geology') >= 20 || sk(c,'stonework') >= 25 || sk(c,'geology') >= 20))) step.done = true; // nobody can learn mining without a mine: a prospector's or quarryman's know-how is enough to start one else if (!civHasGoal(c,'learn_skill')) civAddGoal(c, 'learn_skill', {skill:need[0][0], task:g.data.task}); break;
+    case 'experience': if ((c.civ.exp[g.data.task]||{n:0}).n >= 2 || B.retail || B.svc || (B.mine && ((c.civ.exp.prospect||{n:0}).n >= 2 || (c.civ.exp.quarry||{n:0}).n >= 2 || kn(c,'geology') >= 20))) step.done = true; break;
     case 'save': if (c.wallet >= B.start*0.6) step.done = true; else if (civDay()-g.made > 40){ step.done = true; g.data.borrow = true; } break;
     case 'tools': { const h = hhOf(c); if (!B.equip || B.equip.every(e=>(h && h.store[e]>0) || civBuy(c, e, 1))) step.done = true; break; }
     case 'property': { const own = civStructsOf(s=>civOwnedBy(s.owner, c) && B.bld.includes(s.def) && !s.org); if (own.length){ g.data.site = own[0].id; step.done = true; }
@@ -557,7 +557,7 @@ function civOrgProjectsDaily(){ civProjects().filter(p=>p.owner.k==='org').forEa
 function civEconDaily(){
   civMoneyCheck();
   civOrgProjectsDaily();
-  civFieldsDaily(); civAnimalsDaily();
+  civFieldsDaily(); civAnimalsDaily(); civDealerDaily();
   civHHSellDaily();
   civBusinessDaily();
   civLaborDaily();

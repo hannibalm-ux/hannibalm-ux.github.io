@@ -45,6 +45,9 @@ function civArt(){
   A.woodpile = (()=>{ const p = new Pix(16,9); for (let r=0;r<3;r++) for (let k=0;k<4-r;k++){ const x = 2+k*3.4+r*1.7, y = 7-r*2.4; p.ellipse(x, y, 1.7, 1.3, WOOD_R[3]); p.set(Math.round(x), Math.round(y), '#d8b070'); } return p.outline().done(); })();
   A.stonepile = (()=>{ const p = new Pix(14,9); [[4,6,2.6],[9,6,2.6],[6.5,3.5,2.4],[11,4.5,1.8]].forEach(([x,y,r],i)=>blob(p,[{x,y,r}],ROCK_R,{seed:i})); return p.outline().done(); })();
   A.derrick = (()=>{ const p = new Pix(18,34); p.line(3,33,9,1,'#3a3a44'); p.line(15,33,9,1,'#3a3a44'); for (let y=6;y<33;y+=6){ const w = y/33*6; p.line(Math.round(9-w),y,Math.round(9+w),y,'#4a4a54'); p.line(Math.round(9-w),y,Math.round(9+w*0.8),y+5,'#4a4a54'); } p.rect(6,30,7,3,'#2a2a30'); return p.outline().done(); })();
+  // a known deposit: a heap of broken rock flecked with the ore's colour, and a flag once someone has claimed it
+  A.ore = {}; for (const id in ORE_COL){ const p = new Pix(16,11); [[4,8,3],[10,8,3.2],[7,5,3],[12.5,5.5,2]].forEach(([x,y,r],i)=>blob(p,[{x,y,r}],ROCK_R,{seed:i+3})); const c = ORE_COL[id]; [[4,7],[9,8],[7,4],[11,6],[6,9],[12,4]].forEach(([x,y],i)=>{ p.set(x,y,c); if (i%2) p.set(x+1,y,shade(c,1.25)); }); A.ore[id] = p.outline().done(); }
+  A.claim = (()=>{ const p = new Pix(8,14); p.rect(1,1,1,13,WOOD_R[2]); p.rect(2,1,5,4,'#e84a3a'); p.rect(2,4,5,1,'#b83020'); return p.done(); })();
   A.weeds = (()=>{ const p = new Pix(10,6); for (let k=0;k<6;k++){ const x = 1+k*1.5; p.line(Math.round(x),5,Math.round(x+(k%2?1:-1)),1+(k%3),['#4a7a2a','#6a9a3a','#5a8a30'][k%3]); } return p.done(); })();
   A.goals = (()=>{ const p = new Pix(10,14); p.rect(1,2,1,12,'#f0f0f0'); p.rect(8,2,1,12,'#f0f0f0'); p.rect(1,2,8,1,'#f0f0f0'); for (let y=3;y<13;y+=2) for (let x=2;x<8;x+=2) p.set(x,y,'#c8c8c8'); return p.done(); })();
   A.pit = (()=>{ const p = new Pix(30,18); p.ellipse(15,11,13,6,'#3a2a1e'); p.ellipse(15,11,9,4,'#140c08'); p.line(4,4,6,12,WOOD_R[2]); p.line(26,4,24,12,WOOD_R[2]); p.line(4,4,26,4,WOOD_R[3]); return p.outline().done(); })();
@@ -59,11 +62,14 @@ function civGroundOverlay(g){
 }
 // ---------- static things on the map ----------
 function civStaticEnts(push){
-  civArt();
+  civArt(); const A = ART.civ;
   const [cx, cy] = S.civ.center;
   push(ART.civ.fire[0], cx*TILE-1, cy*TILE-4, cy*TILE+12, 'fire');
   civLightEnts(push);
   if (storeFood(S.civ.commons) > 0) push(ART.civ.sacks, (cx+4)*TILE, cy*TILE-2, cy*TILE+12);
+  // the drover's cart and a few of the animals for sale, by the fire while the dealer is in town
+  const DL = S.civ.dealer; if (DL && DL.status==='here'){ const bx = (cx-7)*TILE, by = (cy+3)*TILE; if (ART.cart) push(ART.cart, bx, by-8, by+8);
+    Object.entries(DL.stock).filter(([k,q])=>q>0 && ART.animals[k]).flatMap(([k,q])=>Array(Math.min(q,2)).fill(k)).slice(0,5).forEach((k,i)=>{ const im = ART.animals[k][i%2][0]; push(im, bx+22+i*14, by-im.height+10+(i%2)*6, by+10+(i%2)*6); }); }
   Object.values(S.civ.structs).forEach(s=>{
     const D = STRUCTURES[s.def];
     if (D.prop==='well') push(ART.well, s.x*TILE-9, s.y*TILE-14, (s.y+1)*TILE);
@@ -78,7 +84,11 @@ function civStaticEnts(push){
     if (!D.tile && !D.prop && p.done > p.labor*0.1){ const im = ART.scaffold[p.done > p.labor*0.6 ? 1 : 0]; push(im, X+PW/2-im.width/2, Y+PH-im.height, Y+PH); }
     else [[0,0],[PW-4,0],[0,PH-6],[PW-4,PH-6]].forEach(([a,b])=>push(ART.stake, X+a, Y+b, Y+b+10)); });
   (S.civ.deposits||[]).filter(d=>d.mine && !S.civ.structs[d.mine]).forEach(d=>{ d.mine = null; });
+  // known deposits nobody is mining yet stay marked on the map, so finds are easy to see
+  (S.civ.deposits||[]).forEach(d=>{ if (!d.known || d.mine || d.left <= 0 || MIN[d.min].fluid || !A.ore[d.min]) return; const X = d.x*TILE, Y = d.y*TILE;
+    push(A.ore[d.min], X, Y+4, Y+15, 'ore:'+d.min); if (d.claim) push(A.claim, X+11, Y-4, Y+15); });
 }
+const ORE_COL = {copper:'#d07a3a', tin:'#c8ccd4', iron:'#a0462e', coal:'#1a1a1e', lead:'#6a7080', zinc:'#9aa6b0', nickel:'#b8b89a', silver:'#e8eef4', gold:'#f2c64a', platinum:'#dfe6ea', gems:'#5ad0c8', salt:'#f4f0e6', rare:'#a870d8', clay:'#b86a44'};
 function civSetGraves(){ const [cx, cy] = S.civ.center; GRAVE_SLOTS = []; for (let y=cy-8;y<=cy-6;y++) for (let x=cx-12;x<=cx-8;x++){ if (tileAt(x,y)===T.GRASS||tileAt(x,y)===T.FLOWER) GRAVE_SLOTS.push([x*TILE+2,y*TILE+2],[x*TILE+9,y*TILE+8]); } }
 // ---------- animals: pens and wild herds ----------
 function civSyncAnimals(){

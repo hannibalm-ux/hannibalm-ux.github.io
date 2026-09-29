@@ -199,6 +199,7 @@ function civApplyStruct(s){
   if (D.prop){ for (let y=s.y;y<s.y+s.h;y++) for (let x=s.x;x<s.x+s.w;x++) if (tileAt(x,y)!==-1) MAP[y][x] = T.OBJ;
     LOC[s.id] = {id:s.id, name:s.name, indoor:false, rects:[[s.x-1,s.y+s.h,s.x+s.w,s.y+s.h]]}; return; }
   const b = {id:s.id, name:s.name, x:s.x, y:s.y, w:s.w, h:s.h, style:D.style, crude: CRUDE_DEFS.has(s.def), roof:s.roof || D.roof || HOUSE_ROOFS[hash(s.id)%HOUSE_ROOFS.length], house: D.cat==='home', cap: D.home ? D.home.cap : 0, type:s.def, biz: D.cat!=='home' ? s.def : null, sign: s.sign || D.sign || null, civ:true, cond:s.cond};
+  if (D.mine && s.meta && s.meta.deposit){ const dp = (S.civ.deposits||[]).find(x=>x.id===s.meta.deposit); if (dp) b.ore = dp.min; }
   b.door = [b.x+Math.floor(b.w/2), b.y+b.h];
   BUILDINGS.push(b); LOC[b.id] = {id:b.id, name:b.name, indoor:true, door:b.door, b};
   for (let y=b.y;y<b.y+b.h;y++) for (let x=b.x;x<b.x+b.w;x++) if (tileAt(x,y)!==-1) MAP[y][x] = T.BUILD;
@@ -225,8 +226,14 @@ function civAddStruct(def, x, y, owner, opts){
   const s = {id, def, x, y, w: opts.w||D.w, h: opts.h||D.h, owner: owner||{k:'community'}, name: opts.name || civStructName(def, civOwnerObj(owner)), built: civDay(), cond: opts.cond ?? 100,
     status:'active', value:0, forSale:false, occ:null, roof: opts.roof||null, meta: opts.meta||{}, tiles: opts.tiles||null, org: opts.org||null, age0: opts.age0||0};
   C.structs[id] = s; civApplyStruct(s); civParcelFor(s); civValue(s);
+  // a mine needs a working yard: the trees and scrub around the shaft are cleared, so it can be seen and reached
+  civMineYard(s);
   S.civ.dirtyGround = true; bumpWorld();
   return s;
+}
+function civMineYard(s){
+  const C = S.civ, D = STRUCTURES[s.def]; if (!D.mine || D.mine.fluid || s.meta.yard) return; s.meta.yard = 1;
+  for (let j=s.y-2; j<s.y+s.h+2; j++) for (let i=s.x-2; i<s.x+s.w+2; i++){ const t = tileAt(i,j); if ((t===T.TREE || t===T.FLOWER || t===T.GRASS) && !civStructAt(i,j)){ if (t===T.TREE){ delete C.tree[tkey(i,j)]; C.stumps[tkey(i,j)] = civDay(); } civSetTile(i,j,T.SAND); } }
 }
 function civRemoveStruct(s, how, salvage){
   if (!s || !S.civ.structs[s.id]) return;
@@ -604,6 +611,7 @@ function civStructsDaily(){
   const d = civDay();
   Object.values(S.civ.structs).forEach(s=>{
     const D = STRUCTURES[s.def]; if (!D) return;
+    if (D.mine && !s.meta.yard) civMineYard(s); // older saves: give existing mines their yard
     const dur = D.home ? D.home.dur : D.bridge ? D.bridge.dur : 70;
     const storm = S.weather==='Storm' ? 3 : 1, age = d - s.built;
     s.cond = Math.max(0, s.cond - (0.12 + (100-dur)/260)*storm*(age>200?1.4:1));

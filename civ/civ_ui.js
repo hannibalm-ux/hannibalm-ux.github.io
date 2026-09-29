@@ -32,6 +32,39 @@ function civRenderPeople(){
   $('pList').querySelectorAll('.rawMind').forEach(x=>x.onchange=()=>{ ui.rawMind = x.checked; civRenderPeople(); });
   $('pList').querySelectorAll('.cit').forEach(el=>el.onclick=()=>{ ui.sel = el.dataset.id; cam.follow = true; $('zFollow').classList.add('on'); civRenderPeople(); });
 }
+// ---------- what a person owns: everything they hold alone, their share of the household's, stakes, loans and debts ----------
+function civAnimalValue(a){ const K = ANIMAL_KINDS[a.kind]; if (!K) return 0; return civAnimalKindValue(a.kind)*(a.age < K.adult ? 0.5 : 1)*(civMoneyOn() ? (S.civ.econ.level||1) : 1); }
+function civGoodsValue(st){ let v = 0; for (const g in st) if (CG[g] && st[g] > 0) v += st[g]*civPrice(g); return v; }
+function civOrgEquity(o){ const own = civStructsOf(s=>s.owner && s.owner.k==='org' && s.owner.id===o.id).reduce((a,s)=>a+civValue(s),0); return Math.max(0, (o.cash||0) + civGoodsValue(o.stock||{}) + own - (o.debt||0)); }
+function civPossessions(c){
+  const C = S.civ, h = hhOf(c), adults = h ? Math.max(1, hhAdults(h).length) : 1, share = h && hhAdults(h).includes(c) ? 1/adults : 0;
+  const items = [], add = (cat, label, value, note) => items.push({cat, label, value:Math.round(value), note:note||''});
+  add('Cash', 'Purse', c.wallet||0);
+  civStructsOf(s=>s.owner && s.owner.k==='person' && s.owner.id===c.id).forEach(s=>add('Property', s.name || STRUCTURES[s.def].label, civValue(s), STRUCTURES[s.def].label + (s.status!=='active' ? ` · ${s.status}` : '')));
+  if (share) civStructsOf(s=>s.owner && s.owner.k==='hh' && s.owner.id===h.id).forEach(s=>add('Property', s.name || STRUCTURES[s.def].label, civValue(s)*share, `${STRUCTURES[s.def].label} · household, ${adults>1?`1/${adults} share`:'all theirs'}`));
+  civProjects().filter(p=>p.owner && ((p.owner.k==='person' && p.owner.id===c.id) || (share && p.owner.k==='hh' && p.owner.id===h.id))).forEach(p=>{ let v = 0; for (const g in p.have) v += (p.have[g]||0)*civPrice(g); add('Property', `${STRUCTURES[p.def].label} (being built)`, v*(p.owner.k==='hh' ? share : 1), `under construction, ${Math.round(p.done/Math.max(1,p.labor)*100)}% done`); });
+  const herd = {}; (C.animals||[]).filter(a=>a.owner && ((a.owner.k==='person' && a.owner.id===c.id) || (share && a.owner.k==='hh' && a.owner.id===h.id))).forEach(a=>{ const m = herd[a.kind] = herd[a.kind] || {n:0, v:0}; m.n++; m.v += civAnimalValue(a)*(a.owner.k==='hh' ? share : 1); });
+  Object.entries(herd).forEach(([k,x])=>add('Animals', `${x.n} ${ANIMAL_KINDS[k].label.toLowerCase()}${x.n>1 && !/s$/.test(ANIMAL_KINDS[k].label) ? (k==='sheep' ? '' : 's') : ''}`, x.v, share ? 'with the household' : ''));
+  const inv = c.inventory || {}; Object.keys(inv).filter(g=>CG[g] && inv[g]>=1).forEach(g=>add('Goods', `${Math.floor(inv[g])} ${CG[g].name.toLowerCase()}`, inv[g]*civPrice(g), 'carried'));
+  if (share){ const st = h.store; Object.keys(st).filter(g=>CG[g] && st[g]>=1).sort((a,b)=>st[b]*civPrice(b)-st[a]*civPrice(a)).forEach(g=>add('Goods', `${Math.floor(st[g])} ${CG[g].name.toLowerCase()}`, st[g]*civPrice(g)*share, `household store${adults>1?`, 1/${adults} share`:''}`)); }
+  Object.values(C.orgs).filter(o=>o.status==='active' && o.owners && o.owners[c.id]).forEach(o=>add('Stakes', `${Math.round(o.owners[c.id]*100)}% of ${o.name}`, civOrgEquity(o)*o.owners[c.id], (ORG_TYPES[o.type]||{}).label || o.type));
+  Object.values(C.orgs).filter(o=>o.deposits && o.deposits[c.id] > 0).forEach(o=>add('Savings', `Deposit at ${o.name}`, o.deposits[c.id], 'earns interest'));
+  (C.deposits||[]).filter(d=>d.claim && d.claim.who && d.claim.who.k==='person' && d.claim.who.id===c.id).forEach(d=>add('Claims', `${MIN[d.min].label} claim`, (d.size||1)*(d.purity||0.5)*8, d.claim.registered ? 'registered' : 'staked'));
+  Object.values(C.contracts).filter(k=>k.kind==='loan' && k.status==='active').forEach(k=>{
+    const [lender, borrower] = k.parties, left = (k.terms && k.terms.left) || 0, other = p => p.k==='person' ? ((cById(p.id)||{}).name||'someone') : p.k==='org' ? ((C.orgs[p.id]||{}).name||'a business') : 'someone';
+    if (lender && lender.k==='person' && lender.id===c.id) add('Owed to them', `Loan to ${other(borrower)}`, left, `${k.terms.rate!=null ? Math.round(k.terms.rate*100)+'% interest' : ''}`);
+    if (borrower && borrower.k==='person' && borrower.id===c.id) add('Debts', `Loan from ${other(lender)}`, -left, 'still owed'); });
+  const worth = items.reduce((a,x)=>a+x.value,0);
+  return {items, worth};
+}
+function civPossessionsHtml(c){
+  if (!isAdult(c)) return '';
+  const P = civPossessions(c), money = civMoneyOn(), unit = money ? '¢' : ' (in goods)';
+  const cats = ['Cash','Property','Animals','Goods','Stakes','Savings','Claims','Owed to them','Debts'];
+  const rows = cats.map(k=>{ const L = P.items.filter(x=>x.cat===k && (x.value!==0 || k==='Property' || k==='Animals')); if (!L.length) return ''; const tot = L.reduce((a,x)=>a+x.value,0);
+    return `<tr><td colspan="2" style="padding-top:5px"><b>${k}</b></td><td class="num"><b>${tot}</b></td></tr>` + L.map(x=>`<tr><td style="padding-left:10px">${esc(x.label)}</td><td class="muted">${esc(x.note)}</td><td class="num">${x.value}</td></tr>`).join(''); }).join('');
+  return `<details open><summary>Net worth: <b>${P.worth}${unit}</b> · ${P.items.filter(x=>x.cat!=='Cash').length} possessions</summary><table style="font-size:12px;width:100%">${rows}</table></details>`;
+}
 function civPersonCard(c){
   const X = c.civ, h = hhOf(c), home = S.civ.structs[c.home], G = X.genes || {};
   const cogs = COG.map(k=>`<div style="font-size:12px">${COG_LABEL[k]} ${civBar(X.cog[k]*100, 100, '#8fb8ff')}</div>`).join('');
@@ -47,6 +80,8 @@ function civPersonCard(c){
     <p class="muted" style="font-size:12px;margin:2px 0">Home: ${home?esc(home.name):'none'}${h?` · ${esc(h.name)} household of ${h.members.length} · food ${hhFoodDays(h).toFixed(1)} days`:''} · health ${Math.round(X.health)} · ${civMoneyOn()?`purse ${Math.round(c.wallet)} · `:''}credit ${Math.round(X.credit.score)} · respect ${Math.round(X.respect)}</p>
     <p class="muted" style="font-size:12px;margin:2px 0">Traits: ${esc(c.traits.join(', '))} · values ${esc(c.values.join(', '))} · investor: ${esc(X.style||'')}${mentor?` · learning from ${esc(mentor.name)}`:''}${(X.prot||[]).length?` · teaching ${X.prot.map(id=>cById(id)).filter(Boolean).map(p=>esc(p.name.split(' ')[0])).join(', ')}`:''}</p>
     <p class="muted" style="font-size:12px;margin:2px 0">Appearance genes: height ${Math.round((G.height||0)*100)}, build ${Math.round((G.build||0)*100)}, jaw ${Math.round((G.jaw||0)*100)}, nose ${Math.round((G.nose||0)*100)} · <span style="display:inline-block;width:10px;height:10px;background:${G.skin}"></span> <span style="display:inline-block;width:10px;height:10px;background:${G.hair}"></span> <span style="display:inline-block;width:10px;height:10px;background:${G.eye}"></span></p>
+    ${(X.quals||[]).length || civOrgs(o=>o.type==='edu_school' && o.students && o.students[c.id]).length ? `<p class="muted" style="font-size:12px;margin:2px 0">🎓 ${(X.quals||[]).map(k=>CIV_EDU_TYPES[k] ? 'certificate from the '+CIV_EDU_TYPES[k].label.toLowerCase() : k).join(', ')}${civOrgs(o=>o.type==='edu_school' && o.students && o.students[c.id]).map(o=>`${(X.quals||[]).length?' · ':''}studying at ${esc(o.name)} (week ${o.students[c.id].weeks+1} of 8)`).join('')}</p>` : ''}
+    ${civPossessionsHtml(c)}
     ${civMindHtml(c)}
     <details><summary>Thinking style</summary>${cogs}</details>
     <details open><summary>Knowledge</summary>${knows}</details><details><summary>Skills</summary>${skills}</details>
@@ -56,6 +91,12 @@ function civPersonCard(c){
     ${bel?`<details><summary>Beliefs</summary>${bel}</details>`:''}
     <details><summary>Recent memories</summary>${mems}</details></div>`;
 }
+function civEduSchoolsHtml(){
+  const L = Object.keys(CIV_EDU_TYPES).map(k=>{ const T = CIV_EDU_TYPES[k], o = civOrgs(x=>x.type==='edu_school' && x.edu && x.edu.kind===k)[0];
+    return o ? `<div style="font-size:12px">${T.icon} <b>${esc(o.name)}</b> · ${o.staff.length} teacher${o.staff.length===1?'':'s'} · ${Object.keys(o.students||{}).length} students · ${o.grads||0} graduates <span class="muted">(${esc(T.what)})</span></div>`
+             : `<div style="font-size:12px" class="muted">${T.icon} ${esc(T.label)}: not yet${T.when(S.civ) ? ' (needed, but nobody can teach it)' : ''}</div>`; }).join('');
+  return `<div style="margin-top:6px"><b style="font-size:12px">Other schools</b>${L}</div>`;
+}
 // ---------- economy ----------
 function civRenderEconomy(){
   const C = S.civ, E = C.econ, orgs = Object.values(C.orgs).sort((a,b)=>(a.status==='active'?0:1)-(b.status==='active'?0:1) || (b.cash||0)-(a.cash||0));
@@ -64,7 +105,11 @@ function civRenderEconomy(){
   const loans = Object.values(C.contracts).filter(k=>k.kind==='loan' && k.status==='active').slice(-12).map(k=>`<div style="font-size:12px">${esc(civOwnerLabel(k.parties[0]))} → ${esc(civOwnerLabel(k.parties[1]))}: ${k.terms.principal}¢ at ${Math.round(k.terms.rate*100)}% · ${Math.round(k.terms.left)} left${k.late?` · ${k.late} late`:''}</div>`).join('') || '<span class="muted">None</span>';
   const kinds = {}; Object.values(C.contracts).forEach(k=>{ kinds[k.kind] = (kinds[k.kind]||0)+1; });
   const listed = orgs.filter(o=>o.listed && o.status==='active');
-  $('p-market').innerHTML = `<h2>Economy</h2>
+  const DL = C.dealer && C.dealer.status==='here' ? C.dealer : null;
+  const dealer = DL ? `<div class="card" style="border-color:var(--accent)"><b>🐄 Livestock dealer in town:</b> ${esc(DL.name)} from ${esc(DL.from)}, until day ${DL.leave+1}. ${DL.sold.length} sold so far.
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${Object.entries(DL.stock).filter(([k,q])=>q>0).map(([k,q])=>`<button class="btn" data-dealer="${k}" title="Buy one for the common herd, paid from ${civMoneyOn()?'the treasury':'the common store'}">${esc(ANIMAL_KINDS[k].label)} ×${q} · ${civDealerPrice(k)}${civMoneyOn()?'¢':' in goods'}</button>`).join('')}</div>
+      <span class="muted" style="font-size:12px">Households with a pen and money or goods to trade buy what they want. The buttons buy for the settlement's common herd (a common pen is built if there is none).</span></div>` : `<div class="card muted" style="font-size:12px">🐄 A livestock dealer comes through every six to nine weeks outside winter once people can keep animals${C.dealerLast!=null?` · last visit day ${C.dealerLast+1}`:''}.</div>`;
+  $('p-market').innerHTML = `<h2>Economy</h2>${civTechKnown('domestication') || DL ? dealer : ''}
     <div class="card"><b>Market:</b> ${esc(MARKET_STAGES[E.stage])} · <b>Money:</b> ${E.money ? esc(civMoneyName())+` since day ${(E.moneyDay||0)+1}` : 'none yet — people barter and give gifts'} · price level ${E.level||1}<br>
       <span class="muted" style="font-size:12px">${E.barter} barters · ${E.barterFail} failed swaps · ${C.stats.gifts||0} gifts · ${C.stats.trades||0} sales · ${C.stats.caravans||0} caravans</span><div style="margin-top:4px">${civStageLine(MARKET_STAGES, E.stageHist)}</div></div>
     <div class="card"><b>Finance:</b> ${esc(FIN_STAGES[C.fin.stage])} <div style="margin-top:4px">${civStageLine(FIN_STAGES, C.fin.stageHist)}</div><div style="margin-top:6px">${loans}</div></div>
@@ -73,6 +118,7 @@ function civRenderEconomy(){
     ${listed.length?`<div class="card"><b>Stock exchange</b>${listed.map(o=>`<div style="font-size:12px">${esc(o.name)}: ${o.sharePrice} per share · dividend ${o.divs||0}</div>`).join('')}</div>`:''}
     <div class="card"><b>Jobs</b>${jobs}</div>
     <div class="card"><b>Contracts</b> ${Object.entries(kinds).map(([k,v])=>`<span class="chip">${esc(k)} ×${v}</span>`).join('')||'<span class="muted">none</span>'}</div>`;
+  $('p-market').querySelectorAll('[data-dealer]').forEach(b=>b.onclick=()=>{ const err = civDealerBuyForTown(b.dataset.dealer); if (err) alert(err); civRenderEconomy(); });
 }
 // ---------- land ----------
 function civRenderLand(){
@@ -153,6 +199,8 @@ function civRenderGov(){
   $('p-laws').innerHTML = `<h2>Government</h2>
     <div class="card"><b>${esc(GOV_STAGES[G.stage])}</b>${G.form?` · ${esc(G.form)}`:''}${lead?` · ${esc(G.title||'leader')}: ${esc(lead.name)}`:''}<div style="margin-top:4px">${civStageLine(GOV_STAGES, G.stageHist)}</div></div>
     <div class="card"><b>What people are worried about</b><br>${probs}</div>
+    ${Object.keys(G.districts||{}).length?`<div class="card"><b>Districts</b> <span class="muted" style="font-size:12px">· every district elects its ${esc(civDistrictTitle().toLowerCase())} and councillors every 8 weeks; they answer to ${lead?esc(lead.name):'the settlement leader'}${G.federation?`, chosen by everyone since day ${G.federation+1}`:''}</span>${Object.values(G.districts).map(D=>{ const h = D.head && cById(D.head), e = D.elections[D.elections.length-1], ask = D.asks && D.asks[D.asks.length-1];
+      return `<div style="font-size:12px;margin-top:4px"><b>${esc(D.name)}</b> · ${D.adults||0} adults · ${esc(civDistrictTitle())}: ${h?`<b>${esc(h.name)}</b>`:'<i>vacant</i>'}${e?` (${e.votes}/${e.turnout} votes, day ${e.day+1})`:''}${D.council.length?` · councillors ${D.council.map(id=>cById(id)).filter(Boolean).map(c=>esc(c.name)).join(', ')}`:''}${ask?` · last request: ${esc(STRUCTURES[ask.what].label.toLowerCase())} ${ask.ok?'approved':'refused'}`:''}</div>`; }).join('')}</div>`:''}
     ${G.council.length?`<div class="card"><b>Council</b><br>${G.council.map(id=>cById(id)).filter(Boolean).map(c=>esc(c.name)).join(', ')}</div>`:''}
     ${Object.keys(G.offices).length?`<div class="card"><b>Offices</b>${Object.entries(G.offices).map(([k,id])=>`<div style="font-size:12px">${esc(k.replace('_',' '))}: ${esc(cById(id)?cById(id).name:'vacant')}</div>`).join('')}</div>`:''}
     <div class="card"><b>Laws</b>${Object.values(G.laws).map(l=>`<div class="law">${esc(l.label)} <span class="muted">(day ${l.day+1})</span></div>`).join('')||'<p class="muted">No laws. Customs and respect keep order, for now.</p>'}</div>
@@ -170,7 +218,7 @@ function civRenderSociety(){
   const A = C.attract;
   $('p-soc').innerHTML = `<h2>Society</h2>
     <div class="card"><b>Households</b> (${Object.keys(C.hh).length}, hungriest first)${hh}</div>
-    <div class="card"><b>Education:</b> ${esc(EDU_STAGES[C.edu.stage])}<div style="margin-top:4px">${civStageLine(EDU_STAGES, C.edu.stageHist)}</div>${civOrgs(o=>o.type==='school').map(o=>`<div style="font-size:12px">${esc(o.name)} · level ${o.edu.level} · ${o.staff.length} teacher${o.staff.length===1?'':'s'}</div>`).join('')}<span class="muted" style="font-size:12px">${C.stats.mentorships||0} apprenticeships · ${C.stats.lessons||0} lessons · ${(C.books||[]).length} books</span></div>
+    <div class="card"><b>Education:</b> ${esc(EDU_STAGES[C.edu.stage])}<div style="margin-top:4px">${civStageLine(EDU_STAGES, C.edu.stageHist)}</div>${civOrgs(o=>o.type==='school').map(o=>`<div style="font-size:12px">${esc(o.name)} · level ${o.edu.level} · ${o.staff.length} teacher${o.staff.length===1?'':'s'}</div>`).join('')}${civEduSchoolsHtml()}<span class="muted" style="font-size:12px">${C.stats.mentorships||0} apprenticeships · ${C.stats.lessons||0} lessons · ${(C.books||[]).length} books · ${C.stats.graduates||0} certificates earned</span></div>
     <div class="card"><b>Sport</b> · ${SP.teams.length} teams · ${C.stats.pickup_games||0} pickup games${lg?` · <b>${esc(lg.name)}</b>, season ${SP.season.n}<table style="font-size:12px"><tr><th>Team</th><th>P</th><th>W-D-L</th><th>Goals</th><th>Pts</th></tr>${table}</table>${SP.seasons.length?`<span class="muted" style="font-size:12px">Champions: ${SP.seasons.slice(-4).map(s=>esc(s.name)+' (S'+s.n+')').join(', ')}</span>`:''}`:''}</div>
     <div class="card"><b>Neighbours</b>${nb}${ships?`<div style="margin-top:6px">${ships}</div>`:''}${C.lastQuotes?`<div class="muted" style="font-size:12px;margin-top:4px">Last food quotes: ${C.lastQuotes.map(q=>`${esc(q.n)} ${q.q?q.q+' @ '+q.price:'none'}`).join(' · ')}</div>`:''}</div>
     <div class="card"><b>Migration</b> · arrived ${C.migration.in} · left ${C.migration.out}${A?`<br><span class="muted" style="font-size:12px">How it looks from outside: food ${A.food.toFixed(2)}, homeless ${Math.round(A.homeless*100)}%, open jobs ${A.jobs}, wages ${A.wage.toFixed(1)}, crime ${A.crime.toFixed(2)}, schools ${A.school}, healers ${A.health}, taxes ${A.tax}, opportunity ${A.opp.toFixed(1)}${A.famine?`, famine ${A.famine.toFixed(1)}`:''} → ${A.score.toFixed(2)}</span>`:''}</div>

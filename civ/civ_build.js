@@ -109,6 +109,28 @@ function civVacated(s, h){
 }
 function peekRelHH(a, b){ let best = -100; hhMembers(a).forEach(x=>hhMembers(b).forEach(y=>{ best = Math.max(best, peekRel(x,y.id).affinity); })); return best; }
 
+// ---------- the frontier: who moves out to annexed land, and where ----------
+function civFrontierCells(){ return typeof civAnnexed==='function' ? civAnnexed() : []; } // a neglected track makes the walk longer, but the land is still there
+function civWantsFrontier(c, h){
+  const cells = civFrontierCells(); if (!cells.length) return false;
+  const C = S.civ, crowd = typeof civLandPrice==='function' ? civLandPrice(C.center[0], C.center[1]) : 8, full = C.landShort != null && civDay() - C.landShort < 56;
+  let p = 0.12 + (full ? 0.4 : 0) + Math.max(0, crowd - 9)*0.04;
+  if (c.civ.occ==='farmer' || c.civ.occ==='herder' || sk(c,'farming') > 30) p += 0.2;
+  if (c.values.includes('Freedom') || c.values.includes('Nature')) p += 0.15;
+  if (c.civ.arrived != null && civDay() - c.civ.arrived < 60) p += 0.2;           // newcomers have no ties here yet
+  if (hhMembers(h).some(m=>m.office)) p -= 0.3;                                     // office-holders stay near the council
+  p += Math.min(0.3, ((cogOf(c).op||{}).expansion||0)/100);
+  return rnd() < clamp(p, 0, 0.85);
+}
+// a free site in a frontier district: districts already being settled first (neighbours and a track), then empty ones
+function civFrontierSite(def, opts){
+  const cells = civFrontierCells().sort((a,b)=>((b.state==='developing')-(a.state==='developing')) || (ringOf(a.cx,a.cy)-ringOf(b.cx,b.cy)) || ((a.homes||0)-(b.homes||0)));
+  for (const cell of cells){ const [x0,y0,x1,y1] = cellRect(cell.cx, cell.cy), mx = Math.round((x0+x1)/2), my = Math.round((y0+y1)/2);
+    const own = civStructsOf(s=>STRUCTURES[s.def].home && civRegionAt(s.x, s.y)===cell)[0], near = own ? [own.x+1, own.y+1] : [mx, my];
+    const site = civFindSite(def, near, Object.assign({}, opts||{}, {maxR:16, anySide:true, noFrontier:true, test:(x,y,w,h)=>civRegionAt(x,y)===cell && (!(opts||{}).test || opts.test(x,y,w,h))}));
+    if (site){ site.cell = cell; return site; } }
+  return null;
+}
 // ---------- housing: homes improve only with knowledge, materials and means ----------
 function civBestHomeDef(builders, wealth, crowd){
   const opts = HOME_ORDER.filter(d=>{ const D = STRUCTURES[d]; if (!D.home || !civCanBuild(d, builders)) return false; if (d==='longhouse' && crowd<6) return false; if ((d==='mansion'||d==='estate') && wealth < 3000) return false; if ((d==='apartments'||d==='tower'||d==='row_houses'||d==='dormitory'||d==='boarding') ) return false; return true; });
@@ -127,8 +149,11 @@ function civHousingGoals(c, h, home){
     if (!civMatAffordable(def, h.store, civHHMoney(h)).ok) def = members > 5 && civCanBuild('longhouse', builders) ? 'longhouse' : 'crude_hut';
     if (!home && civHomelessHH().length >= 4 && !civMatAffordable(def, h.store, civHHMoney(h)).ok) def = 'lean_to'; // in a housing crunch, any roof first
     if (home && civProjects().filter(p=>p.purpose==='home').length > 6) return; // a family with no roof may always start one
-    const site = civFindSite(def, home ? [home.x, home.y] : S.civ.center, {margin:1});
-    if (site){ civStartProject(def, site, {k:'hh', id:h.id}, {purpose:'home', forHH:h.id, why: !home ? 'they have no roof' : 'too many under one roof'}); civAddGoal(c, 'new_home'); }
+    // land of their own out on the frontier draws farmers, the freedom-loving and newcomers once the valley fills up
+    const fr = civWantsFrontier(c, h) ? civFrontierSite(def, {margin:1}) : null;
+    const site = fr || civFindSite(def, home ? [home.x, home.y] : S.civ.center, {margin:1});
+    if (site){ civStartProject(def, site, {k:'hh', id:h.id}, {purpose:'home', forHH:h.id, why: fr ? `to settle ${fr.cell.name}` : !home ? 'they have no roof' : 'too many under one roof'}); civAddGoal(c, 'new_home');
+      if (fr){ ev('frontier_homes'); if (fr.cell.state==='annexed' && !fr.cell.pioneer){ fr.cell.pioneer = h.id; chronicle(`The ${h.name} household are the first to settle ${fr.cell.name}.`, 7, '🏕️', 'land'); } } }
     else if (!home){ S.civ.landShort = civDay(); civProblem('land', 2); } // nowhere left to build
     return;
   }
@@ -171,7 +196,7 @@ function civLandUseGoals(c, h){
     const def = (!fields.length && h.members.length<3) || !civCanBuild('field', [c]) || seed < 8 ? 'garden' : 'field';
     if (worry){
       const from = S.civ.structs[c.home] ? [S.civ.structs[c.home].x, S.civ.structs[c.home].y] : S.civ.center, dry = (x,y,w,hh)=>!civNearWater(x,y,w,hh,0);
-      const site = civFindSite(def, from, {margin:0, maxR:22, test:dry}) || civFindSite(def, from, {margin:0, maxR:40, test:dry});
+      const site = civFindSite(def, from, {margin:0, maxR:22, test:dry}) || civFindSite(def, from, {margin:0, maxR:40, test:dry}) || civFrontierSite(def, {margin:0, test:dry});
       if (site){ civStartProject(def, site, {k:'hh', id:h.id}, {purpose:'farm', why:'to grow food instead of searching for it'}); civAddGoal(c, 'start_field'); }
     }
   }
@@ -249,7 +274,8 @@ const ANIMAL_KINDS = {
 function civNewAnimal(kind, owner, opts){ opts = opts||{}; const C = S.civ; const a = {id:'an_'+(++C.aSeq), kind, sex: opts.sex || (rnd()<0.5?'F':'M'), age: opts.age ?? Math.floor(ANIMAL_KINDS[kind].adult*(0.5+rnd())), health: 90+Math.floor(rnd()*10), owner, pen: opts.pen||null, prod:+(0.7+rnd()*0.6).toFixed(2), born: civDay()-(opts.age||0), mother: opts.mother||null, kids:0, name: opts.name||null};
   C.animals.push(a); ev('animals'); return a; }
 function civCaptureAnimal(c, kind){ const h = hhOf(c); if (!h) return; const a = civNewAnimal(kind, {k:'hh', id:h.id}); chronicle(`${c.name} brought a live ${ANIMAL_KINDS[kind].label.toLowerCase()} back from the hunt.`, 5, '🐐', 'farm'); remember(c, `I caught a ${ANIMAL_KINDS[kind].label.toLowerCase()} alive.`, 6); return a; }
-function civPenFor(c){ return civStructsOf(s=>STRUCTURES[s.def].ranch && s.status==='active' && (civOwnedBy(s.owner, c) || (s.org && c.civ.employer===s.org)))[0] || null; }
+function civPenFor(c){ const own = civStructsOf(s=>STRUCTURES[s.def].ranch && s.status==='active' && (civOwnedBy(s.owner, c) || (s.org && c.civ.employer===s.org)))[0]; if (own || !isAdult(c) || c.civ.job) return own || null;
+  return civStructsOf(s=>STRUCTURES[s.def].ranch && s.status==='active' && s.owner && (s.owner.k==='community' || s.owner.k==='gov') && S.civ.animals.some(a=>a.pen===s.id)).find(s=>hash(c.id+s.id)%3===0) || null; }
 CIV_TARGETS.herd = c => { const p = civPenFor(c); if (!p) return null; return {loc:p.id, xy:[p.x+1+hash(c.id)%(p.w-2), p.y+1+hash(c.id+'y')%(p.h-2)], note:`Tending animals at ${p.name}`, extra:{pen:p.id}}; };
 CIV_TASK_VALUE.herd = (c) => { const p = civPenFor(c); if (!p) return 0; const n = S.civ.animals.filter(a=>a.pen===p.id).length; return n*2.2; };
 CIV_WORK.herd = (c, b, hrs) => {
@@ -261,12 +287,76 @@ CIV_WORK.herd = (c, b, hrs) => {
   for (const g in out){ storeAdd(st, g, +out[g].toFixed(1)); value += out[g]*civMargValue(c, g, hhOf(c)); }
   return {value: value + herd.length*0.5, why:null, out};
 };
+// ---------- the travelling livestock dealer ----------
+// every few weeks outside winter a drover comes through from a neighbouring town with animals to sell; households with
+// a pen (or the means to build one) and money or goods to trade can buy, and so can the settlement for a common herd
+function civAnimalKindValue(kind){ const K = ANIMAL_KINDS[kind]; if (!K) return 0; return K.work ? 40 : K.pet ? 3 : Math.max(2, (K.meat||2)*0.9 + Object.values(K.prod||{}).reduce((x,y)=>x+y,0)*6); }
+function civDealerPrice(kind){ return Math.round(civAnimalKindValue(kind)*1.25*(civMoneyOn() ? (S.civ.econ.level||1) : 1)); }
+function civDealerDaily(){
+  const C = S.civ, d = civDay(), D = C.dealer;
+  if (D && D.status==='here'){ civDealerSales(D); if (d >= D.leave || !Object.values(D.stock).some(n=>n>0)) civDealerLeaves(D); return; }
+  if (!civTechKnown('domestication') || seasonOf(d)===3) return;
+  const last = C.dealerLast ?? -999, gap = 42 + (hash(String(C.seed)+'dealer'+Math.floor(d/42))%21);
+  if (d - last < gap) return;
+  const nb = (C.neighbors||[]).filter(n=>!n.shortage).sort((a,b)=>b.rel-a.rel || a.dist-b.dist)[hash('dl'+d)%Math.max(1, Math.min(3, (C.neighbors||[]).length))] || (C.neighbors||[])[0]; if (!nb) return;
+  const r = crand('dealer'+d), kinds = ['goat','sheep','pig','chicken'].concat(civTechKnown('plough') || S.citizens.length > 120 ? ['cow'] : [], civTechKnown('riding') || civTechKnown('wheel') ? ['horse'] : []);
+  const stock = {}; const n = 6 + Math.floor(r()*9); for (let i=0;i<n;i++){ const k = kinds[Math.floor(r()*kinds.length)]; stock[k] = (stock[k]||0) + 1; }
+  const who = firstNameFor(r()<0.5?'F':'M', r) + ' ' + ['Drover','Herdwick','Shepherd','Farrow','Wether','Tanner','Hayes'][Math.floor(r()*7)];
+  C.dealer = {name:who, from:nb.name, arrive:d, leave:d+4, stock, sold:[], status:'here'}; C.dealerLast = d; ev('dealer_visits'); bumpWorld();
+  const list = Object.entries(stock).map(([k,q])=>`${q} ${ANIMAL_KINDS[k].label.toLowerCase()}${q>1&&k!=='sheep'?'s':''}`).join(', ');
+  chronicle(`${who}, a livestock dealer from ${nb.name}, drove a herd into the settlement: ${list}. They will stay four days.`, 7, '🐄', 'farm');
+  S.week.society.push(`Livestock dealer from ${nb.name}`);
+  S.citizens.filter(c=>isAdult(c) && (sk(c,'herding')>10 || kn(c,'husbandry')>10 || c.civ.occ==='farmer' || c.civ.occ==='herder')).slice(0,20).forEach(c=>civHear(c, {type:'dealer', text:`A drover from ${nb.name} is selling animals by the fire.`, topics:{}, imp:4, src:'news'}));
+}
+// what a household can pay: money where there is money, otherwise goods it can spare
+function civPayFor(h, price){
+  if (civMoneyOn()){ const payer = hhAdults(h).sort((a,b)=>b.wallet-a.wallet)[0]; if (!payer || payer.wallet < price*1.5) return false; civAdjPurse({k:'person', id:payer.id}, -price); return true; } // the drover takes the money home
+  const spare = ['beads','hides','cloth','tools','pottery','fiber','furs','salt','copper','tin','iron'].filter(g=>CG[g] && (h.store[g]||0) >= 1);
+  let val = spare.reduce((a,g)=>a + h.store[g]*CG[g].v, 0); if (val < price*1.3) return false;
+  let left = price; for (const g of spare){ if (left<=0) break; const q = Math.min(h.store[g], Math.ceil(left/CG[g].v)); storeTake(h.store, g, q); left -= q*CG[g].v; }
+  return true;
+}
+function civDealerSales(D){
+  const C = S.civ;
+  Object.values(C.hh).forEach(h=>{
+    if (!h.home || !C.structs[h.home] || hhFoodDays(h) < 4) return; const ad = hhAdults(h); if (!ad.length) return;
+    const head = ad.sort((a,b)=>(sk(b,'herding')+kn(b,'husbandry'))-(sk(a,'herding')+kn(a,'husbandry')))[0];
+    const keen = sk(head,'herding')/40 + kn(head,'husbandry')/40 + (head.civ.occ==='herder'||head.civ.occ==='farmer' ? 0.5 : 0) + (civHasGoal(head,'start_herd') ? 0.5 : 0) + (civHasGoal(head,'wealth') ? 0.2 : 0);
+    if (keen < 0.35 || rnd() > 0.25 + keen*0.3) return;
+    const pen = civStructsOf(s=>STRUCTURES[s.def].ranch && s.status==='active' && s.owner && s.owner.k==='hh' && s.owner.id===h.id)[0];
+    const have = C.animals.filter(a=>a.owner.k==='hh' && a.owner.id===h.id && !ANIMAL_KINDS[a.kind].pet).length, room = pen ? STRUCTURES[pen.def].ranch.cap - C.animals.filter(a=>a.pen===pen.id).length : (civCanBuild('pen', [head]) ? 4 : 0);
+    if (room <= 0) return;
+    // a breeding pair of whatever the household already keeps, else what suits them best
+    const kept = C.animals.filter(a=>a.owner.k==='hh' && a.owner.id===h.id).map(a=>a.kind);
+    const choice = Object.keys(D.stock).filter(k=>D.stock[k]>0 && !ANIMAL_KINDS[k].pet).sort((a,b)=>(kept.includes(b)-kept.includes(a)) || (civAnimalKindValue(b)-civAnimalKindValue(a))*(keen>1?1:-1))[0]; if (!choice) return;
+    const want = Math.min(room, D.stock[choice], have ? 1 : 2);
+    let bought = 0; for (let i=0;i<want;i++){ const price = civDealerPrice(choice); if (!civPayFor(h, price)) break; civNewAnimal(choice, {k:'hh', id:h.id}, {pen: pen ? pen.id : null, sex: i===0 ? 'F' : 'M'}); D.stock[choice]--; bought++; D.sold.push({hh:h.id, kind:choice, price}); ev('animals_bought'); }
+    if (bought){ chronicle(`The ${h.name} household bought ${bought===1 ? an(ANIMAL_KINDS[choice].label.toLowerCase()) : `${bought} ${ANIMAL_KINDS[choice].label.toLowerCase()}${choice!=='sheep'?'s':''}`} from ${D.name}.`, 5, '🐐', 'farm'); remember(head, `We bought ${choice==='sheep'?'sheep':bought>1?ANIMAL_KINDS[choice].label.toLowerCase()+'s':'a '+ANIMAL_KINDS[choice].label.toLowerCase()} from the drover.`, 6);
+      if (!pen) civAddGoal(head, 'start_herd'); }
+  });
+}
+function civDealerLeaves(D){ D.status = 'gone'; bumpWorld(); const n = D.sold.length; chronicle(n ? `${D.name} left for ${D.from}, having sold ${n} animal${n>1?'s':''}.` : `${D.name} left for ${D.from} without selling anything.`, 5, '🐄', 'farm'); }
+// the player can buy animals for a common herd, paid from the treasury or, before there is money, the common store
+function civDealerBuyForTown(kind){
+  const C = S.civ, D = C.dealer; if (!D || D.status!=='here' || !(D.stock[kind] > 0)) return 'The dealer has none left.';
+  const price = civDealerPrice(kind);
+  if (civMoneyOn()){ if ((C.gov.treasury||0) < price) return 'The treasury cannot afford it.'; C.gov.treasury -= price; }
+  else { const goods = ['beads','hides','cloth','tools','preserved','grain'].filter(g=>(C.commons[g]||0) >= 1); let v = goods.reduce((a,g)=>a+C.commons[g]*CG[g].v,0); if (v < price) return 'The common store has nothing to trade for it.'; let left = price; for (const g of goods){ if (left<=0) break; const q = Math.min(C.commons[g], Math.ceil(left/CG[g].v)); storeTake(C.commons, g, q); left -= q*CG[g].v; } }
+  let pen = civStructsOf(s=>STRUCTURES[s.def].ranch && s.status==='active' && s.owner && (s.owner.k==='community' || s.owner.k==='gov'))[0];
+  if (!pen && !civProjects().some(p=>STRUCTURES[p.def].ranch && p.owner && (p.owner.k==='community' || p.owner.k==='gov'))){ const site = civFindSite('pen', C.center, {margin:1}); if (site) civStartProject('pen', site, civTownOwner(), {purpose:'ranch', why:'for the common herd'}); }
+  civNewAnimal(kind, civTownOwner(), {pen: pen ? pen.id : null}); D.stock[kind]--; D.sold.push({hh:'town', kind, price}); ev('animals_bought');
+  chronicle(`The settlement bought ${an(ANIMAL_KINDS[kind].label.toLowerCase())} from ${D.name} for the common herd.`, 5, '🐐', 'farm');
+  return null;
+}
 function civAnimalsDaily(){
   const C = S.civ, d = civDay();
   C.animals.slice().forEach(a=>{
     const K = ANIMAL_KINDS[a.kind]; a.age++;
+    // animals a household keeps before it has a pen are tethered by the house and fed scraps while the family has food
+    const keeper = !a.pen && a.owner && a.owner.k==='hh' && C.hh[a.owner.id], tended = keeper && keeper.home && C.structs[keeper.home] && hhFoodDays(keeper) >= 2;
+    if (tended && !K.pet && (!a.fed || d-a.fed > 1)){ const g = ['veg','grain','berries'].find(x=>(keeper.store[x]||0) >= 1); if (g){ storeTake(keeper.store, g, 1); a.fed = d; } }
     if (!K.pet && (!a.fed || d-a.fed > 3)) a.health -= a.pen ? 2 : 4;
-    if (!a.pen && !K.pet && rnd() < 0.02){ C.animals.splice(C.animals.indexOf(a),1); return; } // wandered off
+    if (!a.pen && !K.pet && rnd() < (tended ? 0.002 : 0.02)){ C.animals.splice(C.animals.indexOf(a),1); return; } // wandered off
     if (a.health<=0 || a.age > K.life*(0.8+rnd()*0.4)){ C.animals.splice(C.animals.indexOf(a),1); const st = civOwnerStore(a.owner); if (st && K.meat) storeAdd(st, 'meat', Math.round(K.meat*0.6)); return; }
     // breeding: a fed female, a male in the same pen, and room
     if (a.sex==='F' && a.pen && a.age>=K.adult && d%14===hash(a.id)%14){ const pen = C.structs[a.pen], cap = pen && STRUCTURES[pen.def].ranch ? STRUCTURES[pen.def].ranch.cap : 0, n = C.animals.filter(x=>x.pen===a.pen).length;

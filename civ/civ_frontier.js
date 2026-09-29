@@ -260,7 +260,7 @@ function civFrontierPressure(){
   let trees = 0; for (let y=0;y<OH;y+=2) for (let x=0;x<OW;x+=2) if (tileAt(x,y)===T.TREE) trees++;
   C.frontierNeed = {homeless, price, forage:+ratio('f').toFixed(2), game:+ratio('g').toFixed(2), fish:+ratio('fish').toFixed(2), trees};
   const short = C.landShort != null && d - C.landShort < 28;
-  const need = (short ? 2 + homeless : 0) + (price > 14 ? 2 : 0) + (ratio('f') < 0.4 ? 2 : 0) + (ratio('g') < 0.3 ? 1 : 0) + (trees < 400 ? 2 : 0) + (S.citizens.length > 140 ? 1 : 0);
+  const need = (short ? 2 + homeless : 0) + (price > 14 ? 2 : 0) + (ratio('f') < 0.4 ? 2 : 0) + (ratio('g') < 0.3 ? 1 : 0) + (trees < 400 ? 2 : 0) + (S.citizens.length > 140 ? 1 : 0) + (civAnnexed().length && civAnnexed().every(c=>c.state==='established' && (c.homes||0) >= 8) ? 2 : 0); // the districts already taken are filling up
   if (need >= 2) civProblem('land', Math.round(need));
   // when the pressure is real, a restless household with food to spare may mount an expedition of its own
   if (need >= 3 && !S.world.exp.some(e=>e.status==='out') && d - (S.world.lastVolunteer||-99) >= 28){

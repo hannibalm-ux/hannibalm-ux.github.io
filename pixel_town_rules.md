@@ -60,6 +60,7 @@ Pixel Town has **two modes**:
 44. [Civilization mode: construction and housing](#44-civilization-mode-construction-and-housing)
 45. [Civilization mode: street lighting and transport](#45-civilization-mode-street-lighting-and-transport)
 46. [HD 3D graphics](#46-hd-3d-graphics)
+47. [Civilization mode: districts, livestock dealers, schools and wealth](#47-civilization-mode-districts-livestock-dealers-schools-and-wealth)
 
 ---
 
@@ -113,7 +114,7 @@ There is no server and no build step. Everything, including every sprite, buildi
 | Season | 28 days (4 weeks): Spring, Summer, Fall, Winter |
 | Year | 112 days (16 weeks) |
 
-- **Speeds:** pause, 1×, 10×, 60×, 360×.
+- **Speeds:** pause, 1×, 10×, 60×, 360× and **Day/s** (3600×, aiming for one game day every real second). The controls sit in the top-left corner of the map. At Day/s the simulation gets a bigger share of each frame, and the achieved rate (for example "0.8 days/s") is shown beside the buttons; a large town may not reach a full day a second.
 - **Hallday** is the town hall day. Proposals are voted on at 18:00.
 - **Aging:** every villager ages one year every 112 days (one game year). Children come of age at 16.
 - **Festivals:** a season festival starts every 28th day on the town square.
@@ -819,7 +820,7 @@ Each annexed region costs the treasury 2¢ + 2¢ per ring of distance, plus more
 
 In civilization mode the Market tab is called **Economy**, and People, Economy, Land, Gov, Society and Justice show the civilization panels (section 40).
 
-The header shows the clock, date, week, weather and speed buttons. Stat tiles show population, leader, treasury, bridge, mood, herd, laws, next vote, trades, classes and construction.
+The header shows the clock, date, week and weather; the speed buttons are on the map. Stat tiles show population, leader, treasury, bridge, mood, herd, laws, next vote, trades, classes and construction.
 
 ---
 
@@ -1588,3 +1589,53 @@ The ground has bump detail. Snow settles in winter storms. Rain darkens the grou
 - **Dynamic resolution:** if frames get slow (below about 48 per second), the render scale steps down, never below 60%, and climbs back when there is headroom. On Auto, if even that is not enough, the tier is lowered.
 - **Lighter lighting passes:** the sky's environment light leaves out the sun (which lights the scene directly), so it repeats every day. Each sky state (daylight, dusk, cloud, snow) is rendered once and cached (up to 40), and at fast game speeds it no longer re-renders every frame, which was the worst cause of stutter. The shadow map is 2048 on High, sharp because it hugs the view. Small crops do not cast sun shadows. Lamp light in the air is skipped in daylight, and the water's ripple loop only runs over live ripples.
 - **Instancing:** grass, trees, rocks, crops and fences are instanced, and no large textures are uploaded or per-building canvases drawn in 3D.
+
+## 47. Civilization mode: districts, livestock dealers, schools and wealth
+
+### Settling annexed land
+- **Who moves out:** when a household plans a new home, it may choose a frontier district instead of the valley. The chance starts at 12% and rises when the valley is short of land (+40%), land near the centre is dear, the head farms or herds (+20%), values freedom or nature (+15%), arrived in the last 60 days (+20%) or supports expansion. Households with an office-holder mostly stay. The chance is capped at 85%.
+- **Where:** districts already being settled come first (next to existing homes), then the nearest empty ones. The first family to settle a district is recorded in the chronicle.
+- **Fields:** a farmer who finds no free land within 40 tiles of home clears a field in a frontier district.
+- **Pressure to annex more:** once every annexed district is established and has eight or more homes, the settlement feels short of land again.
+
+### Mines and deposits on the map
+- **Deposits:** a known deposit that nobody mines yet shows as a heap of rock flecked with the ore's colour, with a red flag once it is claimed, in 2D and 3D. Deposits and mines are also dots on the minimap (orange when mined).
+- **Mines:** a mine has a timber headframe with a winding wheel, an ore cart and a heap of ore. Building one clears a two-tile yard of trees and scrub around it, so it is not hidden in the forest.
+- **Keeping mining going:** a hand-dug pit can reach depth 2 once quarrying is known. Anyone with geology knowledge 20+, mining skill 15+ or stonework 25+ can found a mining company without first working in a mine. Claims whose holder died or left lapse, and the most knowledgeable miner or geologist takes them up. Prospecting is worth more when no mine is running and few known seams are free.
+
+### The travelling livestock dealer
+- **Visits:** once animal domestication is known, a drover from a friendly neighbour arrives every 6–9 weeks (never in winter) with 6–14 animals: goats, sheep, pigs and chickens, plus cows once the plough is known or the settlement passes 120 people, and horses with riding or the wheel. They stay four days, with a cart and animals by the fire.
+- **Households** keen on animals buy, in order of keenness (herding skill, husbandry knowledge, farmers and herders, a wish to start a herd), if they have a home and four days of food. They pay 125% of an animal's value in money, or in goods they can spare (beads, hides, cloth, tools, pottery, fibre, furs, salt, metals) before there is money. A household new to animals buys a breeding pair; the pair makes it build a pen. Until the pen is ready, the animals are tethered by the house and fed a unit of vegetables, grain or berries a day while the family has two days of food, and they rarely stray.
+- **The settlement:** while the dealer is in town, the Economy tab shows the stock with buttons to buy for a common herd, paid from the treasury (or common goods before money). A common pen is started if there is none, and adults without their own animals or a job tend it.
+
+### Districts and elected leadership
+- **Wards:** when 170 people live in the valley it splits into the West Bank and East Bank wards; at 320, into four quarters. Every established frontier district is a district of its own.
+- **Local leadership:** a district with 12 or more adults elects a head (called an Elder, Alderman, Headman, Speaker, Warden, Councillor or Magistrate depending on the form of government, otherwise a Reeve) every 8 weeks. Districts with 40+ adults also elect two councillors, and three at 90+. Heads who move away give up the seat, and a by-election follows.
+- **Answering to the leader:** once there are two districts, the heads form the council of districts under the settlement's leader, and the leader is elected by everyone from then on, even where the form of government never held elections.
+- **Requests:** every four weeks each head asks the leader for what the district lacks: a well, then a healer's hut (30+ adults), then a school hut (8+ children). The leader funds it if the treasury stays above its reserve, and a public project starts in the district.
+- **In the Civic tab:** every district, its head and councillors, their votes and the last request.
+
+### Newcomers
+62% of arriving households come prepared. Each adult brings 120–400 in savings (or beads before money), and the family brings the materials for the best home it can build that is big enough (a crude hut at least). They start building on arrival, and newcomers are among the most likely to settle frontier land.
+
+### Specialised schools
+Alongside the children's school ladder, five kinds of school can open when there are people who would study and someone able to teach. Classes meet weekly (up to 12 students per teacher, three teachers at most). Students gain knowledge and skill toward their teacher's level, pay a small fee once there is money, and earn a certificate after eight weeks.
+
+| School | Opens when | Teaches |
+|---|---|---|
+| Night school | writing is known and 8+ adults can barely read; a teacher with literacy 40+ | literacy and mathematics, for adults under 60 |
+| Farming school | 10+ fields; a teacher with agriculture 40+ and farming 35+ | agriculture, biology; farming and herding |
+| School of healing | two healers; a teacher with medicine 40+ and skill 30+ | medicine, biology; medical skill (counts as a medical institution) |
+| School of mines | mining is known and 3+ deposits are known; a geologist (40+) or miner (45+) | geology, engineering; mining and prospecting |
+| Merchants' school | money and 6+ businesses; a teacher with trade and finance 60+ combined | trade, finance, mathematics; accounting and trading |
+
+A children's school now takes on a second teacher once it has a proper building and eight pupils, so it can become a secondary school. Certificates and current studies show in each person's profile, and the Society tab lists every school with its students and graduates.
+
+### Net worth and possessions
+Each adult's profile lists everything they own, grouped, with a total net worth:
+- **Cash:** the purse.
+- **Property:** homes, fields and buildings they own alone, their share (one per adult) of what the household owns, and homes under construction.
+- **Animals** and **goods:** their share of the household's.
+- **Stakes** in businesses, valued at the business's cash, stock and buildings, less its debts.
+- **Savings** at banks, and mineral **claims**.
+- **Loans** they have made, and **debts** they owe, which count against the total.
