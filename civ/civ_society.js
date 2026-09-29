@@ -41,7 +41,7 @@ function civDecide(topic, att, convener){
       if (storeFood(C.commons) > 0 && C.rationCap > 120){ C.rationCap = Math.max(100, Math.round(C.rationCap*0.7)); out.push('ration the cache'); }
       if (civFoodDaysAll() < 3 && !C.shipments.some(s=>s.status==='en route')){ const r = civOrderImport('emergency'); if (r) out.push(r); }
       if (!civHas(['granary','warehouse']).length && support(c=>c.civ.cog.planning>0.5) > 0.3){ const r = proj('granary', 'to keep food through the winter'); if (r) out.push(r); }
-      if (civTechKnown('cultivation') && !civStructsOf(s=>STRUCTURES[s.def].farm && s.owner.k==='community').length && support(c=>c.values.includes('Community')) > 0.2){ const r = proj('field', 'a common field for everyone'); if (r) out.push('clear a common field'); }
+      if (civTechKnown('cultivation') && civStructsOf(s=>STRUCTURES[s.def].farm && s.status==='active' && s.owner && (s.owner.k==='community' || s.owner.k==='gov')).length < Math.max(1, Math.floor(S.citizens.length/60)) && support(c=>c.values.includes('Community')) > 0.2){ const r = proj('field', 'a common field for everyone'); if (r) out.push('clear a common field'); }
       return out.join(', ') || null; }
     case 'storage': return proj('granary', 'food keeps spoiling') || (civCanBuild('drying_rack', builders) ? proj('drying_rack', 'to dry fish and meat') : null);
     case 'infrastructure': { const cr = Object.values(C.crossing||{}).reduce((a,b)=>a+b,0); if (cr>5){ C.crossing = C.crossing || {}; const y = Object.entries(C.crossing).sort((a,b)=>b[1]-a[1])[0]; if (y) C.crossing[y[0]] += 20; return 'find a way across the river'; } return null; }

@@ -496,9 +496,10 @@ function civEat(c, urgent){
   if (c.away){ c.needs.hunger = Math.max(c.needs.hunger, 55); return true; } // explorers live on what they carried
   const h = hhOf(c), n = c.needs; let ate = false;
   const want = urgent ? 60 : 78;
-  const eatFrom = st => { const order = CIV_FOODS.filter(g=>st[g]>0).sort((a,b)=>(CG[a].perish||999)-(CG[b].perish||999));
-    for (const g of order){ while (st[g]>0 && n.hunger<want){ storeTake(st, g, 1); n.hunger = clamp(n.hunger + CG[g].food, 0, 100); ate = true; c.civ.ateToday = (c.civ.ateToday||0)+1; } if (n.hunger>=want) break; } };
-  if (h) eatFrom(h.store);
+  const eatFrom = (st, keep) => { const order = CIV_FOODS.filter(g=>st[g]>(keep&&keep[g]||0)).sort((a,b)=>(CG[a].perish||999)-(CG[b].perish||999));
+    for (const g of order){ while (st[g]>(keep&&keep[g]||0) && n.hunger<want){ storeTake(st, g, 1); n.hunger = clamp(n.hunger + CG[g].food, 0, 100); ate = true; c.civ.ateToday = (c.civ.ateToday||0)+1; } if (n.hunger>=want) break; } };
+  // seed grain for next year's sowing is not eaten unless there is truly nothing else
+  if (h){ eatFrom(h.store, n.hunger >= 20 ? {grain:civSeedNeed(h)} : null); if (n.hunger < 20) eatFrom(h.store); }
   if (n.hunger < 40){ const inv = c.inventory; if (inv && Object.keys(inv).length) eatFrom(inv); }
   // an empty larder: the shared cache while it lasts, then kin and friends, then the market
   if (n.hunger < 35 && storeFood(S.civ.commons) > 0 && S.civ.rationToday < S.civ.rationCap){ const before = n.hunger; eatFrom(S.civ.commons); if (n.hunger>before){ S.civ.rationToday++; ev('rations'); } }
@@ -511,6 +512,7 @@ function civEat(c, urgent){
     if (nearW || (h && (h.store.water||0) >= 1)){ if (!nearW) storeTake(h.store, 'water', 1); c.civ.drank = dayOf(S.minute); c.civ.thirst = 0; } }
   return ate;
 }
+function civSeedNeed(h){ return civStructsOf(s=>STRUCTURES[s.def].farm && s.owner && s.owner.k==='hh' && s.owner.id===h.id && STRUCTURES[s.def].farm.crop.includes('grain')).reduce((a,s)=>a+Math.ceil(s.w*s.h*0.5), 0); }
 function civAskForFood(c){
   const h = hhOf(c); const kin = S.citizens.filter(o=>o!==c && hhOf(o) && hhOf(o)!==h && (peekRel(o,c.id).tags.includes('Family') || peekRel(o,c.id).affinity>35) && hhFoodDays(hhOf(o))>2.5);
   const giver = kin.sort((a,b)=>peekRel(b,c.id).affinity-peekRel(a,c.id).affinity)[0];
