@@ -462,14 +462,16 @@ function civAttractiveness(){
   const jobs = C.jobs.filter(j=>j.open).length, employed = ad.filter(c=>c.civ.job || c.civ.occ).length/Math.max(1,ad.length);
   const wage = civMoneyOn() ? civAvgWage()/(C.econ.level||1) : 0, crime = C.justice.cases.filter(k=>k.kind==='criminal' && civDay()-k.day<56).length/n*10;
   const school = C.edu.stage>=2 ? 0.3 : 0, health = civHas(['healer_hut','clinic','hospital']).length ? 0.3 : 0, tax = C.gov.taxes.rate ? (C.gov.taxes.form==='hearth' ? 0.05 : C.gov.taxes.rate*2) : 0;
-  const opp = C.deposits.filter(d=>d.known && (MIN[d.min].precious || MIN[d.min].fluid) && civDay()-d.found<180).length*0.6 + civOrgs(o=>o.biz).length*0.03;
+  const opp = C.deposits.filter(d=>d.known && (MIN[d.min].precious || MIN[d.min].fluid) && civDay()-d.found<180).length*0.6 + Math.min(0.8, civOrgs(o=>o.biz).length*0.03);
   // newcomers look ahead: arriving before a winter the stores cannot carry is a bad bet
   const full = C.landShort != null && civDay() - C.landShort < 28 ? 1 : 0; // no land left to build on
   const season = seasonOf(civDay()), winterRisk = (season===2 || season===3) ? clamp((20 - civFoodDaysAll())/20, 0, 1) : 0;
-  return {food, homeless, jobs, employed, wage, crime, school, health, tax, opp, winterRisk, score: -winterRisk*1.5 - full*1.5 + food*1.2 - homeless*(homeless > 0.15 ? 3 : 1.2) + Math.min(1, jobs*0.15) + employed*0.5 + wage*0.08 - crime*0.5 + school + health - tax + opp};
+  // word travels fast when people are going hungry: no one moves to a town that cannot feed itself
+  const famine = clamp((4 - civFoodDaysAll())/4, 0, 1) + clamp((S.civ.stats.deaths_privation||0) - (C.starvedSeen||0), 0, 5)*0.3;
+  return {food, homeless, jobs, employed, wage, crime, school, health, tax, opp, winterRisk, famine, score: -famine*2.5 - winterRisk*1.5 - full*1.5 + food*1.2 - homeless*(homeless > 0.15 ? 3 : 1.2) + Math.min(1, jobs*0.15) + employed*0.5 + wage*0.08 - crime*0.5 + school + health - tax + opp};
 }
 function civMigrationMonthly(){
-  const C = S.civ, A = civAttractiveness(); C.attract = A;
+  const C = S.civ, A = civAttractiveness(); C.attract = A; C.starvedSeen = C.stats.deaths_privation||0;
   C.migration.pressure = Math.max(0, A.score);
   // emigration: households who are doing badly and have somewhere better to go; moving far is costly and uncertain
   let left = 0;
