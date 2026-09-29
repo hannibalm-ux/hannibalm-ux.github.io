@@ -138,8 +138,9 @@ function hdSky(p){
   HD.sky.position.copy(R3.camera.position);
   // the environment light follows the sky, refreshed every ~20 game minutes or when the weather changes
   const key = [Math.round(day*10), Math.round(p.dusk*4), Math.round(over*4), p.snow?1:0].join(',');
-  if (key !== HD.envKey){ HD.envKey = key; let rt = HD.envCache.get(key);
-    if (!rt){ const E = HD.envSky.material.uniforms; E.top.value.copy(top); E.hor.value.copy(hor); E.gnd.value.copy(U.gnd.value); E.sunCol.value.setRGB(0,0,0); E.night.value = 0; E.cloud.value = over;
+  const cached = HD.envCache.get(key), now = performance.now();
+  if (key !== HD.envKey && (cached || now - (HD.envAt||-1e9) > 1000)){ HD.envKey = key; let rt = cached; // a new sky state is rendered at most once a second
+    if (!rt){ HD.envAt = now; const E = HD.envSky.material.uniforms; E.top.value.copy(top); E.hor.value.copy(hor); E.gnd.value.copy(U.gnd.value); E.sunCol.value.setRGB(0,0,0); E.night.value = 0; E.cloud.value = over;
       HD.envSky.position.set(0,0,0); rt = HD.pmrem.fromScene(HD.envScene, 0, 0.1, 1000); HD.envCache.set(key, rt);
       if (HD.envCache.size > 40){ const [k0, r0] = HD.envCache.entries().next().value; if (r0 !== rt){ r0.dispose(); HD.envCache.delete(k0); } } }
     else { HD.envCache.delete(key); HD.envCache.set(key, rt); }
