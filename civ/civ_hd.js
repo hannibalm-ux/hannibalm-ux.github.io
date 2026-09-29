@@ -247,7 +247,8 @@ function hdTerrainMat(){
     sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `
       { vec2 p = vHdW.xz; vec2 tp = p - uOrigin - 0.5 + (vec2(hdN(p*1.7), hdN(p*1.7+31.0)) - 0.5)*0.55; // warped, so edges between surfaces are organic
         ivec2 i0 = ivec2(floor(tp)); vec2 f = fract(tp); vec3 acc = vec3(0.0); float ra = 0.0, ha = 0.0, wa = 0.0; vec4 tvC = vec4(0.0);
-        for (int j=0;j<2;j++) for (int i=0;i<2;i++){
+        int reach = uQ == 0 ? 1 : 2; if (uQ == 0){ i0 = ivec2(floor(p - uOrigin)); f = vec2(0.0); } // Low: one surface per tile, no blending
+        for (int j=0;j<2;j++) for (int i=0;i<2;i++){ if (i >= reach || j >= reach) continue;
           ivec2 ti = clamp(i0 + ivec2(i,j), ivec2(0), ivec2(uSize) - 1); vec4 tv = texelFetch(uTD, ti, 0); int k = int(tv.r*255.0 + 0.5);
           float w = (i==0 ? 1.0-f.x : f.x) * (j==0 ? 1.0-f.y : f.y);
           vec3 c; float r, h; hdSurf(k, p, tv, c, r, h); w = pow(w, 1.6) * (0.4 + h); // height-weighted blending: stones and tufts poke through

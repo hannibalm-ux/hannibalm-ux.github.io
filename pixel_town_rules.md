@@ -59,6 +59,7 @@ Pixel Town has **two modes**:
 43. [Civilization mode: the frontier](#43-civilization-mode-the-frontier)
 44. [Civilization mode: construction and housing](#44-civilization-mode-construction-and-housing)
 45. [Civilization mode: street lighting and transport](#45-civilization-mode-street-lighting-and-transport)
+46. [HD 3D graphics](#46-hd-3d-graphics)
 
 ---
 
@@ -85,6 +86,8 @@ The design goal is emergent history. The town remembers what happened, villagers
 | `civ/civ_cognition.js` | Civilization mode's link to the memory engine: lived experiences, gossip, gatherings, newspapers, votes, protests, discontent. |
 | `civ/civ_frontier.js` | Civilization mode's frontier: fog beyond the valley, expeditions, regions, annexation votes, districts, upkeep, new ecology and minerals. |
 | `civ/civ_housing.js` | Civilization mode's construction support and housing: evening and rest-day building, building bees, construction contracts, buying and substituting materials, stalled projects, reclaiming abandoned property, sheltering and taking in the homeless. |
+| `civ/civ_hd.js` | HD 3D graphics, part 1: quality tiers, procedural PBR textures, the sky dome and its lighting, the blended terrain shader and the water shader. |
+| `civ/civ_hd_world.js` | HD 3D graphics, part 2: grass, flowers, reeds and pebbles around the camera, leaf-card trees, rocks, crops, fences, bridges, docks and rails, detailed buildings and clutter, particles, and adaptive quality. |
 | `civ/civ_transport.js` | Civilization mode's street lighting (torches to electric lights), transport buildings, and the vehicles that the town's techniques put on its paths, water, rails and sky. |
 | `civ/civ_science.js` | Hidden deposits, prospecting, claims, mines, oil and gas, research and the scientific method. |
 | `civ/civ_render.js`, `civ/civ_3d.js`, `civ/civ_ui.js` | 2D art for the new mode; voxel people and voxel animals, props, crops, building condition and interiors (both modes); the panels. |
@@ -92,7 +95,7 @@ The design goal is emergent history. The town remembers what happened, villagers
 | `pixel_town_standalone.html` | The same game with Three.js inlined, so it runs from a single file by double-clicking. |
 | `vendor/three.module.min.js`, `vendor/three.LICENSE` | Three.js r169 (MIT) for the 3D view. |
 | `pixel_town_citizen_template.md` | Format for adding villagers from text or JSON. |
-| `tests/pixel_town.tests.js`, `tests/civ.tests.js`, `tests/run_tests.js` | 43 classic and 39 civilization-mode scenario tests (Playwright). |
+| `tests/pixel_town.tests.js`, `tests/civ.tests.js`, `tests/run_tests.js` | 43 classic and 112 civilization-mode scenario tests (Playwright). |
 
 There is no server and no build step. Everything, including every sprite, building and tile, is drawn procedurally at startup from code. The town saves itself in the browser's `localStorage`. The standalone file inlines the `civ/` scripts as well as Three.js.
 
@@ -242,7 +245,7 @@ Starting mix: 9 farmers, 4 ranchers, 3 butchers, 5 fishers, 4 bakers, 4 woodcutt
 
 ## 7. A villager's day
 
-Each villager builds a plan for the day at midnight: a list of timed blocks (sleep, eat, work, chores, trade, socialise, leisure, town hall).
+Each villager builds a plan for the day at midnight: a list of timed blocks (sleep, eat, work, chores, trade, socialise, leisure, town hall). In civilization mode the plans are spread over the first quarter hour of the day (about a fifteenth of the people each minute, everyone by 00:16), so midnight never stalls the page in a big town.
 
 - **Wake time** depends on the job (bakers 04:30, fishers 05:00, farmers and ranchers 05:30, tavern keepers and musicians 08:00; others about 06:00), plus up to 25 minutes of personal variation. Lazy villagers wake an hour later.
 - **Breakfast** at home, then **chores.** One member of each household fetches water from the well each day.
@@ -887,6 +890,7 @@ A one-time notice explains what's new.
 - **Frontier (16):** exploration cost, exploring in all four directions, fog hiding resources, exploration taking time, regions differing, discovery not being annexation, annexation succeeding and failing, new building space, new resources, rising upkeep, opinions on expansion, the frontier moving outward.
 - **Family (2):** only a woman and a man conceive; same-sex couples adopt.
 - **Construction and housing (11):** construction companies contracted and paid, evening self-building, building bees, material substitution, buying materials, stalled homes taken over (and stalled upgrades given up), ownerless and unwanted property returning to the settlement, rent-free shelter with children first, being taken in by family or friends, food coming first.
+- **Saving and HD graphics (4):** the autosave in IndexedDB and saved cities that list, read back and resume; uncapped away time; daily plans spread over the first minutes after midnight; the HD terrain, water, trees, buildings, grass and crops build.
 - **Lighting and transport (9):** night never pitch black, torches beside paths, better lights needing both technique and town size, old lights replaced in place, lights kept in repair and helping witnesses, vehicles unlocked by techniques (and moving on land, not water), boathouses on the shore, faster journeys and fuller caravans, 3D models for every light and vehicle.
 - **Civilization (88):** see section 40, including the civilization-mode justice (CJ1–13), cognition (CC1–12) and frontier (CE1–16) tests, an old-save upgrade test (CS1) and the side-menu and maximise test (UI1).
 
@@ -1512,4 +1516,71 @@ There are more vehicles as the town grows, and newer kinds replace some of the o
 - **Caravans:** traders carry one more kind of goods, and sell a larger share, for each of carts, wagons, ships, lorries, and two for a railway.
 
 **On screen:** a **Street lighting** card and a **Transport** card on the Land & frontier tab show the lights by kind, what the next kind needs, the transport buildings, and each vehicle with how many are about or what it still needs.
+
+---
+
+## 46. HD 3D graphics
+
+The 3D view (the **3D** button) is a graphical remaster of the same world. It changes nothing in the simulation: the same map, buildings, people, animals and camera, drawn better. The 2D pixel map is unchanged.
+
+**Quality.** The **HD** button (in 3D) cycles through Auto, Low, Medium and High, and the choice is remembered.
+- **Auto** picks by device: phones and small screens get Low, and tablets (iPad) and machines with less memory get Medium. Everything else gets High.
+- If frames stay slow (over about 42 ms for five seconds), Auto steps down a tier.
+- Each tier sets the render resolution, texture size, shadow map (1024, 2048 or 4096), terrain detail, grass density and distance, the light-shaft samples, and whether ambient occlusion runs.
+
+**Lighting.**
+- **Tone and colour:** the scene is rendered in HDR, then tone-mapped (ACES). Colour grading gives cool shade and warm light, a little extra richness, a gentle contrast curve and a soft vignette.
+- **Sky:** a sky dome (gradient, sun disc and glow, the moon, twinkling stars at night) is also rendered into the environment map. This lights every material with reflected skylight.
+- **Moon and shadows:** the moon lights the night. The sun's shadow camera hugs the view so shadows stay crisp, with soft filtering.
+- **Ambient occlusion:** computed from the depth buffer. It darkens creases, the foot of every wall, and the ground under props, people and animals.
+- **Bloom:** controlled, a bright pass blurred at quarter resolution. Only sun glints, lamps, lit windows and fires glow.
+- **Light shafts:** the volumetric pass is kept, but made subtler.
+
+**Materials.** Wood planks, barn boards, logs, stone, brick, plaster, shingles, thatch, doors, bark and metal are generated at start as seamless colour, normal and roughness textures:
+- **Wood:** grain, knots, nails, gaps, weathering and moss.
+- **Stone:** chipped blocks, mortar and lichen.
+- **Roofs:** staggered shingles with lips and moss.
+
+They use world-scale texture coordinates, so nothing stretches. People, animals and props use physically based materials. Voxel bodies get rounded normals, so they shade as smooth forms.
+
+**Terrain.** One shader blends, per pixel, the surfaces of the four nearest tiles, with warped, height-weighted edges (no tile lines):
+- **Grass:** seasonal colours, dry patches and clover; worn where people walk (from the settlement's traffic) and damp near water.
+- **Paths and ground:** dirt paths with pebbles and grass creeping in, rippled sand, cracked mossy rock, cobbles, and packed earth under buildings.
+- **Fields:** furrows running the length of the field.
+- **Forest floor:** leaf litter and moss.
+- **Beds:** river and lake beds of sand and pebbles, darkening with depth, with dancing caustics in the shallows.
+
+The ground has bump detail. Snow settles in winter storms. Rain darkens the ground, makes it glossy and fills hollows in paths and pastures with puddles, which dry slowly afterwards. Water beds slope down from the shore, and banks are nudged so the shoreline wanders.
+
+**Water.**
+- **Look:** transparent and coloured by depth (turquoise shallows to deep blue), fading out where the bank rises.
+- **Motion:** waves from layered noise, carried downstream where the river is narrow, with stippling when it rains.
+- **Reflection and glints:** a Fresnel reflection of the sky, and sharp sun glints.
+- **Foam:** along the banks, plus spray in fast water.
+- **Ripples:** expanding rings where people fish, where boats move, where fish jump, and from raindrops.
+
+**Vegetation and ground detail** (in chunks around the camera, fading in and out at the edge):
+- **Grass and plants:** clumps of 3D grass blades whose colour follows the season and is flattened where people walk. Taller grass grows along fences, rocks and walls. There are flowers (in meadows and in clusters), reeds and cattails on banks and in the shallows, pebbles on paths and river beds, and ferns and mushrooms on the forest floor.
+- **Wind:** everything sways in a wind that strengthens in rain and storms.
+- **Trees:** oaks, birches, pines and bushes are made of trunks and branches with crowns of leaf cards. The normals point out of the crown, so it lights like a volume. Crowns sway, cast leaf shadows, and take seasonal colours; most broadleaf trees are bare in winter.
+- **Forest and rocks:** fallen logs lie in the forest. Rocks are irregular, cracked and mossy.
+
+**Built world.**
+- **Crops:** grain stalks that turn gold, leafy vegetables and fruiting orchard bushes, all sized by growth.
+- **Fences, bridges, docks and rails:** split-rail fences; plank bridges and docks on pilings, with railings on bridges; sleepers and rails on railways. Stumps and ford stepping stones appear too.
+- **Buildings:** each gets a stone foundation and walls chosen by style: logs or wattle for huts, clapboard or half-timbered plaster for houses, stone, barn boards and brick. Roofs are shingles (tinted by the building's roof colour, mossier with age or neglect, glossier in rain) or thatch, with eaves and a ridge.
+- **Windows and doors:** framed windows with sills (shutters on some homes) glow warm when people are in. A plank door has a frame, a step, a handle and a lantern that lights at night. Chimneys smoke.
+- **Clutter by use:** firewood, barrels and potted plants at homes; crates and sacks at shops, granaries and mills; hay at barns; an anvil and timber at workshops; barrels and a bench at taverns; rubble at mines.
+- **Condition and wealth:** poor condition dulls the walls and roof. Prosperity and neglect show as before (extensions, flower boxes, weeds, broken boards).
+
+**Particles.**
+- **Smoke:** chimneys smoke when people are home, at mealtimes, and all day in the cold. The smoke drifts with the wind and is darker at night.
+- **Embers:** rise from fires and torches.
+- **Seasonal:** fireflies on warm nights, pollen in the sun, falling leaves in autumn, and rain splashes.
+
+**Performance.**
+- **Buildings:** cached, and only rebuilt when they change (style, size, roof, condition, age, prosperity).
+- **Terrain and trees:** rebuilt only when the tile map changes. Field growth and path wear refresh a small data texture instead.
+- **Instancing:** grass, trees, rocks, crops and fences are instanced. Grass chunks are built a few per frame.
+- **No large texture uploads:** the big ground texture is no longer uploaded, and no per-building canvases are drawn in 3D.
 
