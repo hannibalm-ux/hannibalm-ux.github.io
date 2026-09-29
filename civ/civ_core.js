@@ -620,10 +620,13 @@ function civStructsDaily(){
     if (s.status==='active' && s.cond<70){ const users = civUsers(s); if (users.length && hashf(s.x,s.y,d+1) < (D.home && s.cond < 35 ? 0.5 : 0.25)){
       // repairs use the owner's materials, then the family's, then the common store; a home of wood, thatch, clay or stone
       // can always be patched with what the family gathers, so an occupied hut is not left to fall down around them
-      const mat = D.mat && Object.keys(D.mat)[0], stores = [civOwnerStore(s.owner), (hhOf(users[0])||{}).store, S.civ.commons].filter(Boolean);
-      const natural = D.home && Object.keys(D.mat||{}).every(g=>['wood','thatch','clay','stone','fibre'].includes(g));
-      if (!mat || stores.some(st=>storeTake(st, mat, 2)>=1)) s.cond = Math.min(100, s.cond + 6);
-      else if (natural){ s.cond = Math.min(100, s.cond + 4); ev('homes_patched'); } } }
+      // any of the building's materials will do (or a stand-in: wood for planks, stone for brick); a building people still use
+      // is never left to fall down around them: failing proper materials, they patch it with what they can find
+      const mats = Object.keys(D.mat||{}), subs = mats.flatMap(g=>(typeof CIV_SUBST!=='undefined' && CIV_SUBST[g] || []).map(x=>x[0])), stores = [civOwnerStore(s.owner), (hhOf(users[0])||{}).store, S.civ.commons].filter(Boolean);
+      const natural = D.home && mats.every(g=>['wood','thatch','clay','stone','fibre'].includes(g));
+      if (!mats.length || mats.concat(subs).some(g=>stores.some(st=>storeTake(st, g, 2)>=1))) s.cond = Math.min(100, s.cond + 6);
+      else if (natural){ s.cond = Math.min(100, s.cond + 4); ev('homes_patched'); }
+      else { s.cond = Math.min(100, s.cond + 3); ev('buildings_patched'); } } }
     if (D.bridge && s.cond<=0){ civRemoveStruct(s, 'collapse'); civProblem('infrastructure', 3); return; }
     if (s.cond<=0 && D.cat!=='farm' && D.cat!=='ranch'){ civRemoveStruct(s, 'collapse'); civProblem('housing', 1); return; }
     if (s.status==='active' && !civUsers(s).length && !D.bridge && !D.tile && age>30 && s.cond<35 && hashf(s.x,s.y,d+2)<0.03){ s.status = 'abandoned'; chronicle(`${s.name} stands empty and is falling apart.`, 3, '🏚️', 'land'); }

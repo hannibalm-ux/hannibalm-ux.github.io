@@ -166,10 +166,13 @@ function civHousingGoals(c, h, home){
   if (civHomelessHH().length && aff.short > 10) return; // while families sleep outside, only upgrades already in hand go ahead
   if (!aff.ok && aff.short > 40) { if (!civHasGoal(c,'improve_home')) civAddGoal(c, 'improve_home', {def:up}); return; }
   const U = STRUCTURES[up];
-  const inPlace = civSiteClearExcept(home.x, home.y, U.w, U.h, home);
-  const site = inPlace ? {x:home.x, y:home.y, w:U.w, h:U.h} : civFindSite(up, [home.x, home.y], {margin:1});
+  // a family building a better house may build it on land of their own out on the frontier rather than squeeze into the valley
+  const fr = !(typeof civRegionAt==='function' && civRegionAt(home.x, home.y)) && civWantsFrontier(c, h) ? civFrontierSite(up, {margin:1}) : null;
+  const inPlace = !fr && civSiteClearExcept(home.x, home.y, U.w, U.h, home);
+  const site = fr || (inPlace ? {x:home.x, y:home.y, w:U.w, h:U.h} : civFindSite(up, [home.x, home.y], {margin:1}));
   if (!site) return;
-  civStartProject(up, site, {k:'hh', id:h.id}, {purpose:'home', upgradeOf: inPlace ? home.id : null, forHH:h.id, why:`upgrading from ${D.label.toLowerCase()}`});
+  civStartProject(up, site, {k:'hh', id:h.id}, {purpose:'home', upgradeOf: inPlace ? home.id : null, forHH:h.id, why: fr ? `moving out to ${fr.cell.name}` : `upgrading from ${D.label.toLowerCase()}`});
+  if (fr){ ev('frontier_homes'); if (fr.cell.state==='annexed' && !fr.cell.pioneer){ fr.cell.pioneer = h.id; chronicle(`The ${h.name} household are the first to settle ${fr.cell.name}.`, 7, '🏕️', 'land'); } }
   const g = civGoal(c,'improve_home') || civAddGoal(c, 'improve_home', {def:up}); g.data.started = true;
 }
 function civSiteClearExcept(x,y,w,h, old){

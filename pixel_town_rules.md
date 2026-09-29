@@ -1086,7 +1086,7 @@ Everything built is a **structure** from a data table of about 120 kinds: homes 
 
 **Trails and roads:** each step wears the grass; 55 recent steps turn a tile into a trail, and unused trails grow back. Once road building is known and a government can pay, the busiest trails become roads (and later paved roads) that people walk faster on.
 
-**Anything can change:** structures wear with age and storms, are repaired by their users (a home in poor shape is repaired every two days on average; with no spare material, homes of wood, thatch, clay, stone or fibre are still patched with whatever is at hand, so families are not left to watch their house fall down), can be upgraded, converted (a field into an orchard or pen), subdivided among heirs, sold, rented, abandoned (empty and decaying) and demolished (with some materials salvaged). No structure is protected.
+**Anything can change:** structures wear with age and storms, are repaired by their users (a home in poor shape is repaired every two days on average, other buildings every four days; any of the building's materials or a stand-in will do, and with none at all a building still in use is patched with whatever is at hand, so nothing people use falls down around them), can be upgraded, converted (a field into an orchard or pen), subdivided among heirs, sold, rented, abandoned (empty and decaying) and demolished (with some materials salvaged). No structure is protected.
 
 **Property values** follow location (distance to the market), water and road access, bridges nearby, jobs, schools, industry, trees, crime and demand (homeless households, migration pressure), plus the building's quality and condition and a business's profits; a mineral strike makes nearby land speculative for 120 days. Once there is money, homes are listed, sold (through a real-estate office if one exists), rented by landlords, and bought by developers.
 
@@ -1595,6 +1595,7 @@ The ground has bump detail. Snow settles in winter storms. Rain darkens the grou
 ### Settling annexed land
 - **Who moves out:** when a household plans a new home, it may choose a frontier district instead of the valley. The chance starts at 12% and rises when the valley is short of land (+40%), land near the centre is dear, the head farms or herds (+20%), values freedom or nature (+15%), arrived in the last 60 days (+20%) or supports expansion. Households with an office-holder mostly stay. The chance is capped at 85%.
 - **Where:** districts already being settled come first (next to existing homes), then the nearest empty ones. The first family to settle a district is recorded in the chronicle.
+- **Moving out:** a family building a better house may build it on frontier land and move there, leaving the old house to rent or sell.
 - **Fields:** a farmer who finds no free land within 40 tiles of home clears a field in a frontier district.
 - **Pressure to annex more:** once every annexed district is established and has eight or more homes, the settlement feels short of land again.
 
@@ -1629,7 +1630,7 @@ Alongside the children's school ladder, five kinds of school can open when there
 | School of mines | mining is known and 3+ deposits are known; a geologist (40+) or miner (45+) | geology, engineering; mining and prospecting |
 | Merchants' school | money and 6+ businesses; a teacher with trade and finance 60+ combined | trade, finance, mathematics; accounting and trading |
 
-A children's school now takes on a second teacher once it has a proper building and eight pupils, so it can become a secondary school. Certificates and current studies show in each person's profile, and the Society tab lists every school with its students and graduates.
+A children's school now takes on a second teacher once it has a proper building and eight pupils, so it can become a secondary school. Rebuilding the schoolhouse, and raising an academy, college or university, are public projects supplied from the common store and treasury, since a school has no money of its own. An institution is founded only once, even if its building has to be started again. Certificates and current studies show in each person's profile, and the Society tab lists every school with its students and graduates.
 
 ### Net worth and possessions
 Each adult's profile lists everything they own, grouped, with a total net worth:
