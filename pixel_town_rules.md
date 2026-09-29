@@ -114,7 +114,9 @@ There is no server and no build step. Everything, including every sprite, buildi
 - **Hallday** is the town hall day. Proposals are voted on at 18:00.
 - **Aging:** every villager ages one year every 112 days (one game year). Children come of age at 16.
 - **Festivals:** a season festival starts every 28th day on the town square.
-- **Away time:** the town keeps running while the page is closed. On return, the missed time is simulated in fast-forward, capped at **7 game days**; anything beyond that is skipped. A summary of important events is shown.
+- **Away time:** the town keeps running while the page is closed. On return, all the missed time is simulated in fast-forward (there is no cap), in short slices so the page stays responsive, with a progress bar and an estimate of the time left. The town is saved every 10 game days during the catch-up, so closing the tab loses nothing already caught up. **Play now** stops the catch-up and skips the rest. A summary of important events is shown.
+- **Saving:** the city autosaves every 15 to 90 seconds (less often for big cities) and when the page is hidden or closed. The autosave goes to IndexedDB in the background, gzip-compressed by the browser. It is no longer compressed on the main thread, which used to freeze big cities for seconds on tablets. Saves small enough for localStorage are kept there too. At start the newer of the two is loaded, and the browser is asked to keep the data.
+- **Cities (💾 Cities, below the map):** save a named copy of the current city, open a saved city (it resumes exactly where it was saved), delete one, download the current or a saved city as a `.pixeltown` file, or open a city file (from any device). A downloaded file is the safest backup: Safari may delete a site's stored data if it is not visited for a few weeks.
 - **Background tab:** if the tab falls far behind while hidden, the same catch-up runs.
 
 ---
