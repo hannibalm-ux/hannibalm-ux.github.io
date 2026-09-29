@@ -1,6 +1,6 @@
 # The Belt
 
-An interplanetary industrial simulation that runs in the browser (desktop and iOS Safari). Open `belt/index.html` from a web server, for example `python3 -m http.server` in the repository root, then visit `/belt/`. The 3D view uses the vendored `vendor/three.module.min.js`.
+An interplanetary industrial simulation that runs in the browser (desktop and iOS Safari). Easiest: open `belt_standalone.html` in the repository root by double-clicking it (one self-contained file, works offline apart from web fonts). To develop, serve the repository root, for example `python3 -m http.server`, and visit `/belt/`. After changing `belt/`, rebuild the single file with `python3 tools/build_belt_standalone.py`.
 
 Design reference: *The Belt Game Design Document v0.1*. This is the MVP slice from section 16.
 
