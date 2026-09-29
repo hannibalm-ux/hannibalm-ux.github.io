@@ -1578,9 +1578,11 @@ The ground has bump detail. Snow settles in winter storms. Rain darkens the grou
 - **Embers:** rise from fires and torches.
 - **Seasonal:** fireflies on warm nights, pollen in the sun, falling leaves in autumn, and rain splashes.
 
-**Performance.**
-- **Buildings:** cached, and only rebuilt when they change (style, size, roof, condition, age, prosperity).
-- **Terrain and trees:** rebuilt only when the tile map changes. Field growth and path wear refresh a small data texture instead.
-- **Instancing:** grass, trees, rocks, crops and fences are instanced. Grass chunks are built a few per frame.
-- **No large texture uploads:** the big ground texture is no longer uploaded, and no per-building canvases are drawn in 3D.
-
+**Performance** (so that High stays smooth while dragging, turning and zooming):
+- **The ground is baked:** the blended procedural ground is drawn once into a texture (8, 16 or 20 texels per tile by tier). Each frame the terrain only samples it, plus a fine grain, caustics, snow and rain. When tiles change, only the changed area is redrawn.
+- **Targeted rebuilds:** the ground's shape is rebuilt only when water or rock change, and the forest only when trees change. Buildings are cached and only rebuilt when they themselves change (style, size, roof, condition, age, prosperity). Anything else (a new building, a path, a ripening field) just re-bakes those tiles.
+- **Grass streaming:** grass, flowers and pebbles are built in chunks of 8×8 tiles, a few milliseconds' worth per frame, nearest first. A ring beyond the view is built ahead of time. Chunks are kept (up to 260), so panning back and forth never rebuilds them, and a chunk is only rebuilt when its own tiles change.
+- **Cheaper while moving:** while the camera moves, ambient occlusion uses 4 samples instead of 8, and the light shafts use half their steps. The full quality returns as soon as it stops.
+- **Dynamic resolution:** if frames get slow (below about 48 per second), the render scale steps down, never below 60%, and climbs back when there is headroom. On Auto, if even that is not enough, the tier is lowered.
+- **Lighter lighting passes:** the sky's environment light is refreshed only when the sun has moved noticeably or the weather changes, at most every 2.5 seconds. The shadow map is 2048 on High, sharp because it hugs the view. Small crops do not cast sun shadows. Lamp light in the air is skipped in daylight, and the water's ripple loop only runs over live ripples.
+- **Instancing:** grass, trees, rocks, crops and fences are instanced, and no large textures are uploaded or per-building canvases drawn in 3D.

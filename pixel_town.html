@@ -6477,12 +6477,13 @@ function r3Building(b){
 function r3World(){
   const hd = typeof HD!=='undefined' && HD.on;
   // HD: buildings are cached and only rebuilt when they change; terrain and trees only when the map itself changes
-  const sig = hd ? r3MapSig() : null, mapChanged = !hd || sig !== R3.mapSig;
+  // HD: the ground's shape is rebuilt only when water or rock change, the forest only when trees change; anything else re-bakes the changed tiles
+  const sg = hd ? hdSigs() : null, mapChanged = !hd || sg.all !== R3.mapSig, geoChanged = !hd || sg.geo !== R3.geoSig, treesChanged = !hd || sg.trees !== R3.treeSig;
   if (hd && R3.bldCache) for (const e of R3.bldCache.values()) if (e.g.parent) e.g.parent.remove(e.g);
-  if (hd && !mapChanged && R3.trees && R3.trees.parent) R3.trees.parent.remove(R3.trees);
+  if (hd && !treesChanged && R3.trees && R3.trees.parent) R3.trees.parent.remove(R3.trees);
   if (R3.world) r3Dispose(R3.world);
   const w = new THREE.Group();
-  if (hd){ if (mapChanged){ if (R3.trees) r3Dispose(R3.trees); R3.trees = hdTrees(); } w.add(R3.trees); } else { w.add(r3Trees()); w.add(r3Crops()); }
+  if (hd){ if (treesChanged){ if (R3.trees) r3Dispose(R3.trees); R3.trees = hdTrees(); R3.treeSig = sg.trees; } w.add(R3.trees); } else { w.add(r3Trees()); w.add(r3Crops()); }
   R3.bldCache = R3.bldCache || new Map(); const alive = new Set();
   R3.bldGroups = BUILDINGS.map(b=>{ if (!hd) return r3Building(b); alive.add(b.id); const k = hdBldKey(b), e = R3.bldCache.get(b.id); if (e && e.k===k) return e.g; if (e) r3Dispose(e.g); const g = r3Building(b); R3.bldCache.set(b.id, {k, g}); return g; });
   if (hd) for (const [id, e] of R3.bldCache) if (!alive.has(id)){ r3Dispose(e.g); R3.bldCache.delete(id); }
@@ -6491,10 +6492,10 @@ function r3World(){
   R3.scene.add(R3.world = w);
   if (R3.frameKey!==`${X0},${Y0},${MW},${MH}`){ if (!hd){ r3Frame(); buildGround(); R3.groundTex.dispose(); R3.groundTex = r3Tex(ground); R3.groundTex.shared = true; R3.groundKey = groundKey; } }
   R3.skirt.children[0].material.color.set(['#4a8a3e','#3a6a34','#6a6a30','#dfe6ee'][ART.season]);
-  if (R3.terrain && mapChanged){ r3Dispose(R3.terrain); R3.scene.add(R3.terrain = r3Terrain()); if (hd && R3.frameKey!==`${X0},${Y0},${MW},${MH}`) r3Frame(); R3.mapSig = sig; }
+  if (R3.terrain && geoChanged){ r3Dispose(R3.terrain); R3.scene.add(R3.terrain = r3Terrain()); if (hd && R3.frameKey!==`${X0},${Y0},${MW},${MH}`) r3Frame(); R3.geoSig = sg && sg.geo; }
+  else if (hd && mapChanged && HD.td) hdRefreshTerrainData();
+  if (hd) R3.mapSig = sg.all;
 }
-// a cheap fingerprint of the tile map and season: the HD terrain and trees are only rebuilt when it changes
-function r3MapSig(){ let h = 2166136261; for (let y=Y0;y<Y0+MH;y++){ const row = MAP[y]; for (let x=X0;x<X0+MW;x++){ h ^= row[x]; h = Math.imul(h, 16777619); } } return `${h}|${ART.season}|${X0},${Y0},${MW},${MH}|${HD.q}`; }
 function hdBldKey(b){ const s = b.civ && S.civ && S.civ.structs[b.id]; return [b.style, b.type, b.x, b.y, b.w, b.h, b.roof, b.crude?1:0, ART.season, s ? Math.round(s.cond/10) : 10, s ? Math.floor((civDay()-s.built)/100) : 0, s && s.org && S.civ.orgs[s.org] && S.civ.orgs[s.org].profitAvg > 5 ? 1 : 0, s ? Math.round((s.value||0)/200) : 0, HD.q].join('|'); }
 // ---------- sprites: props, markers, villagers, animals ----------
 function r3Sprite(img, k){
@@ -6503,6 +6504,7 @@ function r3Sprite(img, k){
   return s;
 }
 function r3Props(){
+  if (HD.gw && HD.gw.parent) HD.gw.parent.remove(HD.gw); // the HD ground works are kept between prop rebuilds
   if (R3.props) r3Dispose(R3.props);
   const grp = new THREE.Group();
   const skip = new Set([].concat(ART.pines||[], ART.oaks||[], ART.bushes||[], Object.values(ART.bld)));
@@ -6523,7 +6525,7 @@ function r3Props(){
   R3.boats = CIV ? [] : [[43,43],[37,46]].map(([bx,by])=>{ const s = place(ART.boat, bx*TILE, by*TILE); s.userData.base = s.position.y; return s; });
   // lamp glows
   R3.glows = r3LampList().map(L=>{ const g = new THREE.Sprite(r3GlowMat(L.kind)); const k = L.kind==='electric' ? 3.4 : L.kind==='torch' ? 2.0 : 2.6; g.scale.set(k,k,1); g.position.set(L.x, L.h, L.z); grp.add(g); return g; });
-  if (typeof HD!=='undefined' && HD.on) grp.add(hdGroundWorks());
+  if (typeof HD!=='undefined' && HD.on) grp.add(hdGroundWorksCached());
   R3.scene.add(R3.props = grp);
 }
 // villagers are drawn with the low-poly figures in civ/civ_3d.js (lpBuild / lpAnimate)
@@ -6536,7 +6538,7 @@ function r3GlowMat(kind){ R3.glowMats = R3.glowMats || {}; if (kind==='lamp' || 
 // The scene is drawn to an offscreen target; a full-screen pass then marches each view ray through the air,
 // asking the sun's shadow map whether every point is lit, so shafts of light and shadow show in the haze.
 function r3VolInit(){
-  const R = R3, hd = typeof HD!=='undefined' && HD.on, q = hd ? HD.q : (R.mobile ? 0 : 2), steps = hd ? [8, 14, 22][q] : (R.mobile ? 12 : 24);
+  const R = R3, hd = typeof HD!=='undefined' && HD.on, q = hd ? HD.q : (R.mobile ? 0 : 2), steps = hd ? [6, 10, 12][q] : (R.mobile ? 12 : 24);
   const rt = new THREE.WebGLRenderTarget(4, 4, {type:THREE.HalfFloatType});
   rt.depthTexture = new THREE.DepthTexture(4, 4); rt.depthTexture.type = THREE.UnsignedIntType; rt.samples = q===0 ? 0 : 4;
   // bloom: a bright pass and a two-way blur at quarter resolution
@@ -6554,13 +6556,13 @@ function r3VolInit(){
       projInv:{value:new THREE.Matrix4()}, proj:{value:new THREE.Matrix4()}, camWorld:{value:new THREE.Matrix4()}, shadowMat:{value:new THREE.Matrix4()},
       camPos:{value:new THREE.Vector3()}, sunDir:{value:new THREE.Vector3(0,1,0)}, sunCol:{value:new THREE.Color()}, fogCol:{value:new THREE.Color()},
       haze:{value:0.02}, strength:{value:4}, maxDist:{value:90}, dbg:{value:0}, texel:{value:new THREE.Vector2()},
-      uQ:{value:q}, hdOn:{value:hd ? 1 : 0}, exposure:{value:1.0}, bloomStr:{value:0.12}, aoStr:{value:0.75}, aoRad:{value:0.55},
+      uQ:{value:q}, hdOn:{value:hd ? 1 : 0}, aoN:{value:8}, volN:{value:steps}, exposure:{value:1.0}, bloomStr:{value:0.12}, aoStr:{value:0.75}, aoRad:{value:0.55},
       lampPos:{value:[0,1,2,3,4,5].map(()=>new THREE.Vector3())}, lampI:{value:[0,0,0,0,0,0]}, lampCol:{value:new THREE.Color(0xffc070)} },
     vertexShader:quadVS,
     fragmentShader:`
       #include <packing>
       varying vec2 vUv;
-      uniform sampler2D tColor, tDepth, tShadow, tBloom; uniform float useShadow, haze, strength, maxDist, dbg, hdOn, exposure, bloomStr, aoStr, aoRad; uniform int uQ;
+      uniform sampler2D tColor, tDepth, tShadow, tBloom; uniform float useShadow, haze, strength, maxDist, dbg, hdOn, exposure, bloomStr, aoStr, aoRad; uniform int uQ, aoN, volN;
       uniform mat4 projInv, proj, camWorld, shadowMat; uniform vec3 camPos, sunDir, sunCol, fogCol, lampCol; uniform vec2 texel;
       uniform vec3 lampPos[6]; uniform float lampI[6];
       float ign(vec2 p){ return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
@@ -6571,7 +6573,7 @@ function r3VolInit(){
         vec3 N = normalize(cross(Px, Py)); if (N.z < 0.0) N = -N;
         float rnd = ign(gl_FragCoord.xy) * 6.2832; vec3 T0 = normalize(abs(N.y) < 0.9 ? cross(N, vec3(0.0,1.0,0.0)) : cross(N, vec3(1.0,0.0,0.0))); vec3 B0 = cross(N, T0);
         vec3 T = T0*cos(rnd) + B0*sin(rnd), B = cross(N, T);
-        int n = uQ > 1 ? 12 : 8; float occ = 0.0, rad = aoRad * clamp(-P.z/25.0, 0.6, 2.2);
+        int n = aoN; float occ = 0.0, rad = aoRad * clamp(-P.z/25.0, 0.6, 2.2);
         for (int i=0;i<12;i++){ if (i >= n) break; float fi = float(i) + 0.5, a = fi*2.39996, r = sqrt(fi/float(n)); float sc = mix(0.15, 1.0, fi/float(n));
           vec3 dir = T*cos(a)*r + B*sin(a)*r + N*sqrt(max(0.0, 1.0 - r*r)); vec3 S0 = P + dir*rad*sc;
           vec4 c = proj * vec4(S0, 1.0); vec2 suv = c.xy/c.w*0.5 + 0.5; if (suv.x < 0.0 || suv.y < 0.0 || suv.x > 1.0 || suv.y > 1.0) continue;
@@ -6587,16 +6589,16 @@ function r3VolInit(){
         vec3 rd = wp - camPos; float len = length(rd); rd /= len; len = min(d >= 0.9999 ? maxDist : len, maxDist);
         const float TOP = 7.0; float t0 = 0.0;   // only the air near the ground, where buildings and trees cast shadow, is marched
         if (camPos.y > TOP) t0 = rd.y < -0.001 ? min(len, (camPos.y - TOP) / -rd.y) : len;
-        const int N = ${steps}; float stepL = max(len - t0, 0.0) / float(N), t = t0 + stepL * ign(gl_FragCoord.xy);
+        const int NMAX = ${steps}; int N = min(volN, NMAX); float stepL = max(len - t0, 0.0) / float(N), t = t0 + stepL * ign(gl_FragCoord.xy);
         float mu = dot(rd, sunDir), g = 0.55, ph = (1.0-g*g) / (12.566 * pow(1.0 + g*g - 2.0*g*mu, 1.5)) + 0.02;
         float T = 1.0; vec3 scat = vec3(0.0); float litSum = 0.0;
-        for (int i=0;i<N;i++){
+        for (int i=0;i<NMAX;i++){ if (i >= N) break;
           vec3 p = camPos + rd*t; float dens = haze * exp(-max(p.y, 0.0)*0.3);
           float lit = 1.0;
           if (useShadow > 0.5){ vec4 sc = shadowMat * vec4(p, 1.0); sc.xyz /= sc.w;
             if (sc.x>0.0 && sc.x<1.0 && sc.y>0.0 && sc.y<1.0 && sc.z<1.0) lit = step(sc.z - 0.002, unpackRGBAToDepth(texture2D(tShadow, sc.xy))); }
           litSum += lit; vec3 L = sunCol * lit * ph * strength;
-          for (int j=0;j<6;j++){ vec3 dl = lampPos[j] - p; L += lampCol * lampI[j] * 0.35 / (0.35 + dot(dl, dl)); }
+          if (lampI[0] > 0.0) for (int j=0;j<6;j++){ vec3 dl = lampPos[j] - p; L += lampCol * lampI[j] * 0.35 / (0.35 + dot(dl, dl)); }
           scat += T * dens * L * stepL; T *= exp(-dens * stepL * 0.5); t += stepL;
         }
         col = col * mix(1.0, T, 0.6) + scat + fogCol * (1.0 - T) * 0.12;
@@ -6643,7 +6645,9 @@ function r3Draw(dark){
     R.brightMat.uniforms.texel.value.set(1/R.volSize.x, 1/R.volSize.y); R.bloomQuad.material = R.brightMat; R.renderer.setRenderTarget(R.bloomB); R.renderer.render(R.bloomScene, R.volCam);
     for (let k=0;k<2;k++){ R.blurMat.uniforms.tSrc.value = R.bloomB.texture; R.blurMat.uniforms.dir.value.set((k+1)/bw, 0); R.bloomQuad.material = R.blurMat; R.renderer.setRenderTarget(R.bloomA); R.renderer.render(R.bloomScene, R.volCam);
       R.blurMat.uniforms.tSrc.value = R.bloomA.texture; R.blurMat.uniforms.dir.value.set(0, (k+1)/bh); R.renderer.setRenderTarget(R.bloomB); R.renderer.render(R.bloomScene, R.volCam); }
-    U.bloomStr.value = 0.1 + dark*0.25; U.exposure.value = 1.05 + dark*0.35; U.uQ.value = HD.q; }
+    U.bloomStr.value = 0.1 + dark*0.25; U.exposure.value = 1.05 + dark*0.35; U.uQ.value = HD.q;
+    // while the camera moves, occlusion and light shafts use fewer samples: nobody sees the difference in motion, but the frame rate does
+    U.aoN.value = HD.moving ? 4 : (HD.q > 1 ? 8 : 6); U.volN.value = HD.moving ? Math.max(4, Math.floor([6, 10, 12][HD.q]/2)) : [6, 10, 12][HD.q]; }
   R.renderer.setRenderTarget(null);
   U.proj.value.copy(cam.projectionMatrix); U.texel.value.set(1/R.volSize.x, 1/R.volSize.y);
   U.projInv.value.copy(cam.projectionMatrixInverse); U.camWorld.value.copy(cam.matrixWorld); U.camPos.value.copy(cam.position);
@@ -6740,7 +6744,7 @@ function r3Weather(dt){
 function r3Render(frac, ts){
   const dt = Math.min(0.1,(ts-lastFrameTs)/1000); lastFrameTs = ts;
   resizeCanvas(); buildGround();
-  const r = R3.c3.getBoundingClientRect(), dpr = window.devicePixelRatio||1, pr = typeof HD!=='undefined' && HD.on ? [1, Math.min(dpr, 1.5), Math.min(dpr, 2)][HD.q] : Math.min(dpr, R3.mobile?1.25:1.75);
+  const r = R3.c3.getBoundingClientRect(), dpr = window.devicePixelRatio||1, pr = typeof HD!=='undefined' && HD.on ? Math.round([1, Math.min(dpr, 1.5), Math.min(dpr, 2)][HD.q] * (HD.rs||1) * 20)/20 : Math.min(dpr, R3.mobile?1.25:1.75);
   const W = Math.max(200, Math.round(r.width)), H = Math.max(150, Math.round(r.height));
   if (R3.w!==W || R3.h!==H || R3.pr!==pr){ R3.w=W; R3.h=H; R3.pr=pr; R3.renderer.setPixelRatio(pr); R3.renderer.setSize(W, H, false); R3.camera.aspect = W/H; R3.camera.updateProjectionMatrix(); }
   const wk = `${S.worldVer||0}|${ART.season}|${BUILDINGS.length}|${X0},${Y0},${MW},${MH}`;

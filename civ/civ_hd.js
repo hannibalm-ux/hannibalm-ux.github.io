@@ -105,7 +105,7 @@ function hdInit(){
   R.toneMapping = THREE.NoToneMapping; // the post pass tone-maps; without it (fallback) the renderer does
   if (!R3.vol) R.toneMapping = THREE.ACESFilmicToneMapping;
   R.toneMappingExposure = 1.0;
-  R3.sun.shadow.mapSize.set([1024, 2048, 4096][HD.q], [1024, 2048, 4096][HD.q]); R3.sun.shadow.radius = 3; R3.sun.shadow.blurSamples = 12;
+  R3.sun.shadow.mapSize.set([1024, 2048, 2048][HD.q], [1024, 2048, 2048][HD.q]); R3.sun.shadow.radius = 3; R3.sun.shadow.blurSamples = 12;
   R3.sun.shadow.bias = -0.0004; R3.sun.shadow.normalBias = 0.03;
   // the sky dome: gradient, sun and its glow, moon, stars; it is also rendered into the scene's environment light
   const sky = new THREE.Mesh(new THREE.SphereGeometry(420, 32, 16), new THREE.ShaderMaterial({ side:THREE.BackSide, depthWrite:false, fog:false,
@@ -136,8 +136,8 @@ function hdSky(p){
   U.sunDir.value.copy(p.sunDir); U.sunCol.value.copy(p.sunCol); U.night.value = 1-day; U.moonDir.value.set(-p.sunDir.x, Math.abs(p.sunDir.y)+0.25, -p.sunDir.z).normalize(); U.cloud.value = over; U.time.value = performance.now()/1000;
   HD.sky.position.copy(R3.camera.position);
   // the environment light follows the sky, refreshed every ~20 game minutes or when the weather changes
-  const key = Math.floor(S.minute/20) + '|' + S.weather;
-  if (key !== HD.envKey){ HD.envKey = key; HD.envSky.position.set(0,0,0); const rt = HD.pmrem.fromScene(HD.envScene, 0, 0.1, 1000); if (HD.envRT) HD.envRT.dispose(); HD.envRT = rt; R3.scene.environment = rt.texture; }
+  const now = performance.now(), sd = HD.envSun ? HD.envSun.dot(p.sunDir) : -1, changed = S.weather !== HD.envWx || sd < 0.9975 || Math.abs(day - (HD.envDay ?? -1)) > 0.06;
+  if (changed && (now - (HD.envAt||-1e9) > 2500 || S.weather !== HD.envWx)){ HD.envAt = now; HD.envWx = S.weather; HD.envDay = day; HD.envSun = (HD.envSun || p.sunDir.clone()).copy(p.sunDir); HD.envSky.position.set(0,0,0); const rt = HD.pmrem.fromScene(HD.envScene, 0, 0.1, 1000); if (HD.envRT) HD.envRT.dispose(); HD.envRT = rt; R3.scene.environment = rt.texture; }
   R3.scene.environmentIntensity = 0.25 + day*0.55;
   R3.scene.fog.color.copy(hor);
   return hor;
@@ -185,12 +185,16 @@ function hdTerrainData(){
   HD.toWater = toWater; HD.toLand = toLand;
   return HD.td;
 }
+// fingerprints of the map: the ground's shape depends only on water and rock, the forest only on trees
+function hdSigs(){ let a = 2166136261, g = 2166136261, t = 2166136261;
+  for (let y=Y0;y<Y0+MH;y++){ const row = MAP[y]; for (let x=X0;x<X0+MW;x++){ const v = row[x]; a = Math.imul(a ^ v, 16777619); g = Math.imul(g ^ (hdWaterish(v) ? 1 : v===T.ROCK ? 2 : v===T.FOG ? 3 : 0), 16777619); t = Math.imul(t ^ (v===T.TREE ? 1 : 0), 16777619); } }
+  const k = `${X0},${Y0},${MW},${MH}|${HD.q}`; return {all: a+'|'+ART.season+'|'+k, geo: g+'|'+k, trees: t+'|'+ART.season+'|'+k}; }
 // the ground's height: water beds slope down from the shore, rocks rise, meadows undulate gently
 function hdTileH(x, y){ const t = tileAt(x, y); if (t===-1) return 0; const i = (y-Y0)*MW + (x-X0);
   if (hdWaterish(t)) return -0.16 - Math.min(5, (HD.toLand[i]||1)-1)*0.16;
   if (t===T.ROCK) return 0.35 + hashf(x,y,5)*0.55;
-  if (t===T.GRASS || t===T.FLOWER || t===T.TREE) return (hdNoise(x*0.35, y*0.35, 1e6, 7)-0.5)*0.06;
-  return 0; }
+  if (t===T.FOG) return 0;
+  return (hdNoise(x*0.35, y*0.35, 1e6, 7)-0.5)*0.06; }
 function hdHeightAt(x, z){ const fx = x-0.5, fz = z-0.5, i = Math.floor(fx), j = Math.floor(fz), u = fx-i, v = fz-j;
   return (hdTileH(i,j)*(1-u) + hdTileH(i+1,j)*u)*(1-v) + (hdTileH(i,j+1)*(1-u) + hdTileH(i+1,j+1)*u)*v; }
 
@@ -202,15 +206,8 @@ const HD_GLSL_NOISE = `
   // cells: distance to the nearest jittered point and that point's random id
   vec2 hdCell(vec2 p){ vec2 i = floor(p), f = fract(p); float d = 8.0, id = 0.0; for (int y=-1;y<=1;y++) for (int x=-1;x<=1;x++){ vec2 g = vec2(x,y), o = vec2(hdH(i+g), hdH(i+g+13.7)); vec2 r = g + o - f; float dd = dot(r,r); if (dd < d){ d = dd; id = hdH(i+g+7.1); } } return vec2(sqrt(d), id); }
   vec3 hdLin(vec3 c){ return pow(c, vec3(2.2)); }`;
-function hdTerrainMat(){
-  const m = new THREE.MeshStandardMaterial({color:0xffffff, roughness:1, metalness:0});
-  const U = HD.terrU = { uTD:{value:HD.td}, uOrigin:{value:new THREE.Vector2(X0, Y0)}, uSize:{value:new THREE.Vector2(MW, MH)}, uTime:{value:0}, uSeason:{value:ART.season}, uSnow:{value:0}, uWet:{value:0}, uSun:{value:1}, uQ:{value:HD.q} };
-  m.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, U);
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vHdW;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvHdW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-      varying vec3 vHdW; uniform sampler2D uTD; uniform vec2 uOrigin, uSize; uniform float uTime, uSeason, uSnow, uWet, uSun; uniform int uQ;
-      ${HD_GLSL_NOISE}
+// the surfaces, shared by the bake pass
+const HD_GLSL_SURF = `
       // one surface kind at point p (world x,z): colour (linear), roughness, height (for bump)
       void hdSurf(int k, vec2 p, vec4 tv, out vec3 col, out float rough, out float h){
         float n = hdF(p*0.35), n2 = hdN(p*3.1), n3 = hdN(p*11.0), wear = tv.g, wet = tv.b;
@@ -243,36 +240,87 @@ function hdTerrainMat(){
         else { col = mix(vec3(0.42,0.36,0.28), vec3(0.5,0.45,0.38), n2); h = n3*0.3; rough = 0.9; }
       }
       vec3 hdBump(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDirection){ vec3 vSigmaX = normalize(dFdx(surf_pos)); vec3 vSigmaY = normalize(dFdy(surf_pos)); vec3 R1 = cross(vSigmaY, surf_norm); vec3 R2 = cross(surf_norm, vSigmaX); float fDet = dot(vSigmaX, R1) * faceDirection; vec3 vGrad = sign(fDet) * (dHdxy.x * R1 + dHdxy.y * R2); return normalize(abs(fDet) * surf_norm - vGrad); }
-      float hdTerrH = 0.0; float hdTerrRough = 0.9;`);
-    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `
-      { vec2 p = vHdW.xz; vec2 tp = p - uOrigin - 0.5 + (vec2(hdN(p*1.7), hdN(p*1.7+31.0)) - 0.5)*0.55; // warped, so edges between surfaces are organic
+`;
+// the blend of the four nearest tiles' surfaces at world point p: sets col, rough, hh
+const HD_GLSL_BLEND = `
+      { vec2 p = pW; vec2 tp = p - uOrigin - 0.5 + (vec2(hdN(p*1.7), hdN(p*1.7+31.0)) - 0.5)*0.55; // warped, so edges between surfaces are organic
         ivec2 i0 = ivec2(floor(tp)); vec2 f = fract(tp); vec3 acc = vec3(0.0); float ra = 0.0, ha = 0.0, wa = 0.0; vec4 tvC = vec4(0.0);
-        int reach = uQ == 0 ? 1 : 2; if (uQ == 0){ i0 = ivec2(floor(p - uOrigin)); f = vec2(0.0); } // Low: one surface per tile, no blending
+        int reach = 2;
         for (int j=0;j<2;j++) for (int i=0;i<2;i++){ if (i >= reach || j >= reach) continue;
           ivec2 ti = clamp(i0 + ivec2(i,j), ivec2(0), ivec2(uSize) - 1); vec4 tv = texelFetch(uTD, ti, 0); int k = int(tv.r*255.0 + 0.5);
           float w = (i==0 ? 1.0-f.x : f.x) * (j==0 ? 1.0-f.y : f.y);
           vec3 c; float r, h; hdSurf(k, p, tv, c, r, h); w = pow(w, 1.6) * (0.4 + h); // height-weighted blending: stones and tufts poke through
           acc += c*w; ra += r*w; ha += h*w; wa += w; if (i==1 && j==1) tvC = tv; }
-        vec3 col = acc/wa; float rough = ra/wa; float hh = ha/wa;
+        vec3 col = acc/wa; float rough = ra/wa; float hh = ha/wa;`;
+// ---------- the bake: the procedural ground is drawn once into a texture (and redrawn only where tiles change);
+// every frame the terrain just samples it, which keeps the ground detailed but cheap to draw ----------
+function hdBakeInit(){
+  if (HD.bake || !R3.renderer) return;
+  const mat = new THREE.ShaderMaterial({ depthTest:false, depthWrite:false,
+    uniforms:{ uTD:{value:HD.td}, uOrigin:{value:new THREE.Vector2()}, uSize:{value:new THREE.Vector2()}, uSeason:{value:ART.season}, uQ:{value:HD.q} },
+    vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+    fragmentShader:`varying vec2 vUv; uniform sampler2D uTD; uniform vec2 uOrigin, uSize; uniform float uSeason; uniform int uQ;
+      ${HD_GLSL_NOISE}
+      ${HD_GLSL_SURF}
+      void main(){ vec2 pW = uOrigin + vUv*uSize;
+        ${HD_GLSL_BLEND}
+        gl_FragColor = vec4(clamp(col, 0.0, 1.0), clamp(hh*0.7, 0.0, 1.0)); } }` });
+  const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); q.frustumCulled = false; const sc = new THREE.Scene(); sc.add(q);
+  HD.bake = {mat, scene:sc, cam:new THREE.OrthographicCamera(-1,1,1,-1,0,1), rt:null};
+}
+// draw the ground texture: all of it, or just the tiles in [x0,y0]-[x1,y1] (map tile coordinates)
+function hdBakeRun(x0, y0, x1, y1){
+  hdBakeInit(); const B = HD.bake; if (!B) return;
+  const maxT = Math.min(8192, R3.renderer.capabilities.maxTextureSize), ppt = Math.max(4, Math.min([8, 16, 20][HD.q], Math.floor(maxT/MW), Math.floor(maxT/MH))), W = MW*ppt, H = MH*ppt;
+  let full = x0==null;
+  if (!B.rt || B.rt.width!==W || B.rt.height!==H){ if (B.rt) B.rt.dispose(); B.rt = new THREE.WebGLRenderTarget(W, H, {depthBuffer:false, generateMipmaps:true, minFilter:THREE.LinearMipmapLinearFilter, magFilter:THREE.LinearFilter}); B.rt.texture.anisotropy = Math.min(8, R3.renderer.capabilities.getMaxAnisotropy()); full = true; }
+  const U = B.mat.uniforms; U.uTD.value = HD.td; U.uOrigin.value.set(X0, Y0); U.uSize.value.set(MW, MH); U.uSeason.value = ART.season; U.uQ.value = HD.q;
+  const R = R3.renderer, prev = R.getRenderTarget();
+  if (full) B.rt.scissorTest = false; else { const sx = Math.max(0, (x0-X0-2)*ppt), sy = Math.max(0, (y0-Y0-2)*ppt), sw = Math.min(W, (x1-X0+3)*ppt) - sx, sh = Math.min(H, (y1-Y0+3)*ppt) - sy; if (sw <= 0 || sh <= 0) return; B.rt.scissor.set(sx, sy, sw, sh); B.rt.scissorTest = true; }
+  R.setRenderTarget(B.rt); R.render(B.scene, B.cam); R.setRenderTarget(prev); B.rt.scissorTest = false;
+  B.season = ART.season; B.q = HD.q;
+  if (HD.terrU) HD.terrU.uBake.value = B.rt.texture;
+}
+function hdTerrainMat(){
+  const m = new THREE.MeshStandardMaterial({color:0xffffff, roughness:1, metalness:0});
+  const U = HD.terrU = { uTD:{value:HD.td}, uBake:{value:HD.bake && HD.bake.rt ? HD.bake.rt.texture : null}, uOrigin:{value:new THREE.Vector2(X0, Y0)}, uSize:{value:new THREE.Vector2(MW, MH)}, uTime:{value:0}, uSeason:{value:ART.season}, uSnow:{value:0}, uWet:{value:0}, uSun:{value:1}, uQ:{value:HD.q} };
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vHdW;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvHdW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      varying vec3 vHdW; uniform sampler2D uTD, uBake; uniform vec2 uOrigin, uSize; uniform float uTime, uSeason, uSnow, uWet, uSun; uniform int uQ;
+      ${HD_GLSL_NOISE}
+      vec3 hdBump(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDirection){ vec3 vSigmaX = normalize(dFdx(surf_pos)); vec3 vSigmaY = normalize(dFdy(surf_pos)); vec3 R1 = cross(vSigmaY, surf_norm); vec3 R2 = cross(surf_norm, vSigmaX); float fDet = dot(vSigmaX, R1) * faceDirection; vec3 vGrad = sign(fDet) * (dHdxy.x * R1 + dHdxy.y * R2); return normalize(abs(fDet) * surf_norm - vGrad); }
+      float hdTerrH = 0.0; float hdTerrRough = 0.9;`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `
+      { vec2 p = vHdW.xz; vec4 bk = texture2D(uBake, (p - uOrigin)/uSize); vec3 col = bk.rgb; float hh = bk.a/0.7;
         vec4 tvN = texelFetch(uTD, clamp(ivec2(floor(p - uOrigin)), ivec2(0), ivec2(uSize)-1), 0); int kn = int(tvN.r*255.0+0.5);
+        float rough = kn == 8 ? 0.6 : kn == 5 ? 0.8 : kn == 3 ? 0.82 : kn == 1 ? 0.88 : 0.93;
+        float dn = hdN(p*23.0); col *= 0.93 + dn*0.14; hh += (dn - 0.5)*0.2; // fine grain finer than the bake, so the ground stays crisp up close
         // shallow beds catch dancing caustics
         if (kn == 8){ float d = tvN.b; vec2 q = p*1.6; float cs = 0.0; for (int o=0;o<2;o++){ vec2 c = hdCell(q + vec2(uTime*0.35, uTime*0.22)*float(o*2-1)); cs += smoothstep(0.55, 0.0, 1.0 - c.x) ; }
           col += vec3(0.85,0.95,1.0) * pow(cs*0.5, 3.0) * (1.0 - d) * 0.9 * uSun; }
         // snow settles everywhere but the water; rain darkens and slicks the ground and fills hollows with puddles
-        float snowCov = uSnow * smoothstep(0.25, 0.55, hdF(p*0.6) + uSnow*0.4) * (kn == 8 ? 0.0 : 1.0);
+        float snowCov = uSnow > 0.001 ? uSnow * smoothstep(0.25, 0.55, hdF2(p*0.6) + uSnow*0.4) * (kn == 8 ? 0.0 : 1.0) : 0.0;
         col = mix(col, vec3(0.9,0.92,0.95), snowCov); rough = mix(rough, 0.7, snowCov);
-        float puddle = (kn == 1 || kn == 6 || kn == 11) ? smoothstep(0.62, 0.66, hdF(p*0.8+2.0) + uWet*0.25) * uWet : 0.0;
+        float puddle = (uWet > 0.001 && (kn == 1 || kn == 6 || kn == 11)) ? smoothstep(0.62, 0.66, hdF2(p*0.8+2.0) + uWet*0.25) * uWet : 0.0;
         col *= 1.0 - uWet*0.35*(1.0 - snowCov); rough = mix(rough, rough*0.55, uWet); col = mix(col, vec3(0.12,0.14,0.16), puddle*0.6); rough = mix(rough, 0.05, puddle); hh = mix(hh, 0.0, puddle);
         diffuseColor.rgb *= hdLin(col); hdTerrH = hh; hdTerrRough = rough; }`);
     sh.fragmentShader = sh.fragmentShader.replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = hdTerrRough;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
       if (uQ > 0){ vec2 dH = vec2(dFdx(hdTerrH), dFdy(hdTerrH)) * (uQ > 1 ? 0.045 : 0.03); normal = hdBump(-vViewPosition, normal, dH, faceDirection); }`);
   };
-  m.customProgramCacheKey = () => 'hdTerrain';
+  m.customProgramCacheKey = () => 'hdTerrainBaked';
   return m;
 }
 // fields ripen and paths wear in: refresh the tile data without rebuilding the ground
-function hdRefreshTerrainData(){ hdTerrainData(); hdBindTD(); }
+function hdRefreshTerrainData(){
+  const prev = HD.tdData ? HD.tdData.slice() : null, pw = MW, ph = MH; hdTerrainData(); hdBindTD();
+  if (!HD.bake || !HD.bake.rt || HD.bake.season !== ART.season || HD.bake.q !== HD.q || !prev || prev.length !== HD.tdData.length){ hdBakeRun(); return; }
+  let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1; const d = HD.tdData;
+  for (let i=0;i<d.length;i+=4){ if (d[i]!==prev[i] || Math.abs(d[i+1]-prev[i+1]) > 24 || d[i+2]!==prev[i+2] || d[i+3]!==prev[i+3]){ const t = i/4, x = t % pw, y = (t/pw)|0; if (x<x0) x0 = x; if (y<y0) y0 = y; if (x>x1) x1 = x; if (y>y1) y1 = y; } }
+  if (x1 >= 0) hdBakeRun(x0+X0, y0+Y0, x1+X0, y1+Y0);
+}
 function hdBindTD(){ if (HD.terrU){ HD.terrU.uTD.value = HD.td; HD.terrU.uOrigin.value.set(X0, Y0); HD.terrU.uSize.value.set(MW, MH); }
   if (HD.waterU){ HD.waterU.uTD.value = HD.td; HD.waterU.uTF.value = HD.tf; HD.waterU.uOrigin.value.set(X0, Y0); HD.waterU.uSize.value.set(MW, MH); } }
 function hdTerrain(){
@@ -282,7 +330,7 @@ function hdTerrain(){
   // banks wander: near the waterline the ground is nudged up and down so the shore is never a straight tile edge
   for (let i=0;i<pos.count;i++){ const x = pos.getX(i), z = pos.getZ(i); let h = hdHeightAt(x, z); if (h > -0.34 && h < 0.02) h += (hdNoise(x*1.9, z*1.9, 1e6, 91) - 0.5)*0.16 + (hdNoise(x*5.3, z*5.3, 1e6, 92) - 0.5)*0.05; pos.setY(i, h); }
   g.computeVertexNormals();
-  const m = new THREE.Mesh(g, hdTerrainMat()); m.receiveShadow = true; m.userData.hd = true;
+  const m = new THREE.Mesh(g, hdTerrainMat()); m.receiveShadow = true; m.userData.hd = true; if (R3.renderer) hdBakeRun(); if (typeof R3!=='undefined') R3.geoSig = hdSigs().geo;
   return m;
 }
 
@@ -292,10 +340,10 @@ function hdTerrain(){
 function hdWater(){
   const g = new THREE.PlaneGeometry(MW, MH, 1, 1); g.rotateX(-Math.PI/2); g.translate(X0+MW/2, -0.1, Y0+MH/2);
   const U = HD.waterU = { uTD:{value:HD.td}, uTF:{value:HD.tf}, uOrigin:{value:new THREE.Vector2(X0,Y0)}, uSize:{value:new THREE.Vector2(MW,MH)}, uTime:{value:0}, uSunDir:{value:new THREE.Vector3(0,1,0)}, uSunCol:{value:new THREE.Color()}, uSky:{value:new THREE.Color()}, uSkyTop:{value:new THREE.Color()}, uDay:{value:1}, uRain:{value:0},
-    uRip:{value:Array.from({length:24}, ()=>new THREE.Vector4(0,0,-1,0))}, fogColor:{value:new THREE.Color()}, fogNear:{value:1}, fogFar:{value:1000}, uQ:{value:HD.q} };
+    uRip:{value:Array.from({length:24}, ()=>new THREE.Vector4(0,0,-1,0))}, uRipN:{value:0}, fogColor:{value:new THREE.Color()}, fogNear:{value:1}, fogFar:{value:1000}, uQ:{value:HD.q} };
   const mat = new THREE.ShaderMaterial({ uniforms:U, transparent:true, depthWrite:false, fog:true,
     vertexShader:`varying vec3 vW; varying float vFogDepth; void main(){ vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; vec4 mv = viewMatrix * w; vFogDepth = -mv.z; gl_Position = projectionMatrix * mv; }`,
-    fragmentShader:`varying vec3 vW; varying float vFogDepth; uniform sampler2D uTD, uTF; uniform vec2 uOrigin, uSize; uniform float uTime, uDay, uRain; uniform int uQ; uniform vec3 uSunDir, uSunCol, uSky, uSkyTop, fogColor; uniform float fogNear, fogFar; uniform vec4 uRip[24];
+    fragmentShader:`varying vec3 vW; varying float vFogDepth; uniform sampler2D uTD, uTF; uniform vec2 uOrigin, uSize; uniform float uTime, uDay, uRain; uniform int uQ; uniform vec3 uSunDir, uSunCol, uSky, uSkyTop, fogColor; uniform float fogNear, fogFar; uniform vec4 uRip[24]; uniform int uRipN;
       ${HD_GLSL_NOISE}
       vec2 gradN(vec2 p){ float e = 0.08; return vec2(hdF2(p+vec2(e,0.0)) - hdF2(p-vec2(e,0.0)), hdF2(p+vec2(0.0,e)) - hdF2(p-vec2(0.0,e))) / (2.0*e); }
       void main(){
@@ -311,7 +359,7 @@ function hdWater(){
         if (uQ > 0) g += gradN(p*6.0 - fl*t*1.6 + t*0.2) * 0.12;
         g += gradN(p*9.0 + t*vec2(0.7, -0.5)) * uRain * 0.35; // rain stipples the surface
         // expanding rings: fishing lines, boats, animals, rain
-        for (int i=0;i<24;i++){ vec4 r = uRip[i]; if (r.z < 0.0) continue; vec2 d = p - r.xy; float dist = length(d); float rad = r.z*0.9; float ring = exp(-pow((dist - rad)*9.0, 2.0)) * (1.0 - r.z/r.w) * 0.9; g += normalize(d + 1e-4) * ring * sin((dist-rad)*40.0) ; }
+        for (int i=0;i<24;i++){ if (i >= uRipN) break; vec4 r = uRip[i]; if (r.z < 0.0) continue; vec2 d = p - r.xy; float dist = length(d); float rad = r.z*0.9; float ring = exp(-pow((dist - rad)*9.0, 2.0)) * (1.0 - r.z/r.w) * 0.9; g += normalize(d + 1e-4) * ring * sin((dist-rad)*40.0) ; }
         vec3 N = normalize(vec3(-g.x*0.35, 1.0, -g.y*0.35));
         vec3 V = normalize(cameraPosition - vW);
         float fres = 0.03 + 0.97*pow(1.0 - max(dot(N, V), 0.0), 5.0);
@@ -341,4 +389,5 @@ function hdRipplesUpdate(dt){
   const U = HD.waterU; if (!U) return;
   HD.ripples.forEach(r=>{ r.age += dt; }); HD.ripples = HD.ripples.filter(r=>r.age < r.life);
   for (let i=0;i<24;i++){ const r = HD.ripples[i]; if (r) U.uRip.value[i].set(r.x, r.z, r.age, r.life); else U.uRip.value[i].set(0,0,-1,0); }
+  U.uRipN.value = HD.ripples.length;
 }

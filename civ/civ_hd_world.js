@@ -97,18 +97,27 @@ function hdBuildChunk(cx, cz){
   grp.userData.key = HD.vegKey;
   return grp;
 }
+// what a chunk's plants depend on: its tiles and their neighbours, the season and the quality tier
+function hdChunkSig(cx, cz){ let h = 2166136261; for (let z=cz*HD_CH-1; z<=cz*HD_CH+HD_CH; z++) for (let x=cx*HD_CH-1; x<=cx*HD_CH+HD_CH; x++) h = Math.imul(h ^ (tileAt(x,z)+2), 16777619); return h + '|' + ART.season + '|' + HD.q; }
+// chunks near the camera are built first, a few milliseconds' worth per frame; a ring beyond the view is built ahead of time,
+// and chunks are kept, so panning back and forth never rebuilds them; a chunk is only rebuilt when its own tiles change
 function hdVegUpdate(){
   const R = HD.q===0 ? 12 : HD.q===1 ? 20 : 30; HD_WIND.uR.value = R;
   const tx = cam.x/TILE, tz = cam.y/TILE; HD_WIND.uCam.value.set(tx, 0, tz);
-  const key = `${S.worldVer||0}|${ART.season}|${HD.tdKey}|${HD.q}`; if (key !== HD.vegKey){ HD.vegKey = key; }
-  const c0x = Math.floor((tx-R)/HD_CH), c1x = Math.floor((tx+R)/HD_CH), c0z = Math.floor((tz-R)/HD_CH), c1z = Math.floor((tz+R)/HD_CH);
-  let built = 0; const want = new Set();
-  const cands = []; for (let cz=c0z; cz<=c1z; cz++) for (let cx=c0x; cx<=c1x; cx++){ const d = Math.hypot((cx+0.5)*HD_CH - tx, (cz+0.5)*HD_CH - tz); if (d > R + HD_CH) continue; cands.push([d, cx, cz]); }
+  const pre = R + HD_CH*2.5, wv = S.worldVer||0;
+  const c0x = Math.floor((tx-pre)/HD_CH), c1x = Math.floor((tx+pre)/HD_CH), c0z = Math.floor((tz-pre)/HD_CH), c1z = Math.floor((tz+pre)/HD_CH);
+  const cands = []; for (let cz=c0z; cz<=c1z; cz++) for (let cx=c0x; cx<=c1x; cx++){ const d = Math.hypot((cx+0.5)*HD_CH - tx, (cz+0.5)*HD_CH - tz); if (d > pre) continue; cands.push([d, cx, cz]); }
   cands.sort((a,b)=>a[0]-b[0]);
-  for (const [d, cx, cz] of cands){ const k = cx+','+cz; want.add(k); let ch = HD.chunks.get(k);
-    if ((!ch || ch.userData.key !== HD.vegKey) && built < (HD.q===2 ? 3 : 2)){ built++; const nch = hdBuildChunk(cx, cz); R3.scene.add(nch); if (ch){ R3.scene.remove(ch); hdDisposeChunk(ch); } HD.chunks.set(k, nch); ch = nch; }
-    if (ch) ch.visible = true; }
-  for (const [k, ch] of HD.chunks) if (!want.has(k)){ ch.visible = false; if (HD.chunks.size > 140){ R3.scene.remove(ch); hdDisposeChunk(ch); HD.chunks.delete(k); } }
+  const t0 = performance.now(), budget = HD.moving ? 2.5 : 5; let built = 0;
+  for (const [d, cx, cz] of cands){ const k = cx+','+cz; let ch = HD.chunks.get(k); const inView = d <= R + HD_CH;
+    if (ch && ch.userData.wv !== wv){ ch.userData.wv = wv; const sig = hdChunkSig(cx, cz); if (sig !== ch.userData.sig) ch.userData.stale = true; }
+    const need = !ch || ch.userData.stale;
+    if (need && (built === 0 && inView && !ch || performance.now() - t0 < budget)){
+      built++; const nch = hdBuildChunk(cx, cz); nch.userData.sig = hdChunkSig(cx, cz); nch.userData.wv = wv; R3.scene.add(nch); if (ch){ R3.scene.remove(ch); hdDisposeChunk(ch); } HD.chunks.set(k, nch); ch = nch; }
+    if (ch){ ch.visible = inView; ch.userData.seen = t0; } }
+  // forget the chunks furthest from here when too many are kept
+  if (HD.chunks.size > 260){ const list = [...HD.chunks.entries()].sort((a,b)=>a[1].userData.seen - b[1].userData.seen); for (const [k, ch] of list.slice(0, HD.chunks.size - 220)){ R3.scene.remove(ch); hdDisposeChunk(ch); HD.chunks.delete(k); } }
+  for (const ch of HD.chunks.values()) if (ch.userData.seen !== t0) ch.visible = false;
 }
 function hdDisposeChunk(ch){ ch.children.forEach(o=>{ if (o.dispose) o.dispose(); }); }
 function hdClearChunks(){ for (const [k, ch] of HD.chunks){ R3.scene.remove(ch); hdDisposeChunk(ch); } HD.chunks.clear(); HD.veg = null; }
@@ -170,7 +179,8 @@ function hdTrees(){
     return season===0 ? ['#a8e070','#98d060','#b8e888'][it.v%3] : season===1 ? ['#78b050','#6aa048','#82b85a'][it.v%3] : season===2 ? ['#f0a040','#e8c050','#d86a30','#e89a38'][it.v%4] : ['#b8a888','#a89878'][it.v%2]; };
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0,1,0), C = new THREE.Color();
   const groups = new Map();
-  list.forEach(it=>{ if (season===3 && !it.pine && !it.bush && it.v%3) it.bare = true; const kind = it.bush ? 'bush' : it.pine ? 'pine' : it.birch ? 'birch' : 'oak'; const vi = it.v % V[kind].length; const k = kind+vi; if (!groups.has(k)) groups.set(k, {kind, v:V[kind][vi], items:[]}); groups.get(k).items.push(it); });
+  // grouped by variant and by 16x16-tile block, so trees outside the view (and outside the shadow's reach) are skipped
+  list.forEach(it=>{ if (season===3 && !it.pine && !it.bush && it.v%3) it.bare = true; const kind = it.bush ? 'bush' : it.pine ? 'pine' : it.birch ? 'birch' : 'oak'; const vi = it.v % V[kind].length; const k = kind+vi+'@'+Math.floor(it.x/16)+','+Math.floor(it.y/16); if (!groups.has(k)) groups.set(k, {kind, v:V[kind][vi], items:[]}); groups.get(k).items.push(it); });
   for (const {kind, v, items} of groups.values()){
     const trunkIM = new THREE.InstancedMesh(v.trunk, barkM, items.length), crownIM = new THREE.InstancedMesh(v.crown, leafM(kind), items.length);
     let nc = 0;
@@ -205,6 +215,9 @@ function hdRockGeo(seed){
 // =====================================================================
 // crops, fences, bridges, docks, rails, stumps and ford stones
 // =====================================================================
+// crops, fences, bridges and rails change with the map and the fields' growth: rebuilt when the map changes or a day passes
+function hdGroundWorksCached(){ const key = (R3.mapSig||'') + '|' + dayOf(S.minute) + '|' + ART.season + '|' + HD.q;
+  if (HD.gw && HD.gwKey === key) return HD.gw; if (HD.gw) r3Dispose(HD.gw); HD.gwKey = key; return HD.gw = hdGroundWorks(); }
 function hdGroundWorks(){
   const grp = new THREE.Group(), g = lpG(), season = ART.season, m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0,1,0), C = new THREE.Color();
   const std = HD.mats.parts || (HD.mats.parts = new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.85, metalness:0}));
@@ -223,7 +236,7 @@ function hdGroundWorks(){
   for (const k in crops){ const L = crops[k]; if (!L.length) continue; const im = new THREE.InstancedMesh(cropGeo[k], cropM, L.length);
     L.forEach(([x,z,gr,v],i)=>{ q.setFromAxisAngle(up, v*6.28); const s = 0.25 + gr*0.85*(0.85+v*0.3); m4.compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(k==='berries'?Math.max(0.5,s):s, s, k==='berries'?Math.max(0.5,s):s)); im.setMatrixAt(i, m4);
       im.setColorAt(i, k==='grain' ? C.set(gr >= 0.95 ? '#f0d070' : gr > 0.6 ? '#c8d060' : '#80b050') : k==='veg' ? C.setScalar(0.8 + gr*0.3) : C.set(gr >= 0.95 ? '#ffffff' : '#90c080')); });
-    im.castShadow = true; im.receiveShadow = true; grp.add(im); }
+    im.castShadow = false; im.receiveShadow = true; grp.add(im); }
   // fences: split-rail posts and rails
   if (posts.length){ const pg = lpMerge([lpPart(g.box, '#7a5a3a', [0,0.3,0], [0,0,0], [0.09,0.62,0.09]), lpPart(g.box, '#5a4028', [0,0.62,0], [0,0,0], [0.1,0.03,0.1])]); const im = new THREE.InstancedMesh(pg, std, posts.length); posts.forEach(([x,y],i)=>{ m4.makeTranslation(x+0.5, 0, y+0.5); im.setMatrixAt(i, m4); }); im.castShadow = im.receiveShadow = true; grp.add(im); }
   if (rails.length){ const rg = lpMerge([lpPart(g.box, '#8a6a44', [0,0.45,0], [0,0,0.02], [1.0,0.05,0.04]), lpPart(g.box, '#8a6a44', [0,0.22,0], [0,0,-0.02], [1.0,0.05,0.04])]); const im = new THREE.InstancedMesh(rg, std, rails.length); rails.forEach(([x,y,vert],i)=>{ q.setFromAxisAngle(up, vert ? Math.PI/2 : 0); m4.compose(new THREE.Vector3(x - (vert?0:0.5), 0, y - (vert?0.5:0)), q, new THREE.Vector3(1,1,1)); im.setMatrixAt(i, m4); }); im.castShadow = true; grp.add(im); }
@@ -396,6 +409,8 @@ function hdParticlesUpdate(dt, ts, dark){
 // =====================================================================
 function hdFrame(dt, ts, dark){
   const t = ts/1000; HD_WIND.uTime.value = t;
+  // is the camera moving (dragging, turning, zooming)? then the frame takes the cheaper path
+  const cp = R3.camera.position, ck = cp.x*1e4 + cp.y*1e2 + cp.z + R3.yaw*7 + R3.pitch*13; if (ck !== HD.camKey){ HD.camKey = ck; HD.moveT = ts; } HD.moving = ts - (HD.moveT||-1e9) < 300;
   const wx = S.weather, targetWind = wx==='Storm' ? 1.6 : wx==='Rain' ? 1.0 : wx==='Cloudy' ? 0.75 : 0.5; HD_WIND.uWind.value += (targetWind - HD_WIND.uWind.value)*Math.min(1, dt*0.5);
   // ground gets wet in rain and dries slowly afterwards; snow settles in winter storms
   const gameDt = (clock.paused ? 0 : clock.speed) * dt / 2.5; // game minutes this frame
@@ -419,17 +434,21 @@ function hdFrame(dt, ts, dark){
   hdAdapt(dt);
 }
 // ---------- adaptive quality: if frames stay slow on "auto", step down a tier ----------
-function hdAdaptInit(){ HD.ft = 16; HD.slow = 0; }
+function hdAdaptInit(){ HD.ft = 16; HD.slow = 0; HD.fast = 0; HD.rs = 1; }
+// dynamic resolution keeps the chosen quality smooth: if frames run slow the render scale steps down a little
+// (never below 60%), and climbs back when there is headroom; only on Auto, and only at the lowest scale, is the tier lowered
 function hdAdapt(dt){
-  HD.ft = HD.ft*0.95 + dt*1000*0.05; if (hdPref()!=='auto' || HD.q===0) return;
-  HD.slow = HD.ft > 42 ? HD.slow + dt : Math.max(0, HD.slow - dt*0.5);
-  if (HD.slow > 5){ HD.slow = 0; hdSetTier(HD.q - 1); }
+  HD.ft = HD.ft*0.92 + Math.min(dt, 0.1)*1000*0.08;
+  HD.slow = HD.ft > 21 ? HD.slow + dt : Math.max(0, HD.slow - dt);
+  HD.fast = HD.ft < 14.5 ? HD.fast + dt : 0;
+  if (HD.slow > 1.2){ HD.slow = 0; if (HD.rs > 0.62){ HD.rs = Math.max(0.6, HD.rs - 0.1); } else if (hdPref()==='auto' && HD.q > 0 && HD.ft > 40){ hdSetTier(HD.q - 1); HD.rs = 1; } }
+  if (HD.fast > 4 && HD.rs < 1){ HD.fast = 0; HD.rs = Math.min(1, HD.rs + 0.05); }
 }
 function hdSetTier(q){
   HD.q = q; R3.hdQ = q;
   for (const k in HD.tex){ const t = HD.tex[k]; if (t.map){ t.map.dispose(); t.normalMap.dispose(); t.roughnessMap.dispose(); } else if (t.dispose) t.dispose(); } HD.tex = {};
   for (const k in HD.mats){ const m = HD.mats[k]; if (m && m.dispose) m.dispose(); } HD.mats = {}; HD.treeV = null; HD.rockV = null;
-  hdClearChunks(); HD.smokers = []; HD.lanterns = [];
+  hdClearChunks(); HD.smokers = []; HD.lanterns = []; if (HD.gw){ r3Dispose(HD.gw); HD.gw = null; }
   const sm = [1024, 2048, 4096][q]; R3.sun.shadow.mapSize.set(sm, sm); if (R3.sun.shadow.map){ R3.sun.shadow.map.dispose(); R3.sun.shadow.map = null; }
   if (R3.volMat) R3.volMat.uniforms.uQ.value = q;
   R3.lastWorld = ''; R3.lastProps = ''; R3.pr = -1; hdUpdateButton();
