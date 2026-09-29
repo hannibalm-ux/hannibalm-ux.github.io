@@ -340,9 +340,12 @@ function civTick(){
   if (mod===0) civDaily(d);
   const lod = civLodMask();
   for (const c of S.citizens){ try { civAgentTick(c, mod, lod); } catch(e){ civSafe('agent', ()=>{ throw e; }); c.plan = null; } }
+  if (mod>=1 && mod<=16 && S.civ.planDay===d) civPlanSome(d, mod);
   if (mod%60===0) civSafe('hourly', ()=>civHourly(mod/60));
   if (mod===20*60) civEveningGatherings();
 }
+// everyone sleeps through the first minutes of the day, so plans are spread over them: 1/15 of the people each minute, and any left over at 00:16
+function civPlanSome(d, mod){ S.citizens.forEach((c,i)=>{ if (c.planFor===d || (mod<16 && i%15!==mod-1)) return; civSafe('plan', ()=>{ c.plan = civPlanDay(c, d); c.planFor = d; c.rt.blockIdx = -1; }); }); }
 // agents far from the camera and not travelling are simulated every few minutes instead of every minute
 function civLodMask(){ if (catchingUp || !S.civ.lod) return null; const {vx,vy,vw,vh} = viewRect(); return {x0:vx/TILE-6, y0:vy/TILE-6, x1:(vx+vw)/TILE+6, y1:(vy+vh)/TILE+6}; }
 function civFar(c, lod){ return lod && (c.rt.x<lod.x0 || c.rt.y<lod.y0 || c.rt.x>lod.x1 || c.rt.y>lod.y1); }
@@ -385,7 +388,7 @@ function civDaily(d){
   if (d%7===0) civSafe('weekly', ()=>civWeekly(d));
   if (d%28===0) civSafe('monthly', ()=>civMonthly(d));
   if (S.civ.animKey !== civAnimKey()) civSafe('animals', civSyncAnimals);
-  S.citizens.forEach(c=>{ civSafe('plan', ()=>{ c.plan = civPlanDay(c, d); c.rt.blockIdx = -1; }); });
+  S.civ.planDay = d; // the day's plans are made over the next quarter hour, a few people a minute, so midnight doesn't stall the page
   civGroundDirty();
   civStage();
 }

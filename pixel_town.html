@@ -135,6 +135,7 @@ a{color:var(--link)}
         <button id="zFollow" title="Follow selected villager">◎</button>
         <button id="zRotL" title="Turn the camera left (Q)" style="display:none">⟲</button>
         <button id="zRotR" title="Turn the camera right (E)" style="display:none">⟳</button>
+        <button id="zHD" title="Graphics quality" style="display:none;width:auto;padding:0 8px;font-size:12px">HD</button>
         <button id="z3d" title="Switch to the 3D view" style="width:auto;padding:0 8px;font-weight:bold">3D</button>
         <button id="zPanel" title="Show or hide the side panel (Tab)" style="display:none">☰</button>
         <button id="zMax" title="Maximise the view (F)">⛶</button>
@@ -224,6 +225,24 @@ const store = {
   del(k){ try{ localStorage.removeItem(k); }catch(e){} }
 };
 const SAVE_KEY = 'pixeltown.save.v2', OLD_SAVE_KEY = 'pixeltown.save.v1', MUSIC_KEY = 'pixeltown.music.v1';
+// IndexedDB holds the autosave and the saved cities: far more room than localStorage (a big city no longer fails to
+// save), and the writes happen in the background. Saves are gzip-compressed by the browser when it can.
+const SaveDB = {
+  p:null,
+  open(){ return this.p || (this.p = new Promise(res=>{ try { const r = indexedDB.open('pixeltown', 1); r.onupgradeneeded = ()=>r.result.createObjectStore('kv'); r.onsuccess = ()=>res(r.result); r.onerror = ()=>res(null); r.onblocked = ()=>res(null); } catch(e){ res(null); } })); },
+  async op(mode, fn){ const db = await this.open(); if (!db) return null; return new Promise(res=>{ try { const tx = db.transaction('kv', mode), q = fn(tx.objectStore('kv')); tx.oncomplete = ()=>res(q && 'result' in q ? q.result : true); tx.onerror = tx.onabort = ()=>res(null); } catch(e){ res(null); } }); },
+  get(k){ return this.op('readonly', s=>s.get(k)); },
+  put(k, v){ return this.op('readwrite', s=>s.put(v, k)); },
+  del(k){ return this.op('readwrite', s=>s.delete(k)); },
+  list(prefix){ return this.op('readonly', s=>s.getAll(IDBKeyRange.bound(prefix, prefix+'￿'))); },
+  async gz(str){ try { if (typeof CompressionStream==='undefined') return null; return await new Response(new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer(); } catch(e){ return null; } },
+  async text(data){ if (typeof data==='string') return data; const u = new Uint8Array(data); if (u[0]===0x1f && u[1]===0x8b) return await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('gzip'))).text(); return new TextDecoder().decode(u); },
+  // a save record: the game as JSON (compressed when possible) plus a few facts to show in the list
+  async record(json, meta){ const z = await this.gz(json); return Object.assign({data: z || json, savedAt: meta.savedAt || Date.now()}, meta); },
+  async read(rec){ if (!rec || rec.data==null) return null; try { return JSON.parse(await this.text(rec.data)); } catch(e){ return null; } }
+};
+// localStorage is only used for saves small enough to fit; a big city leaves a marker saying "the save is in IndexedDB"
+const LS_LIMIT = 2200000;
 
 // ---------- constants ----------
 const TILE = 16, OW = 110, OH = 50, OLD_W = 80;
@@ -4351,13 +4370,81 @@ function saveGame(force){
   const bubbles = S.bubbles; delete S.bubbles;
   // in civilization mode plans and walking paths are rebuilt on load rather than saved
   const stash = CIV ? S.citizens.map(c=>[c.plan, c.rt.path, c.rt.seg]) : null; if (stash) S.citizens.forEach(c=>{ c.plan = null; c.rt.path = null; c.rt.seg = null; });
-  const ok = store.set(SAVE_KEY, {state:S, clock:{speed:clock.speed, paused:clock.paused, gameAt:clock.now()}, savedAt:now});
+  let json = null; try { json = JSON.stringify({state:S, clock:{speed:clock.speed, paused:clock.paused, gameAt:clock.now()}, savedAt:now}); } catch(e){}
   if (stash) S.citizens.forEach((c,i)=>{ [c.plan, c.rt.path, c.rt.seg] = stash[i]; });
-  saveGame.every = performance.now() - t0 > 150 ? 45000 : 15000; // big towns autosave less often so play stays smooth
-  if (!ok && !S.saveWarned){ S.saveWarned = 1; chronicle('The browser could not store the save (storage full?). Export the log to keep a record.', 6, '💾', 'system'); }
   S.bubbles = bubbles;
+  if (!json) return;
+  // small saves also go to localStorage (read instantly at start); big ones only leave a marker there
+  let ok = false;
+  try { localStorage.setItem(SAVE_KEY, json.length < LS_LIMIT ? json : JSON.stringify({idb:true, savedAt:now})); ok = json.length < LS_LIMIT; } catch(e){ try { localStorage.setItem(SAVE_KEY, JSON.stringify({idb:true, savedAt:now})); } catch(e2){} }
+  saveGame.last = json; saveAutoIDB(json, now, ok);
+  const took = performance.now() - t0;
+  saveGame.every = took > 400 ? 90000 : took > 150 ? 45000 : 15000; // big towns autosave less often so play stays smooth
 }
-function loadGame(){ const sv = store.get(SAVE_KEY); if (!sv || !sv.state) return null; if (sv.state.v===2) migrateV2(sv.state); return sv.state.v===3 ? sv : null; }
+// the autosave goes to IndexedDB in the background; only one write at a time, and the newest save wins
+function saveAutoIDB(json, savedAt, inLS){
+  const job = {json, savedAt}; if (saveAutoIDB.busy){ saveAutoIDB.next = job; return; }
+  saveAutoIDB.busy = true;
+  (async ()=>{ let j = job, fails = 0;
+    while (j){ const rec = await SaveDB.record(j.json, cityMeta(j.savedAt)); const r = await SaveDB.put('autosave', rec);
+      if (!r){ fails++; if (!inLS) try { localStorage.setItem(SAVE_KEY, LZW.tag + LZW.pack(j.json)); fails--; } catch(e){} } /* no IndexedDB: squeeze it into localStorage as before */
+      j = saveAutoIDB.next; saveAutoIDB.next = null; }
+    saveAutoIDB.busy = false;
+    if (fails && !inLS && S && !S.saveWarned){ S.saveWarned = 1; chronicle('The browser could not store the save. Use Cities → Download to keep a copy of this city.', 6, '💾', 'system'); }
+  })();
+}
+// ---------- saved cities: keep a city, come back to it, or carry it to another device as a file ----------
+function savePayload(){ // the same JSON the autosave writes, taken now
+  S.rng = RNG.s; const bubbles = S.bubbles; delete S.bubbles;
+  const stash = CIV ? S.citizens.map(c=>[c.plan, c.rt.path, c.rt.seg]) : null; if (stash) S.citizens.forEach(c=>{ c.plan = null; c.rt.path = null; c.rt.seg = null; });
+  let json = null; try { json = JSON.stringify({state:S, clock:{speed:clock.speed, paused:clock.paused, gameAt:clock.now()}, savedAt:Date.now()}); } finally { if (stash) S.citizens.forEach((c,i)=>{ [c.plan, c.rt.path, c.rt.seg] = stash[i]; }); S.bubbles = bubbles; }
+  return json;
+}
+function cityDefaultName(){ return `${CIV ? (S.civ.stageLabel||'Settlement') : 'Pixel Town'} · ${S.citizens.length} people · ${fmtStamp(S.minute)}`; }
+// open a save as the current city: it carries on exactly where it was saved (no time passes while it was stored)
+async function resumeCity(sv){
+  if (!sv || !sv.state || !sv.state.v) { alert('That is not a Pixel Town save.'); return; }
+  sv.savedAt = Date.now(); if (sv.clock) sv.clock.gameAt = sv.state.minute;
+  const json = JSON.stringify(sv); resetting = true;
+  try { localStorage.setItem(SAVE_KEY, json.length < LS_LIMIT ? json : JSON.stringify({idb:true, savedAt:sv.savedAt})); } catch(e){ try { localStorage.removeItem(SAVE_KEY); } catch(e2){} }
+  const ok = await SaveDB.put('autosave', await SaveDB.record(json, {savedAt:sv.savedAt}));
+  if (!ok && json.length >= LS_LIMIT){ resetting = false; alert('This browser has no room to open that city.'); return; }
+  location.reload();
+}
+async function citiesDialog(msg){
+  const list = ((await SaveDB.list('city:')) || []).sort((a,b)=>b.savedAt-a.savedAt);
+  const idbOK = !!(await SaveDB.open());
+  const row = c => `<div class="card" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:160px"><b>${esc(c.name||'City')}</b><br><span class="muted" style="font-size:12px">${esc(c.stage||'')} · ${c.pop||0} people · ${esc(c.stamp||'')} · saved ${new Date(c.savedAt).toLocaleString()}</span></div>
+    <button class="btn primary" data-load="${esc(c.id)}">Open</button><button class="btn" data-dl="${esc(c.id)}">Download</button><button class="btn" data-del="${esc(c.id)}">Delete</button></div>`;
+  overlay(`<h3>Cities</h3>${msg?`<p><b>${esc(msg)}</b></p>`:''}
+    <p class="muted" style="font-size:13px">The current city saves itself every few seconds${idbOK?'':' (this browser only allows small saves)'}. Save a copy here to come back to it later, or download it as a file: a file is the safest backup, and it opens on any device (Safari can delete a site's data if it isn't visited for a few weeks).</p>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn primary" id="cSave">Save this city</button><button class="btn" id="cDown">Download this city</button><button class="btn" id="cOpen">Open a city file…</button><input type="file" id="cFile" accept=".pixeltown,.json,.gz,application/json,application/gzip" style="display:none"></div>
+    <h4 style="margin:12px 0 4px">Saved cities (${list.length})</h4>${list.map(row).join('') || '<p class="muted">None yet.</p>'}
+    <div class="row" style="margin-top:12px"><button class="btn" id="cClose">Close</button></div>`);
+  $('cClose').onclick = ()=>overlay('');
+  $('cSave').onclick = async ()=>{ const name = prompt('Name for this saved city:', cityDefaultName()); if (name===null) return; const json = savePayload(); const id = 'city:'+Date.now().toString(36);
+    const ok = await SaveDB.put(id, Object.assign(await SaveDB.record(json, cityMeta(Date.now())), {id, name: name || cityDefaultName()})); citiesDialog(ok ? `Saved "${name || cityDefaultName()}".` : 'Could not save: the browser has no room left. Download the city instead.'); };
+  $('cDown').onclick = async ()=>downloadCity(savePayload(), cityDefaultName());
+  $('cOpen').onclick = ()=>$('cFile').click();
+  $('cFile').onchange = async e=>{ const f = e.target.files[0]; if (!f) return; try { const sv = JSON.parse(await SaveDB.text(await f.arrayBuffer())); if (confirm(`Open this city? The current city will be replaced (save or download it first if you want to keep it).`)) resumeCity(sv); } catch(err){ alert('That file is not a Pixel Town city.'); } };
+  document.querySelectorAll('[data-load]').forEach(b=>b.onclick = async ()=>{ if (!confirm('Open this saved city? The current city will be replaced (save it first if you want to keep it).')) return; resumeCity(await SaveDB.read(await SaveDB.get(b.dataset.load))); });
+  document.querySelectorAll('[data-dl]').forEach(b=>b.onclick = async ()=>{ const r = await SaveDB.get(b.dataset.dl); if (r) downloadCity(await SaveDB.text(r.data), r.name); });
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick = async ()=>{ if (!confirm('Delete this saved city? This cannot be undone.')) return; await SaveDB.del(b.dataset.del); citiesDialog('Deleted.'); });
+}
+async function downloadCity(json, name){
+  const z = await SaveDB.gz(json), blob = new Blob([z || json], {type: z ? 'application/gzip' : 'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${(name||'city').replace(/[^\w\- ·]+/g,'').replace(/[ ·]+/g,'-').slice(0,60)}.pixeltown`; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+function cityMeta(savedAt){ return {savedAt, mode: CIV ? 'civ' : 'classic', pop: S ? S.citizens.length : 0, stamp: S ? fmtStamp(S.minute) : '', stage: S && S.civ && CIV ? (S.civ.stageLabel||'Camp') : 'Town', seed: S && S.civ ? S.civ.seed : null}; }
+function loadGameSync(){ const sv = store.get(SAVE_KEY); return sv && sv.state ? sv : sv; }
+function fixSave(sv){ if (!sv || !sv.state) return null; if (sv.state.v===2) migrateV2(sv.state); return sv.state.v===3 ? sv : null; }
+// the newest of the localStorage save and the IndexedDB autosave
+async function loadGame(){
+  const ls = loadGameSync(); let idb = null;
+  try { idb = await SaveDB.read(await SaveDB.get('autosave')); } catch(e){}
+  const a = ls && ls.state ? ls : null, b = idb && idb.state ? idb : null;
+  return fixSave(a && b ? ((b.savedAt||0) > (a.savedAt||0) ? b : a) : (a || b));
+}
 // v2 saves (before land, families and elections) keep their town and history
 function migrateV2(st){
   st.v = 3;
@@ -5987,6 +6074,7 @@ $('zFit').onclick = ()=>{ if (R3.on){ R3.dist = 95; R3.pitch = 1.05; cam.x = WX0
 $('zFollow').onclick = ()=>{ if (!ui.sel){ $('tabs').querySelector('[data-p=people]').click(); return; } cam.follow=!cam.follow; $('zFollow').classList.toggle('on',cam.follow); if (cam.follow && cam.z<2.5*DPR) cam.z=clampZ(3*DPR); };
 $('z3d').onclick = ()=>toggle3D();
 $('zRotL').onclick = ()=>{ R3.yaw += Math.PI/4; };
+$('zHD').onclick = ()=>{ if (typeof hdCyclePref==='function' && R3.ready) hdCyclePref(); };
 $('zRotR').onclick = ()=>{ R3.yaw -= Math.PI/4; };
 mini.addEventListener('click', e=>{ const r=mini.getBoundingClientRect(); cam.x=((e.clientX-r.left)/r.width*220-MINI.ox)/MINI.s+WX0; cam.y=((e.clientY-r.top)/r.height*100-MINI.oy)/MINI.s+WY0; cam.follow=false; clampCam(); });
 function hitCitizen(wx,wy){ let best=null, bd=14; S.citizens.forEach(c=>{ if (!visibleCitizen(c)) return; const cx=c.rt.x*TILE+10, cy=c.rt.y*TILE+2; const d=Math.hypot(cx-wx,cy-wy); if (d<bd){bd=d;best=c;} }); return best; }
@@ -6185,7 +6273,7 @@ async function toggle3D(force){
   $('z3d').title = R3.on ? 'Back to the 2D pixel map' : 'Switch to the 3D view';
   if (R3.c3) R3.c3.style.display = R3.on ? 'block' : 'none';
   cv.style.visibility = R3.on ? 'hidden' : 'visible';
-  ['zRotL','zRotR'].forEach(id=>{ $(id).style.display = R3.on ? '' : 'none'; });
+  ['zRotL','zRotR','zHD'].forEach(id=>{ $(id).style.display = R3.on ? '' : 'none'; }); if (typeof hdUpdateButton==='function') hdUpdateButton();
   try { localStorage.setItem('pixeltown.view', R3.on ? '3d' : '2d'); } catch(e){}
 }
 function r3Tex(canvas, repeat){
@@ -6196,13 +6284,14 @@ function r3Tex(canvas, repeat){
 }
 function r3CachedTex(canvas){ let t = R3.texCache.get(canvas); if (!t){ t = r3Tex(canvas); R3.texCache.set(canvas, t); } return t; }
 function crop(img, x, y, w, h){ const c = mk(Math.max(1,w), Math.max(1,h)); c.getContext('2d').drawImage(img, x, y, w, h, 0, 0, w, h); return c; }
-function r3Dispose(obj){ if (!obj) return; obj.traverse(o=>{ if (o.geometry) o.geometry.dispose(); const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : []; ms.forEach(m=>{ ['map','emissiveMap'].forEach(k=>{ if (m[k] && !m[k].shared) m[k].dispose(); }); m.dispose(); }); }); if (obj.parent) obj.parent.remove(obj); }
+function r3Dispose(obj){ if (!obj) return; obj.traverse(o=>{ if (o.geometry) o.geometry.dispose(); const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : []; ms.forEach(m=>{ if (m.userData && m.userData.shared) return; ['map','emissiveMap'].forEach(k=>{ if (m[k] && !m[k].shared) m[k].dispose(); }); m.dispose(); }); }); if (obj.parent) obj.parent.remove(obj); }
 
 function r3Init(){
   const wrap = $('viewWrap');
   const c3 = document.createElement('canvas'); c3.id = 'view3d';
   c3.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;display:none;touch-action:none;cursor:grab';
   wrap.insertBefore(c3, cv.nextSibling);
+  if (typeof HD!=='undefined' && HD.on){ HD.q = hdTier(); }
   const renderer = new THREE.WebGLRenderer({canvas:c3, antialias:true, powerPreference:'high-performance'});
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -6239,6 +6328,7 @@ function r3Init(){
   R3.rain = new THREE.Points(pg, new THREE.PointsMaterial({color:0xcfe4ff, size:0.09, transparent:true, opacity:0.75, depthWrite:false})); R3.rain.frustumCulled=false; R3.rain.visible=false; scene.add(R3.rain);
   R3.rainN = N;
   try { r3VolInit(); } catch(e){ R3.vol = false; }
+  if (typeof HD!=='undefined' && HD.on){ try { hdInit(); } catch(e){ console.error('HD init failed', e); } }
   r3Controls(c3);
 }
 // terrain heights: water sinks, rocky outcrops rise
@@ -6247,7 +6337,7 @@ function r3Frame(){
   const scene = R3.scene;
   if (R3.water){ scene.remove(R3.water); r3Dispose(R3.water); } if (R3.skirt){ scene.remove(R3.skirt); r3Dispose(R3.skirt); }
   const wg = new THREE.PlaneGeometry(MW, MH); wg.rotateX(-Math.PI/2); wg.translate(X0+MW/2, -0.14, Y0+MH/2);
-  R3.water = new THREE.Mesh(wg, new THREE.MeshPhongMaterial({color:0x3e76b0, transparent:true, opacity:0.42, shininess:120, specular:0xbfd8f0}));
+  R3.water = typeof HD!=='undefined' && HD.on && HD.td ? hdWater() : new THREE.Mesh(wg, new THREE.MeshPhongMaterial({color:0x3e76b0, transparent:true, opacity:0.42, shininess:120, specular:0xbfd8f0}));
   R3.water.receiveShadow = true; scene.add(R3.water);
   // a skirt of meadow around the map so the edges don't fall into the void
   R3.skirt = new THREE.Group(); const skMat = new THREE.MeshLambertMaterial({color:0x3a6a34});
@@ -6255,6 +6345,7 @@ function r3Frame(){
   scene.add(R3.skirt); R3.frameKey = `${X0},${Y0},${MW},${MH}`;
 }
 function r3Terrain(){
+  if (typeof HD!=='undefined' && HD.on) return hdTerrain();
   const g = new THREE.PlaneGeometry(MW, MH, MW, MH); g.rotateX(-Math.PI/2); g.translate(X0+MW/2, 0, Y0+MH/2);
   const pos = g.attributes.position;
   for (let j=0;j<=MH;j++) for (let i=0;i<=MW;i++){
@@ -6332,6 +6423,7 @@ function hipRoof(w, d, h, o){
   return g;
 }
 function r3Building(b){
+  if (typeof HD!=='undefined' && HD.on && b.style!=='mine') return hdBuilding(b);
   let img = ART.bld[b.id]; if (!img || (!b.fac && b.style!=='mine')) img = ART.bld[b.id] = makeBuilding(b, ART.season);
   const grp = new THREE.Group(); grp.userData.b = b;
   const cx = b.x + b.w/2, cz = b.y + b.h/2;
@@ -6383,15 +6475,27 @@ function r3Building(b){
   return grp;
 }
 function r3World(){
+  const hd = typeof HD!=='undefined' && HD.on;
+  // HD: buildings are cached and only rebuilt when they change; terrain and trees only when the map itself changes
+  const sig = hd ? r3MapSig() : null, mapChanged = !hd || sig !== R3.mapSig;
+  if (hd && R3.bldCache) for (const e of R3.bldCache.values()) if (e.g.parent) e.g.parent.remove(e.g);
+  if (hd && !mapChanged && R3.trees && R3.trees.parent) R3.trees.parent.remove(R3.trees);
   if (R3.world) r3Dispose(R3.world);
   const w = new THREE.Group();
-  w.add(r3Trees()); w.add(r3Crops());
-  R3.bldGroups = BUILDINGS.map(r3Building); R3.bldGroups.forEach(g=>w.add(g));
+  if (hd){ if (mapChanged){ if (R3.trees) r3Dispose(R3.trees); R3.trees = hdTrees(); } w.add(R3.trees); } else { w.add(r3Trees()); w.add(r3Crops()); }
+  R3.bldCache = R3.bldCache || new Map(); const alive = new Set();
+  R3.bldGroups = BUILDINGS.map(b=>{ if (!hd) return r3Building(b); alive.add(b.id); const k = hdBldKey(b), e = R3.bldCache.get(b.id); if (e && e.k===k) return e.g; if (e) r3Dispose(e.g); const g = r3Building(b); R3.bldCache.set(b.id, {k, g}); return g; });
+  if (hd) for (const [id, e] of R3.bldCache) if (!alive.has(id)){ r3Dispose(e.g); R3.bldCache.delete(id); }
+  R3.bldGroups.forEach(g=>w.add(g));
+  if (hd) HD.smokers = R3.bldGroups.filter(g=>g.userData.chimney).map(g=>({b:g.userData.b, x:g.userData.chimney.x, y:g.userData.chimney.y, z:g.userData.chimney.z}));
   R3.scene.add(R3.world = w);
-  if (R3.frameKey!==`${X0},${Y0},${MW},${MH}`){ r3Frame(); buildGround(); R3.groundTex.dispose(); R3.groundTex = r3Tex(ground); R3.groundTex.shared = true; R3.groundKey = groundKey; }
+  if (R3.frameKey!==`${X0},${Y0},${MW},${MH}`){ if (!hd){ r3Frame(); buildGround(); R3.groundTex.dispose(); R3.groundTex = r3Tex(ground); R3.groundTex.shared = true; R3.groundKey = groundKey; } }
   R3.skirt.children[0].material.color.set(['#4a8a3e','#3a6a34','#6a6a30','#dfe6ee'][ART.season]);
-  if (R3.terrain){ r3Dispose(R3.terrain); R3.scene.add(R3.terrain = r3Terrain()); }
+  if (R3.terrain && mapChanged){ r3Dispose(R3.terrain); R3.scene.add(R3.terrain = r3Terrain()); if (hd && R3.frameKey!==`${X0},${Y0},${MW},${MH}`) r3Frame(); R3.mapSig = sig; }
 }
+// a cheap fingerprint of the tile map and season: the HD terrain and trees are only rebuilt when it changes
+function r3MapSig(){ let h = 2166136261; for (let y=Y0;y<Y0+MH;y++){ const row = MAP[y]; for (let x=X0;x<X0+MW;x++){ h ^= row[x]; h = Math.imul(h, 16777619); } } return `${h}|${ART.season}|${X0},${Y0},${MW},${MH}|${HD.q}`; }
+function hdBldKey(b){ const s = b.civ && S.civ && S.civ.structs[b.id]; return [b.style, b.type, b.x, b.y, b.w, b.h, b.roof, b.crude?1:0, ART.season, s ? Math.round(s.cond/10) : 10, s ? Math.floor((civDay()-s.built)/100) : 0, s && s.org && S.civ.orgs[s.org] && S.civ.orgs[s.org].profitAvg > 5 ? 1 : 0, s ? Math.round((s.value||0)/200) : 0, HD.q].join('|'); }
 // ---------- sprites: props, markers, villagers, animals ----------
 function r3Sprite(img, k){
   const s = new THREE.Sprite(new THREE.SpriteMaterial({map:r3CachedTex(img), alphaTest:0.4, transparent:true}));
@@ -6419,6 +6523,7 @@ function r3Props(){
   R3.boats = CIV ? [] : [[43,43],[37,46]].map(([bx,by])=>{ const s = place(ART.boat, bx*TILE, by*TILE); s.userData.base = s.position.y; return s; });
   // lamp glows
   R3.glows = r3LampList().map(L=>{ const g = new THREE.Sprite(r3GlowMat(L.kind)); const k = L.kind==='electric' ? 3.4 : L.kind==='torch' ? 2.0 : 2.6; g.scale.set(k,k,1); g.position.set(L.x, L.h, L.z); grp.add(g); return g; });
+  if (typeof HD!=='undefined' && HD.on) grp.add(hdGroundWorks());
   R3.scene.add(R3.props = grp);
 }
 // villagers are drawn with the low-poly figures in civ/civ_3d.js (lpBuild / lpAnimate)
@@ -6431,25 +6536,53 @@ function r3GlowMat(kind){ R3.glowMats = R3.glowMats || {}; if (kind==='lamp' || 
 // The scene is drawn to an offscreen target; a full-screen pass then marches each view ray through the air,
 // asking the sun's shadow map whether every point is lit, so shafts of light and shadow show in the haze.
 function r3VolInit(){
-  const R = R3, steps = R.mobile ? 12 : 24;
+  const R = R3, hd = typeof HD!=='undefined' && HD.on, q = hd ? HD.q : (R.mobile ? 0 : 2), steps = hd ? [8, 14, 22][q] : (R.mobile ? 12 : 24);
   const rt = new THREE.WebGLRenderTarget(4, 4, {type:THREE.HalfFloatType});
-  rt.depthTexture = new THREE.DepthTexture(4, 4); rt.depthTexture.type = THREE.UnsignedIntType; rt.samples = R.mobile ? 0 : 4;
+  rt.depthTexture = new THREE.DepthTexture(4, 4); rt.depthTexture.type = THREE.UnsignedIntType; rt.samples = q===0 ? 0 : 4;
+  // bloom: a bright pass and a two-way blur at quarter resolution
+  const bOpts = {type:THREE.HalfFloatType, depthBuffer:false}, bA = new THREE.WebGLRenderTarget(4, 4, bOpts), bB = new THREE.WebGLRenderTarget(4, 4, bOpts);
+  const quadVS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+  const brightMat = new THREE.ShaderMaterial({ uniforms:{tColor:{value:rt.texture}, texel:{value:new THREE.Vector2()}, thr:{value:1.0}}, vertexShader:quadVS, depthTest:false, depthWrite:false,
+    fragmentShader:`varying vec2 vUv; uniform sampler2D tColor; uniform vec2 texel; uniform float thr;
+      void main(){ vec3 c = (texture2D(tColor, vUv + texel*vec2(-1.0,-1.0)).rgb + texture2D(tColor, vUv + texel*vec2(1.0,-1.0)).rgb + texture2D(tColor, vUv + texel*vec2(-1.0,1.0)).rgb + texture2D(tColor, vUv + texel*vec2(1.0,1.0)).rgb) * 0.25;
+        float l = max(max(c.r, c.g), c.b); float k = clamp((l - thr) / max(l, 1e-4), 0.0, 1.0); gl_FragColor = vec4(min(c * k * k, vec3(8.0)), 1.0); }` });
+  const blurMat = new THREE.ShaderMaterial({ uniforms:{tSrc:{value:null}, dir:{value:new THREE.Vector2()}}, vertexShader:quadVS, depthTest:false, depthWrite:false,
+    fragmentShader:`varying vec2 vUv; uniform sampler2D tSrc; uniform vec2 dir;
+      void main(){ vec3 c = texture2D(tSrc, vUv).rgb * 0.227; c += (texture2D(tSrc, vUv + dir*1.38).rgb + texture2D(tSrc, vUv - dir*1.38).rgb) * 0.316; c += (texture2D(tSrc, vUv + dir*3.23).rgb + texture2D(tSrc, vUv - dir*3.23).rgb) * 0.07; gl_FragColor = vec4(c, 1.0); }` });
   const mat = new THREE.ShaderMaterial({
-    uniforms:{ tColor:{value:rt.texture}, tDepth:{value:rt.depthTexture}, tShadow:{value:null}, useShadow:{value:0},
-      projInv:{value:new THREE.Matrix4()}, camWorld:{value:new THREE.Matrix4()}, shadowMat:{value:new THREE.Matrix4()},
+    uniforms:{ tColor:{value:rt.texture}, tDepth:{value:rt.depthTexture}, tShadow:{value:null}, useShadow:{value:0}, tBloom:{value:bB.texture},
+      projInv:{value:new THREE.Matrix4()}, proj:{value:new THREE.Matrix4()}, camWorld:{value:new THREE.Matrix4()}, shadowMat:{value:new THREE.Matrix4()},
       camPos:{value:new THREE.Vector3()}, sunDir:{value:new THREE.Vector3(0,1,0)}, sunCol:{value:new THREE.Color()}, fogCol:{value:new THREE.Color()},
-      haze:{value:0.02}, strength:{value:4}, maxDist:{value:90}, dbg:{value:0},
+      haze:{value:0.02}, strength:{value:4}, maxDist:{value:90}, dbg:{value:0}, texel:{value:new THREE.Vector2()},
+      uQ:{value:q}, hdOn:{value:hd ? 1 : 0}, exposure:{value:1.0}, bloomStr:{value:0.12}, aoStr:{value:0.75}, aoRad:{value:0.55},
       lampPos:{value:[0,1,2,3,4,5].map(()=>new THREE.Vector3())}, lampI:{value:[0,0,0,0,0,0]}, lampCol:{value:new THREE.Color(0xffc070)} },
-    vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+    vertexShader:quadVS,
     fragmentShader:`
       #include <packing>
       varying vec2 vUv;
-      uniform sampler2D tColor, tDepth, tShadow; uniform float useShadow, haze, strength, maxDist, dbg;
-      uniform mat4 projInv, camWorld, shadowMat; uniform vec3 camPos, sunDir, sunCol, fogCol, lampCol;
+      uniform sampler2D tColor, tDepth, tShadow, tBloom; uniform float useShadow, haze, strength, maxDist, dbg, hdOn, exposure, bloomStr, aoStr, aoRad; uniform int uQ;
+      uniform mat4 projInv, proj, camWorld, shadowMat; uniform vec3 camPos, sunDir, sunCol, fogCol, lampCol; uniform vec2 texel;
       uniform vec3 lampPos[6]; uniform float lampI[6];
       float ign(vec2 p){ return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+      vec3 viewPos(vec2 uv, float d){ vec4 v = projInv * vec4(uv*2.0-1.0, d*2.0-1.0, 1.0); return v.xyz / v.w; }
+      // ambient occlusion from the depth buffer: creases, contact shadows under props, the foot of every wall
+      float ssao(vec2 uv, float d){
+        vec3 P = viewPos(uv, d); vec3 Px = viewPos(uv + vec2(texel.x, 0.0), texture2D(tDepth, uv + vec2(texel.x, 0.0)).x) - P, Py = viewPos(uv + vec2(0.0, texel.y), texture2D(tDepth, uv + vec2(0.0, texel.y)).x) - P;
+        vec3 N = normalize(cross(Px, Py)); if (N.z < 0.0) N = -N;
+        float rnd = ign(gl_FragCoord.xy) * 6.2832; vec3 T0 = normalize(abs(N.y) < 0.9 ? cross(N, vec3(0.0,1.0,0.0)) : cross(N, vec3(1.0,0.0,0.0))); vec3 B0 = cross(N, T0);
+        vec3 T = T0*cos(rnd) + B0*sin(rnd), B = cross(N, T);
+        int n = uQ > 1 ? 12 : 8; float occ = 0.0, rad = aoRad * clamp(-P.z/25.0, 0.6, 2.2);
+        for (int i=0;i<12;i++){ if (i >= n) break; float fi = float(i) + 0.5, a = fi*2.39996, r = sqrt(fi/float(n)); float sc = mix(0.15, 1.0, fi/float(n));
+          vec3 dir = T*cos(a)*r + B*sin(a)*r + N*sqrt(max(0.0, 1.0 - r*r)); vec3 S0 = P + dir*rad*sc;
+          vec4 c = proj * vec4(S0, 1.0); vec2 suv = c.xy/c.w*0.5 + 0.5; if (suv.x < 0.0 || suv.y < 0.0 || suv.x > 1.0 || suv.y > 1.0) continue;
+          float sd = texture2D(tDepth, suv).x; vec3 SP = viewPos(suv, sd); float range = smoothstep(0.0, 1.0, rad / max(abs(P.z - SP.z), 1e-3));
+          occ += step(S0.z + 0.03, SP.z) * range; }
+        return clamp(1.0 - occ/float(n), 0.0, 1.0);
+      }
+      vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
       void main(){
         vec3 col = texture2D(tColor, vUv).rgb; float d = texture2D(tDepth, vUv).x;
+        if (hdOn > 0.5 && uQ > 0 && d < 0.9999){ float ao = ssao(vUv, d); col *= mix(1.0, ao, aoStr); }
         vec4 vp = projInv * vec4(vUv*2.0-1.0, d*2.0-1.0, 1.0); vp /= vp.w; vec3 wp = (camWorld * vp).xyz;
         vec3 rd = wp - camPos; float len = length(rd); rd /= len; len = min(d >= 0.9999 ? maxDist : len, maxDist);
         const float TOP = 7.0; float t0 = 0.0;   // only the air near the ground, where buildings and trees cast shadow, is marched
@@ -6467,13 +6600,23 @@ function r3VolInit(){
           scat += T * dens * L * stepL; T *= exp(-dens * stepL * 0.5); t += stepL;
         }
         col = col * mix(1.0, T, 0.6) + scat + fogCol * (1.0 - T) * 0.12;
+        if (hdOn > 0.5){
+          col += texture2D(tBloom, vUv).rgb * bloomStr; // glow only around what is truly bright
+          col = aces(col * exposure);
+          float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+          col = mix(vec3(l), col, 1.1); // a little richer
+          col *= mix(vec3(0.94, 0.98, 1.06), vec3(1.05, 1.0, 0.93), smoothstep(0.08, 0.75, l)); // cool shade, warm light
+          col = clamp(col, 0.0, 1.0); col = mix(col, col*col*(3.0-2.0*col), 0.18); // gentle contrast curve
+          vec2 v = vUv - 0.5; col *= 1.0 - 0.22*pow(dot(v, v)*2.2, 1.6); // soft vignette
+        }
         if (dbg > 0.5) col = vec3(litSum/float(N));
         gl_FragColor = linearToOutputTexel(vec4(col, 1.0));
       }`,
     depthTest:false, depthWrite:false });
   const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); quad.frustumCulled = false;
   const vs = new THREE.Scene(); vs.add(quad);
-  Object.assign(R, {vol:true, volRT:rt, volMat:mat, volScene:vs, volCam:new THREE.OrthographicCamera(-1,1,1,-1,0,1), volSize:new THREE.Vector2()});
+  const bq = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), brightMat); bq.frustumCulled = false; const bs = new THREE.Scene(); bs.add(bq);
+  Object.assign(R, {vol:true, volRT:rt, volMat:mat, volScene:vs, volCam:new THREE.OrthographicCamera(-1,1,1,-1,0,1), volSize:new THREE.Vector2(), bloomA:bA, bloomB:bB, brightMat, blurMat, bloomQuad:bq, bloomScene:bs});
 }
 // the locate marker in 3D: a glowing outline on the ground and a beam of light above the building
 function r3Marker(ts){
@@ -6493,8 +6636,16 @@ function r3Draw(dark){
   if (!R.vol){ R.renderer.render(R.scene, R.camera); return; }
   R.renderer.getDrawingBufferSize(R.volSize);
   if (R.volRT.width!==R.volSize.x || R.volRT.height!==R.volSize.y) R.volRT.setSize(R.volSize.x, R.volSize.y);
-  R.renderer.setRenderTarget(R.volRT); R.renderer.render(R.scene, R.camera); R.renderer.setRenderTarget(null);
-  const U = R.volMat.uniforms, sun = R.sun, cam = R.camera;
+  R.renderer.setRenderTarget(R.volRT); R.renderer.render(R.scene, R.camera);
+  const U = R.volMat.uniforms, sun = R.sun, cam = R.camera, hd = typeof HD!=='undefined' && HD.on;
+  // bloom from the bright parts: sun glints on water, lamps, lit windows, fire
+  if (hd && R.bloomA){ const bw = Math.max(2, Math.floor(R.volSize.x/4)), bh = Math.max(2, Math.floor(R.volSize.y/4)); if (R.bloomA.width!==bw || R.bloomA.height!==bh){ R.bloomA.setSize(bw, bh); R.bloomB.setSize(bw, bh); }
+    R.brightMat.uniforms.texel.value.set(1/R.volSize.x, 1/R.volSize.y); R.bloomQuad.material = R.brightMat; R.renderer.setRenderTarget(R.bloomB); R.renderer.render(R.bloomScene, R.volCam);
+    for (let k=0;k<2;k++){ R.blurMat.uniforms.tSrc.value = R.bloomB.texture; R.blurMat.uniforms.dir.value.set((k+1)/bw, 0); R.bloomQuad.material = R.blurMat; R.renderer.setRenderTarget(R.bloomA); R.renderer.render(R.bloomScene, R.volCam);
+      R.blurMat.uniforms.tSrc.value = R.bloomA.texture; R.blurMat.uniforms.dir.value.set(0, (k+1)/bh); R.renderer.setRenderTarget(R.bloomB); R.renderer.render(R.bloomScene, R.volCam); }
+    U.bloomStr.value = 0.1 + dark*0.25; U.exposure.value = 1.05 + dark*0.35; U.uQ.value = HD.q; }
+  R.renderer.setRenderTarget(null);
+  U.proj.value.copy(cam.projectionMatrix); U.texel.value.set(1/R.volSize.x, 1/R.volSize.y);
   U.projInv.value.copy(cam.projectionMatrixInverse); U.camWorld.value.copy(cam.matrixWorld); U.camPos.value.copy(cam.position);
   U.sunDir.value.copy(sun.position).sub(sun.target.position).normalize();
   U.sunCol.value.copy(sun.color).multiplyScalar(sun.intensity);
@@ -6503,6 +6654,7 @@ function r3Draw(dark){
   const h = modOf(S.minute)/60, low = Math.max(0, 1 - Math.abs(Math.sin((h-6)/12*Math.PI))*1.6); // low sun at dawn and dusk
   U.haze.value = 0.03 + low*0.03 + (S.weather==='Fog' ? 0.05 : S.weather==='Rain'||S.weather==='Storm' ? 0.025 : S.weather==='Snow' ? 0.02 : 0) + dark*0.02;
   U.strength.value = (2.2 + low*2.5) * (R3.volBoost||1); U.haze.value *= (R3.hazeBoost||1);
+  if (hd){ U.strength.value *= 0.3; U.haze.value *= 0.45; } // HD has its own sky and fog: keep the shafts of light, lose the milkiness
   R.lampLights.forEach((l,i)=>{ U.lampPos.value[i].copy(l.position); U.lampI.value[i] = l.intensity; });
   U.dbg.value = R.volDebug ? 1 : 0; R.renderer.render(R.volScene, R.volCam);
 }
@@ -6551,7 +6703,7 @@ function r3Sky(frac){
   sky.lerp(C(wx==='Snow'?SKY.snow:SKY.grey).multiplyScalar(0.25+0.75*day), overcast*0.8);
   R3.renderer.setClearColor(sky); R3.scene.fog.color.copy(sky);
   const fogNear = wx==='Fog' ? 12 : 55 + R3.dist*0.8, fogFar = wx==='Fog' ? 60 : 150 + R3.dist*2;
-  R3.scene.fog.near = fogNear; R3.scene.fog.far = fogFar;
+  R3.scene.fog.near = fogNear; R3.scene.fog.far = fogFar; if (typeof HD!=='undefined' && HD.sky){ R3.scene.fog.near = fogNear*1.35; R3.scene.fog.far = fogFar*1.5; }
   const tx = cam.x/TILE, tz = cam.y/TILE;
   const sx = Math.cos(ang)*1.2, sy = Math.max(0.2, Math.min(0.62, elev*0.8)), sz = 0.3;
   const L = Math.hypot(sx,sy,sz);
@@ -6564,7 +6716,11 @@ function r3Sky(frac){
   R3.hemi.intensity = 0.4 + 0.8*day*(1-overcast*0.2) + overcast*0.35 + (1-day)*0.55;
   R3.hemi.color.copy(C('#dcecff').lerp(C('#8a9cd8'), 1-day));
   R3.hemi.groundColor.copy(C('#5a6a44').lerp(C('#303a50'), 1-day));
-  R3.water.material.color.copy(C('#3e76b0').lerp(C('#1c3052'), 1-day));
+  if (R3.water.material.color) R3.water.material.color.copy(C('#3e76b0').lerp(C('#1c3052'), 1-day));
+  if (typeof HD!=='undefined' && HD.sky){ hdSky({day, dusk:duskAmt, overcast, snow: wx==='Snow', sunDir: R3.sun.position.clone().sub(R3.sun.target.position).normalize(), sunCol: C(sunI >= moonI ? '#fff4e0' : '#a8bcf0').lerp(C('#ffb070'), duskAmt*0.8).multiplyScalar(Math.max(0.15, sunI/3.4))});
+    R3.hemi.intensity *= 0.55; R3.sun.intensity *= 1.15;
+    // shadows stay crisp: the shadow camera hugs the part of the world in view
+    const ext = clamp(R3.dist*1.15, 16, 70); if (R3.sun.shadow.camera.right !== ext){ Object.assign(R3.sun.shadow.camera, {left:-ext, right:ext, top:ext, bottom:-ext}); R3.sun.shadow.camera.updateProjectionMatrix(); } }
   return dark;
 }
 function r3Weather(dt){
@@ -6584,12 +6740,12 @@ function r3Weather(dt){
 function r3Render(frac, ts){
   const dt = Math.min(0.1,(ts-lastFrameTs)/1000); lastFrameTs = ts;
   resizeCanvas(); buildGround();
-  const r = R3.c3.getBoundingClientRect(), pr = Math.min(window.devicePixelRatio||1, R3.mobile?1.25:1.75);
+  const r = R3.c3.getBoundingClientRect(), dpr = window.devicePixelRatio||1, pr = typeof HD!=='undefined' && HD.on ? [1, Math.min(dpr, 1.5), Math.min(dpr, 2)][HD.q] : Math.min(dpr, R3.mobile?1.25:1.75);
   const W = Math.max(200, Math.round(r.width)), H = Math.max(150, Math.round(r.height));
   if (R3.w!==W || R3.h!==H || R3.pr!==pr){ R3.w=W; R3.h=H; R3.pr=pr; R3.renderer.setPixelRatio(pr); R3.renderer.setSize(W, H, false); R3.camera.aspect = W/H; R3.camera.updateProjectionMatrix(); }
   const wk = `${S.worldVer||0}|${ART.season}|${BUILDINGS.length}|${X0},${Y0},${MW},${MH}`;
   if (wk!==R3.lastWorld){ R3.lastWorld = wk; r3World(); }
-  if (R3.groundKey!==groundKey){ R3.groundKey = groundKey; R3.groundTex.needsUpdate = true; }
+  if (R3.groundKey!==groundKey){ R3.groundKey = groundKey; if (typeof HD!=='undefined' && HD.on){ if (HD.td) hdRefreshTerrainData(); } else R3.groundTex.needsUpdate = true; }
   const pk = `${wk}|${Math.floor(S.minute/60)}|${(S.deceased||[]).length}`;
   if (pk!==R3.lastProps){ R3.lastProps = pk; r3Props(); }
   // camera
@@ -6615,6 +6771,7 @@ function r3Render(frac, ts){
   r3Villagers(frac, ts, dark);
   r3Interiors(tx, tz);
   (R3.flames||[]).forEach((m,i)=>m.userData.flame.forEach((f,k)=>{ f.scale.y = 0.8 + Math.sin(ts/90 + i*3 + k*2)*0.25; f.material.color.setHSL(0.08+0.03*k, 1, 0.5 + 0.1*Math.sin(ts/120+k)); }));
+  if (typeof HD!=='undefined' && HD.on && HD.sky) hdFrame(dt, ts, dark);
   r3Draw(dark);
 }
 // ---------- controls: drag to pan, right-drag or two fingers to turn, wheel or pinch to zoom, tap to pick ----------
@@ -6675,17 +6832,24 @@ function frame(ts){
 }
 function catchUp(minutes, reason, done){
   catchingUp = true;
-  const cap = 7*DAY; const todo = Math.min(minutes, cap); const skipped = minutes - todo;
-  const startLen = S.chronicle.length, startMin = S.minute; let doneN = 0;
-  overlay(`<h3>While you were away…</h3><p>${esc(reason)}</p><p class="muted">Simulating ${Math.round(todo/60)} game hours (${(todo/DAY).toFixed(1)} days) for ${S.citizens.length} villagers…</p><div class="prog"><i id="progBar"></i></div>`);
+  // every missed minute is simulated (no cap), in short slices so the page stays responsive; the town is saved as it goes
+  let todo = minutes, skipped = 0;
+  const startLen = S.chronicle.length, startMin = S.minute, tStart = performance.now(); let doneN = 0, lastSaveAt = 0, stop = false;
+  overlay(`<h3>While you were away…</h3><p>${esc(reason)}</p><p class="muted">Simulating ${(todo/DAY).toFixed(1)} game days for ${S.citizens.length} villagers…</p><div class="prog"><i id="progBar"></i></div>
+    <p class="muted" id="progEta" style="font-size:12px;margin:6px 0 0">&nbsp;</p><div class="row" style="margin-top:8px"><button class="btn" id="progSkip" title="Stop catching up and play from here: the rest of the time is skipped">Play now</button></div>`);
+  $('progSkip').onclick = ()=>{ stop = true; };
   const chunk = () => {
     const t0 = performance.now();
-    while (doneN < todo && performance.now()-t0 < 35){ simTick(); doneN++; }
-    const pb=$('progBar'); if (pb) pb.style.width = (doneN/todo*100).toFixed(1)+'%';
+    while (doneN < todo && !stop && performance.now()-t0 < 30){ simTick(); doneN++; }
+    if (stop && doneN < todo){ skipped = todo - doneN; todo = doneN; }
+    const pb=$('progBar'); if (pb) pb.style.width = (doneN/Math.max(1,todo)*100).toFixed(1)+'%';
+    const el = (performance.now()-tStart)/1000, eta = doneN ? el/doneN*(todo-doneN) : 0, pe = $('progEta');
+    if (pe) pe.textContent = `Day ${((doneN)/DAY).toFixed(1)} of ${(todo/DAY).toFixed(1)} · ${S.citizens.length} villagers${doneN>DAY && eta>3 ? ` · about ${eta<90 ? Math.round(eta)+' s' : Math.round(eta/60)+' min'} left` : ''}`;
+    if (doneN - lastSaveAt > 10*DAY){ lastSaveAt = doneN; clock.rebase(S.minute); saveGame(true); } // a closed tab keeps what was already caught up
     if (doneN < todo){ setTimeout(chunk, 0); return; }
     clock.rebase(S.minute); S.bubbles=[]; S.citizens.forEach(c=>c.rt.seg=null); syncAnimals(); saveGame(true);
     const news = S.chronicle.slice(startLen).filter(e=>e.imp>=6);
-    overlay(`<h3>While you were away</h3><p>${(todo/DAY).toFixed(1)} game days passed in Pixel Town (${fmtStamp(startMin)} → ${fmtStamp(S.minute)}).${skipped>0?` The town slept through the rest: at most 7 game days are simulated while you're gone.`:''}</p>
+    overlay(`<h3>While you were away</h3><p>${(todo/DAY).toFixed(1)} game days passed in Pixel Town (${fmtStamp(startMin)} → ${fmtStamp(S.minute)}).${skipped>0?` You chose to play before catching up: the last ${(skipped/DAY).toFixed(1)} days were skipped.`:''}</p>
       ${news.length?`<div>${news.slice(-25).map(e=>`<div class="ev ${e.imp>=7?'major':''}"><time>${esc(fmtStamp(e.t))}</time><span>${esc(e.icon)}</span><span>${esc(e.text)}</span></div>`).join('')}</div>`:'<p class="muted">Nothing major happened.</p>'}
       <div class="row" style="margin-top:12px"><button class="btn primary" id="ovClose">Back to town</button></div>`);
     $('ovClose').onclick = ()=>{ overlay(''); };
@@ -6699,7 +6863,7 @@ function welcome(upgraded){
     <p>Fifty villagers live, work, trade, gossip and vote here on one shared clock: <b>1 real hour = 1 game day</b> (2.5 seconds per game minute).</p>
     <ul style="padding-left:18px;font-size:14px"><li>Drag to pan, scroll or pinch to zoom, and tap a villager to follow their life. Press <b>3D</b> (bottom right) to see the town in 3D: right-drag, two fingers or Q/E turn the camera.</li>
     <li>Everything that happens goes into the <b>Log</b>, and each game week gets a report in <b>Weekly</b>.</li>
-    <li>The town keeps running while the page is closed (up to 7 game days are simulated when you return).</li>
+    <li>The town keeps running while the page is closed: every missed game day is simulated when you return. Use <b>💾 Cities</b> (below the map) to save a city, open a saved one, or download it as a file.</li>
     <li>Every 4 weeks the town elects a <b>leader</b> and a <b>council of 5</b>, who draft laws and sway votes (<b>Gov</b> tab).</li>
     <li>Homes, businesses and plots are bought and sold. Beyond the map is fog: send expeditions north, south, east or west, and the town votes on whether to annex what they find (<b>Land</b> tab).</li>
     <li>Villagers are wealthy, upper, middle class or poor. The rich build palaces, hotels, apartment towers, bathhouses and theaters, rivals open competing shops, and you can build or demolish from the <b>Land</b> tab.</li>
@@ -6737,9 +6901,10 @@ function civBoot(sv){
   requestAnimationFrame(frame);
   try { if (localStorage.getItem('pixeltown.view')==='3d' && (location.protocol!=='file:' || document.getElementById('three-src'))) toggle3D(true); } catch(e){}
 }
-function boot(){
+async function boot(){
   // new games start as a primitive settlement; old saves (and ?mode=classic) keep the established town
-  const sv = loadGame();
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch(e){} // ask the browser not to clear the save
+  const sv = await loadGame();
   CIV = sv ? sv.state.mode==='civ' : !civClassicRequested();
   if (CIV){ CIV_SEED = sv ? sv.state.civ.seed : (civSeedRequested() ?? (Date.now() % 999983)); if (sv && sv.state.civ.center) CIV_CENTER = sv.state.civ.center.slice(); }
   buildMap();
@@ -6777,9 +6942,10 @@ document.addEventListener('visibilitychange', ()=>{ if (document.hidden && !rese
 window.addEventListener('pagehide', ()=>{ if (!resetting) saveGame(true); });
 (function(){
   const f=document.createElement('div'); f.className='row'; f.style.cssText='margin-top:4px;font-size:12px';
-  f.innerHTML=`<span class="muted">Deterministic fallback AI · autosaves in this browser · drag to pan, scroll to zoom</span><button class="btn" id="resetBtn" style="margin-left:auto;font-size:12px">Reset town</button>`;
+  f.innerHTML=`<span class="muted">Deterministic fallback AI · autosaves in this browser · drag to pan, scroll to zoom</span><button class="btn" id="citiesBtn" style="margin-left:auto;font-size:12px" title="Save this city, load a saved one, or download a copy">💾 Cities</button><button class="btn" id="resetBtn" style="font-size:12px">Reset town</button>`;
   $('stage').appendChild(f);
-  $('resetBtn').onclick=()=>{ if (confirm(`Start Pixel Town over? ${civClassicRequested() ? 'A new classic town will begin.' : 'A new game begins as 100 settlers by a river with nothing built (add ?mode=classic to the address for the original town).'} The log will be erased. Export it first if you want to keep it.`)){ resetting=true; store.del(SAVE_KEY); location.reload(); } };
+  $('resetBtn').onclick=()=>{ if (confirm(`Start Pixel Town over? ${civClassicRequested() ? 'A new classic town will begin.' : 'A new game begins as 100 settlers by a river with nothing built (add ?mode=classic to the address for the original town).'} The log will be erased. Export it first if you want to keep it (or keep this city with Cities → Save).`)){ resetting=true; store.del(SAVE_KEY); SaveDB.del('autosave').then(()=>location.reload()); } };
+  $('citiesBtn').onclick = ()=>citiesDialog();
 })();
 window.PT = { get S(){return S;}, simulate(n){ for (let i=0;i<n;i++) simTick(); clock.rebase(S.minute); S.bubbles=[]; S.citizens.forEach(c=>c.rt.seg=null); syncAnimals(); renderPanels(true); }, clock, cam, music, weekToMarkdown, liveWeekEntry, get CIV(){ return CIV; } };
 </script>
@@ -6796,6 +6962,8 @@ window.PT = { get S(){return S;}, simulate(n){ for (let i=0;i<n;i++) simTick(); 
 <script src="civ/civ_housing.js"></script>
 <script src="civ/civ_science.js"></script>
 <script src="civ/civ_transport.js"></script>
+<script src="civ/civ_hd.js"></script>
+<script src="civ/civ_hd_world.js"></script>
 <script src="civ/civ_render.js"></script>
 <script src="civ/civ_3d.js"></script>
 <script src="civ/civ_ui.js"></script>

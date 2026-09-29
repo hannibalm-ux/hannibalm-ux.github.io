@@ -635,6 +635,33 @@
     ['cart','horse','wagon','boat','ship','steamship','car','truck','train','plane'].forEach(k=>{ const g = r3VehMesh({kind:k, variant:1}); ok(g.isGroup && g.children.length, k+' has no model'); });
   });
 
+  // ============================ SAVING, AWAY TIME AND HD GRAPHICS ============================
+  test('SV1', 'The autosave goes to IndexedDB, and a saved city can be listed, read back and resumed', async ()=>{
+    days(1); saveGame(true); await new Promise(r=>setTimeout(r, 1500));
+    const rec = await SaveDB.get('autosave'); ok(rec && rec.data, 'no autosave in IndexedDB'); const sv = await SaveDB.read(rec); ok(sv && sv.state && sv.state.minute===S.minute, 'the autosave does not hold this town');
+    const json = savePayload(); await SaveDB.put('city:t1', Object.assign(await SaveDB.record(json, cityMeta(Date.now())), {id:'city:t1', name:'Test'}));
+    const list = await SaveDB.list('city:'); ok(list.some(c=>c.name==='Test' && c.pop===S.citizens.length), 'the saved city is not listed');
+    const back = await SaveDB.read(await SaveDB.get('city:t1')); ok(back.state.citizens.length===S.citizens.length && back.state.civ.seed===S.civ.seed, 'the saved city did not read back');
+    const loaded = await loadGame(); ok(loaded && loaded.state.minute===S.minute, 'the newest save was not picked at start');
+  });
+  test('SV2', 'Away time is not capped: every missed day is simulated', async ()=>{
+    const m0 = S.minute; await new Promise(res=>catchUp(9*DAY, 'test', res)); overlay('');
+    ok(S.minute - m0 >= 9*DAY, `only ${((S.minute-m0)/DAY).toFixed(1)} of 9 days were simulated`);
+  });
+  test('SV3', 'Daily plans are spread over the first minutes after midnight, not made all at once', ()=>{
+    days(1 - (S.minute % DAY)/DAY); const d = dayOf(S.minute); simTick(); ok(S.citizens.filter(c=>c.planFor===d).length < S.citizens.length, 'everyone planned at midnight');
+    for (let i=0;i<20;i++) simTick(); ok(S.citizens.every(c=>c.planFor===d || !c.plan), 'someone was left without a plan for the day');
+  });
+  test('HD1', 'The HD world builds: blended terrain, water, trees, rocks, buildings, grass and crops', async ()=>{
+    await three(); R3.renderer = null; HD.q = 1;
+    hdTerrainData(); ok(HD.td && HD.td.image.width===MW, 'no terrain data'); const terr = hdTerrain(); ok(terr.isMesh && terr.geometry.attributes.position.count > MW*MH, 'no terrain mesh');
+    ok(hdWater().isMesh, 'no water'); const trees = hdTrees(); ok(trees.children.some(o=>o.isInstancedMesh && o.material.alphaTest > 0), 'no leaf-card trees');
+    const b = BUILDINGS[0]; const g = hdBuilding(b); ok(g.children.length >= 5 && g.userData.frontMat, 'the building has no detail');
+    ok(g.children.some(o=>o.material && o.material.normalMap), 'no normal-mapped materials on the building');
+    HD_WIND.uCam.value = new THREE.Vector3(); const ch = hdBuildChunk(Math.floor(S.civ.center[0]/HD_CH), Math.floor(S.civ.center[1]/HD_CH)); ok(ch.children.length, 'no grass around the settlement');
+    ok(hdGroundWorks().isGroup, 'no crops, fences or bridges');
+  });
+
   async function run(which){
     const out = [];
     for (const t of TESTS){ if (which && !(Array.isArray(which) ? which.includes(t.id) : t.id===which)) continue;
