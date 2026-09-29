@@ -120,7 +120,8 @@ function hdInit(){
         if (night > 0.01 && y > 0.0){ vec3 q = floor(d*260.0); float s = h(q); float tw = 0.6 + 0.4*sin(time*2.0 + s*50.0); c += vec3(0.9,0.93,1.0) * step(0.9975, s) * night * tw * smoothstep(0.0, 0.25, y) * (1.0-cloud); }
         gl_FragColor = vec4(c, 1.0); }` }));
   sky.frustumCulled = false; sky.renderOrder = -10; R3.scene.add(sky); HD.sky = sky;
-  HD.envScene = new THREE.Scene(); HD.envSky = new THREE.Mesh(sky.geometry, sky.material); HD.envScene.add(HD.envSky);
+  // the environment light uses the sky's colours without the sun (the sun lights the scene directly), so it repeats every day and each state is cached
+  const envMat = sky.material.clone(); HD.envScene = new THREE.Scene(); HD.envSky = new THREE.Mesh(sky.geometry, envMat); HD.envScene.add(HD.envSky); HD.envCache = new Map();
   HD.pmrem = new THREE.PMREMGenerator(R); HD.envT = -1e9;
   R3.scene.environmentIntensity = 0.6;
   hdParticlesInit(); hdRipplesInit();
@@ -136,8 +137,13 @@ function hdSky(p){
   U.sunDir.value.copy(p.sunDir); U.sunCol.value.copy(p.sunCol); U.night.value = 1-day; U.moonDir.value.set(-p.sunDir.x, Math.abs(p.sunDir.y)+0.25, -p.sunDir.z).normalize(); U.cloud.value = over; U.time.value = performance.now()/1000;
   HD.sky.position.copy(R3.camera.position);
   // the environment light follows the sky, refreshed every ~20 game minutes or when the weather changes
-  const now = performance.now(), sd = HD.envSun ? HD.envSun.dot(p.sunDir) : -1, changed = S.weather !== HD.envWx || sd < 0.9975 || Math.abs(day - (HD.envDay ?? -1)) > 0.06;
-  if (changed && (now - (HD.envAt||-1e9) > 2500 || S.weather !== HD.envWx)){ HD.envAt = now; HD.envWx = S.weather; HD.envDay = day; HD.envSun = (HD.envSun || p.sunDir.clone()).copy(p.sunDir); HD.envSky.position.set(0,0,0); const rt = HD.pmrem.fromScene(HD.envScene, 0, 0.1, 1000); if (HD.envRT) HD.envRT.dispose(); HD.envRT = rt; R3.scene.environment = rt.texture; }
+  const key = [Math.round(day*10), Math.round(p.dusk*4), Math.round(over*4), p.snow?1:0].join(',');
+  if (key !== HD.envKey){ HD.envKey = key; let rt = HD.envCache.get(key);
+    if (!rt){ const E = HD.envSky.material.uniforms; E.top.value.copy(top); E.hor.value.copy(hor); E.gnd.value.copy(U.gnd.value); E.sunCol.value.setRGB(0,0,0); E.night.value = 0; E.cloud.value = over;
+      HD.envSky.position.set(0,0,0); rt = HD.pmrem.fromScene(HD.envScene, 0, 0.1, 1000); HD.envCache.set(key, rt);
+      if (HD.envCache.size > 40){ const [k0, r0] = HD.envCache.entries().next().value; if (r0 !== rt){ r0.dispose(); HD.envCache.delete(k0); } } }
+    else { HD.envCache.delete(key); HD.envCache.set(key, rt); }
+    R3.scene.environment = rt.texture; }
   R3.scene.environmentIntensity = 0.25 + day*0.55;
   R3.scene.fog.color.copy(hor);
   return hor;
