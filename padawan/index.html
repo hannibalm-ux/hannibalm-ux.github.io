@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Path of the Padawan</title>
+<style>
+:root{--bg:#0d1017;--panel:#151a24;--ink:#e6e2d6;--dim:#8d97a8;--acc:#7fc8ff;--gold:#d8b98a;--red:#d67a7a;--grn:#7fd0a0;--vio:#a99cf0}
+@media (prefers-color-scheme:light){:root{--bg:#f3efe6;--panel:#fffaf0;--ink:#231f1a;--dim:#6b665c;--acc:#0b6aa8;--gold:#8a5a1f;--red:#a63b3b;--grn:#2e7d5b;--vio:#5a4aa8}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:18px/1.6 Georgia,'Times New Roman',serif}
+#wrap{max-width:760px;margin:0 auto;padding:0 16px 40px}
+header{position:sticky;top:0;background:var(--bg);padding:12px 0 8px;border-bottom:1px solid #8883;z-index:5;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+header h1{font-size:15px;letter-spacing:.2em;margin:0 auto 0 0;font-weight:normal;color:var(--gold)}
+header button{font:13px system-ui,sans-serif;background:var(--panel);color:var(--ink);border:1px solid #8886;border-radius:6px;padding:5px 10px;cursor:pointer}
+#status{font:13px system-ui,sans-serif;color:var(--dim);padding:8px 0}
+#log p{margin:.7em 0;animation:f .35s ease}
+@keyframes f{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+.narr{color:var(--ink)}.echo{color:var(--dim);font-style:italic}.sys{color:var(--dim);font:14px system-ui,sans-serif}
+.master{color:var(--gold)}.force{color:var(--acc);font-style:italic}.dark{color:var(--red);font-style:italic}
+.head{font-size:22px;letter-spacing:.08em;color:var(--gold);margin-top:1.4em}
+#choices{display:flex;flex-direction:column;gap:8px;margin:16px 0}
+#choices button{font:17px Georgia,serif;text-align:left;background:var(--panel);color:var(--ink);border:1px solid #8885;border-radius:8px;padding:10px 14px;cursor:pointer}
+#choices button:hover,#choices button:focus{border-color:var(--acc);outline:none}
+#choices input{font:17px Georgia,serif;padding:10px;border-radius:8px;border:1px solid #8886;background:var(--panel);color:var(--ink)}
+#ov{position:fixed;inset:0;background:#000a;display:none;align-items:flex-start;justify-content:center;overflow:auto;z-index:9;padding:20px 12px}
+#ov .card{background:var(--panel);max-width:640px;width:100%;border-radius:10px;padding:18px 22px;border:1px solid #8886}
+#ov h2{margin:.2em 0;color:var(--gold);font-size:19px;letter-spacing:.1em}
+#ov h3{font:13px system-ui,sans-serif;letter-spacing:.12em;color:var(--dim);margin:1.2em 0 .3em}
+.tag{display:inline-block;font:11px system-ui,sans-serif;padding:1px 7px;border-radius:4px;color:#fff;margin-right:6px}
+.FACT{background:#2e7d5b}.CLAIM{background:#a27a2b}.IMPRESSION{background:#5a4aa8}.CONTRA{background:#8a3a3a}
+#ov button{font:14px system-ui,sans-serif;margin-top:14px;padding:6px 14px;border-radius:6px;border:1px solid #8886;background:var(--bg);color:var(--ink);cursor:pointer}
+.small{font:14px system-ui,sans-serif;color:var(--dim)}
+</style>
+</head>
+<body>
+<div id="wrap">
+<header><h1>PATH OF THE PADAWAN</h1>
+<button id="bJ">Journal</button><button id="bM">Master's read</button><button id="bS">Save</button><button id="bN">New game</button></header>
+<div id="status"></div>
+<div id="log"></div>
+<div id="choices"></div>
+</div>
+<div id="ov"><div class="card" id="ovc"></div></div>
+<script>
+'use strict';
+/* ---------- helpers ---------- */
+const $=id=>document.getElementById(id);
+const log=$('log'),ch=$('choices');
+let S=null;
+const SAVE='padawan_save_v1';
+function say(t,c='narr'){const p=document.createElement('p');p.className=c;p.innerHTML=t;log.appendChild(p);window.scrollTo(0,document.body.scrollHeight)}
+function head(t){say(t,'head')}
+function ask(opts){
+  ch.innerHTML='';
+  opts.filter(o=>o.if===undefined||o.if).forEach(o=>{
+    const b=document.createElement('button');b.innerHTML=o.t;
+    b.onclick=()=>{ch.innerHTML='';say('› '+o.t.replace(/<[^>]+>/g,''),'echo');o.f()};
+    ch.appendChild(b)});
+  window.scrollTo(0,document.body.scrollHeight);
+}
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const rnd=a=>a[Math.floor(Math.random()*a.length)];
+
+/* ---------- content ---------- */
+const MASTERS={
+ vor:{name:'Talen Vor',title:'Traditionalist',blurb:'Discipline, emotional control, doctrine. Diplomacy before violence. Structured, formal, exacting.',
+  w:{restraint:2,patient:1,obey:1,hasty:-2,shortcut:-4,coerce:-2,violent:-2,honest:1,secret:-2,reckless:-2,compassion:0,evidence:1,decisive:0,hesitate:0,stubborn:-1,selfcorrect:1},
+  pos:["That is the discipline I hoped to see.","Good. The Code exists for moments like this.","Restraint is a skill, and you practiced it."],
+  neg:["That was not discipline.","I am troubled by that.","We will speak of this in meditation."],close:"Reflect on it. The Temple will still be here."},
+ kara:{name:'Kara Senn',title:'Compassionate',blurb:'People before doctrine. Attachment is not automatically weakness. Field conversation and de-escalation.',
+  w:{compassion:3,restraint:1,violent:-2,coerce:-3,shortcut:-3,honest:2,secret:-1,hasty:-1,patient:1,evidence:0,decisive:0,hesitate:-0.5,reckless:-1,obey:0,stubborn:-1,selfcorrect:1},
+  pos:["I was proud of you there.","That felt like the person I hope you are becoming.","You saw them. That matters more than you know."],
+  neg:["I'm not angry. I'm worried.","That hurt someone, and you know it.","I wish you'd come to me first."],close:"Talk to me when you're ready. I'm not going anywhere."},
+ doran:{name:'Doran Kel',title:'Warrior',blurb:'Preparation and decisive protection. Hesitation costs lives. Drills, conditioning, fast decisions.',
+  w:{decisive:3,violent:0,restraint:0.5,hesitate:-3,reckless:-1,coerce:0,shortcut:-2,honest:1,secret:-1,hasty:0,patient:0.5,evidence:0.5,compassion:0.5,obey:0.5,stubborn:0,selfcorrect:1},
+  pos:["Good. Clean and committed.","That is how you protect people.","You didn't flinch. Remember that feeling."],
+  neg:["You hesitated. People pay for that.","Sloppy. We drill this tomorrow.","Wrong call. Learn from it fast."],close:"Sleep. We train at dawn."},
+ venn:{name:'Ilya Venn',title:'Investigator',blurb:'Truth as a weapon. Observation over aggression. Evidence discipline and hypothesis testing.',
+  w:{evidence:3,honest:2,secret:-2,hasty:-2,patient:1.5,shortcut:-2,coerce:-1.5,violent:-1,restraint:1,decisive:0.5,hesitate:0,compassion:1,reckless:-1,obey:0,stubborn:-2,selfcorrect:2},
+  pos:["Precisely what I would have wanted to see.","Good. Notice how much easier it is when you let the facts speak.","You reasoned, you didn't assume. Well done."],
+  neg:["You concluded before you knew.","That is a shortcut, and shortcuts leave gaps.","A fact is not a feeling. Keep them apart."],close:"Write it down while it is fresh."}
+};
+const PHR={
+ honest:"you told the truth even when it cost you",secret:"you kept things from me",violent:"you ended a fight rather than a conflict",
+ restraint:"you held back when you could have struck",compassion:"you looked after the people this case was hurting",
+ hasty:"you rushed when the evidence was thin",patient:"you gathered facts before you spoke",evidence:"you let the evidence lead you",
+ coerce:"you bent a mind that could have been asked",shortcut:"you reached for something the Temple never taught you",
+ decisive:"you committed when the moment came",hesitate:"you hesitated when it mattered",reckless:"you took a risk that was not yours alone",
+ obey:"you followed my lead",stubborn:"you held to a conclusion after the facts turned",selfcorrect:"you changed your mind when the facts changed"};
+const REL_FX={ // tag -> [trust,respect,affection,indep,concern]
+ honest:[1,0,0,0,0],secret:[-2,0,0,0,0.5],reckless:[-1,-1,0,-1,1],obey:[.5,0,0,.3,0],evidence:[0,1,0,.5,0],decisive:[0,1,0,.5,0],
+ hesitate:[0,-.5,0,-.3,0],hasty:[0,-1,0,-.5,.5],patient:[0,.5,0,.3,0],compassion:[0,0,1,0,0],restraint:[0,0,.3,.3,-.5],
+ violent:[0,0,-.3,0,.5],coerce:[-.5,0,0,0,1],shortcut:[-1,0,0,-.5,2],stubborn:[0,-.5,0,-.3,.3],selfcorrect:[.5,1,0,.5,-.3]};
+const SKILLS={saber:'Lightsaber',push:'Force push / pull',sense:'Force perception',talk:'Persuasion & empathy',invest:'Investigation',composure:'Composure'};
+const RANKS=['Unfamiliar','Novice','Practiced','Skilled','Advanced','Masterful'];
+const rank=k=>RANKS[clamp(Math.floor(S.sk[k]),0,5)];
+
+/* ---------- state ---------- */
+function fresh(){return{scene:'title',name:'Padawan',master:null,cautious:true,affinity:'balanced',
+ emo:{fear:0,anger:0,confidence:1,compassion:1},
+ sk:{saber:.5,push:.5,sense:.5,talk:.5,invest:.5,composure:.5},ins:{},ctx:{},
+ rel:{trust:1,respect:0,affection:0,indep:1,agree:0,concern:0},
+ mem:[],ev:{},hyp:null,time:5,visited:{},flags:{},chron:[],day:121,train:2,wounded:false,mission:0}}
+function gain(k,ctx,amt=.5){const n=S.ctx[ctx]||0;S.ctx[ctx]=n+1;S.sk[k]+=amt/(1+n)}
+function chron(t){S.chron.push(t)}
+function emo(k,d){S.emo[k]=clamp(S.emo[k]+d,0,3)}
+function hi(k){return S.emo[k]>=2}
+function M(){return MASTERS[S.master]}
+function mline(t){say(`<b>${M().name}:</b> “${t}”`,'master')}
+/* record an event into Master memory + relationship model */
+function rec(tag,note,o={}){
+  const witnessed=o.witnessed!==false;
+  S.mem.push({tag,note,w:witnessed?1:0,day:S.day,priv:!witnessed});
+  if(witnessed)applyTag(tag,1);
+  if(witnessed&&o.react!==false){const v=M().w[tag]||0;
+    if(Math.abs(v)>=2){say(`<i>${M().name} says nothing for a moment${v>0?', a small nod':', jaw tightening'}.</i>`,'master')}}
+}
+function applyTag(tag,k){
+  const f=REL_FX[tag]||[0,0,0,0,0],r=S.rel;
+  r.trust+=f[0]*k;r.respect+=f[1]*k;r.affection+=f[2]*k;r.indep+=f[3]*k;r.concern+=f[4]*k;
+  r.agree+=(M().w[tag]||0)*.5*k;
+  r.trust=clamp(r.trust,-3,4);r.respect=clamp(r.respect,-3,4);r.affection=clamp(r.affection,-3,4);
+  r.indep=clamp(r.indep,0,5);r.concern=clamp(r.concern,0,4);r.agree=clamp(r.agree,-4,4)}
+function relState(){const r=S.rel;
+  if(r.trust>=2&&r.agree<=-1)return'a respected dissenter';
+  if(r.affection>=2&&r.concern>=2)return'protective tension';
+  if(r.respect>=2&&r.trust<=0)return'capable but secretive';
+  if(r.agree>=2&&r.indep<1.5)return'obedient but untested';
+  if(r.trust>=2&&r.respect>=2)return'a trusted partnership';
+  if(r.concern>=3)return'a Master who is quietly worried about you';
+  return'an apprenticeship still taking shape'}
+const BANDS=['Protective','Guided','Delegated','Parallel','Trusted','Near peer'];
+const band=()=>Math.floor(clamp(S.rel.indep,0,5));
+function persist(){try{localStorage.setItem(SAVE,JSON.stringify(S))}catch(e){}}
+function status(){if(!S||!S.master){$('status').textContent='';return}
+  $('status').textContent=`Year ${1+Math.floor((S.day-121)/365)+1} · Day ${S.day} · Master ${M().name} · Independence: ${BANDS[band()]}${S.wounded?' · Wounded':''}`}
+
+/* ---------- overlays ---------- */
+function overlay(html){$('ovc').innerHTML=html+'<br><button onclick="closeOv()">Close</button>';$('ov').style.display='flex'}
+window.closeOv=()=>{$('ov').style.display='none'};
+$('bJ').onclick=()=>{if(!S||!S.master)return;
+  const evs=Object.entries(S.ev);let h='<h2>CASE JOURNAL</h2><h3>EVIDENCE</h3>';
+  h+=evs.length?evs.map(([id,e])=>`<p><span class="tag ${e.type}">${e.type}</span>${e.text}</p>`).join(''):'<p class="small">Nothing yet.</p>';
+  const cons=[['C1','F1','The guard’s “pirates” story does not fit the dock scans.'],['C3','F4','The director’s sabotage claim is undercut by the ledger copy.'],['C2','F5','The governor’s “competent port” claim does not fit the clinic shortages.']].filter(c=>S.ev[c[0]]&&S.ev[c[1]]);
+  if(cons.length)h+='<h3>CONTRADICTIONS</h3>'+cons.map(c=>`<p><span class="tag CONTRA">CONTRADICTS</span>${c[2]}</p>`).join('');
+  h+='<h3>WORKING HYPOTHESIS</h3><p>'+(S.hyp?`<i>${S.hyp}</i>`:'<span class="small">None stated.</span>')+'</p>';
+  h+='<p class="small">Only what you know is shown, never what is objectively true.</p>';overlay(h)};
+$('bM').onclick=()=>{if(!S||!S.master)return;
+  const m=M();let h=`<h2>${m.name.toUpperCase()}</h2><p class="small">${m.title}. ${m.blurb}</p><h3>SKILLS (${S.name})</h3>`;
+  h+=Object.keys(SKILLS).map(k=>`<p>${SKILLS[k]}: <b>${rank(k)}</b>${S.ins[k]?' <span class="small">· insight</span>':''}</p>`).join('');
+  h+=`<h3>THE RELATIONSHIP</h3><p>You and ${m.name.split(' ')[0]} are: <b>${relState()}</b>.</p>`;
+  const top=topTags(3);
+  h+='<h3>WHAT YOUR MASTER HAS NOTICED</h3>'+(top.length?top.map(t=>`<p>· ${PHR[t.tag]}</p>`).join(''):'<p class="small">Not much yet.</p>');
+  h+='<h3>YOUR MOOD</h3><p>'+moodText()+'</p>';
+  h+=`<p class="small"><a href="#" onclick="dbg();return false">Show hidden values (debug)</a></p>`;overlay(h)};
+window.dbg=()=>{const r=S.rel;overlay('<h2>HIDDEN STATE</h2><pre>'+Object.entries(r).map(([k,v])=>k.padEnd(10)+v.toFixed(2)).join('\n')+'\n\n'+Object.entries(S.emo).map(([k,v])=>k.padEnd(10)+v).join('\n')+'\n\nmemories: '+S.mem.length+'</pre>')};
+$('bS').onclick=()=>{persist();say('Game saved.','sys')};
+$('bN').onclick=()=>{if(confirm('Start a new game? Your current save will be overwritten on next save.')){log.innerHTML='';ch.innerHTML='';S=fresh();status();title()}};
+function moodText(){const e=S.emo,p=[];
+  if(e.fear>=2)p.push('Fear sits in your chest.');if(e.anger>=2)p.push('Anger runs hot under your calm.');
+  if(e.confidence>=2)p.push('You feel sure of yourself.');if(e.compassion>=2)p.push('You are keenly aware of the people around you.');
+  return p.length?p.join(' '):'Steady.'}
+function topTags(n){const sc={};S.mem.filter(m=>m.w).forEach(m=>{sc[m.tag]=(sc[m.tag]||0)+Math.abs(M().w[m.tag]||.2)});
+  return Object.entries(sc).sort((a,b)=>b[1]-a[1]).slice(0,n).map(([tag])=>({tag}))}
+
+/* ---------- title / creation ---------- */
+function title(){
+  head('PATH OF THE PADAWAN');
+  say('A Jedi apprenticeship simulation. You are not a hero. You are becoming one.','sys');
+  say('You have been chosen as a Padawan. The Temple hums around you; your first robe is still stiff at the collar. Everything that happens from here will be remembered — by your Master, by the people you meet, and by the record of your career.');
+  let saved=null;try{saved=JSON.parse(localStorage.getItem(SAVE))}catch(e){}
+  ask([{t:'Begin a new apprenticeship',f:create},{t:'Continue saved game',if:!!saved&&saved.scene==='hub',f:()=>{S=saved;status();say('Save loaded.','sys');hub()}}]);
+}
+function create(){
+  say('What is your name?');
+  ch.innerHTML='<input id="nm" placeholder="Your Padawan name" maxlength="20"><button id="go">Continue</button>';
+  const go=()=>{const v=($('nm').value||'').trim();S.name=v||'Kesh';ch.innerHTML='';say('› '+S.name,'echo');temper()};
+  $('go').onclick=go;$('nm').addEventListener('keydown',e=>{if(e.key==='Enter')go()});$('nm').focus()}
+function temper(){
+  say('Before the selection, an archivist asks how you handle the unknown.');
+  ask([{t:'Carefully. I look before I move.',f:()=>{S.cautious=true;affin()}},{t:'Quickly. Hesitation is its own risk.',f:()=>{S.cautious=false;affin()}}])}
+function affin(){
+  say('The Temple healers note the shape of your connection to the Force.');
+  const set=(a,k)=>()=>{S.affinity=a;if(k)S.sk[k]+=.7;pickMaster()};
+  ask([{t:'Perception. I notice things before I understand them.',f:set('perception','sense')},
+   {t:'Telekinesis. Objects seem to listen.',f:set('telekinesis','push')},
+   {t:'Mental influence. People’s moods are loud to me.',f:set('mental','talk')},
+   {t:'Balanced. Nothing stands out yet.',f:set('balanced')}])}
+function pickMaster(){
+  head('The Council offers you a Master');
+  say('You may choose. Choose a Master whose philosophy fits you — or one who will challenge you. Disagreement is also how a Padawan grows.','sys');
+  ask(Object.entries(MASTERS).map(([k,m])=>({t:`<b>${m.name}</b> — ${m.title}<br><span class="small">${m.blurb}</span>`,f:()=>{S.master=k;status();meet()}})))}
+function meet(){
+  const m=M();head('Your Master');
+  const intro={vor:`${m.name} stands perfectly still in the archive gallery. “We begin with the Code. Nothing else will hold when you are afraid.”`,
+   kara:`${m.name} is sitting on the edge of a fountain, feeding crumbs to a bird. “Hello, ${S.name}. Don’t stand so stiffly. I don’t bite — I listen.”`,
+   doran:`${m.name} tosses you a training saber without looking. “Catch. Don’t think. You’ll learn faster from the floor than the scrolls.”`,
+   venn:`${m.name} is cross-legged among holo-charts, three of which are wrong. “Sit. Look at that map. Tell me what’s missing. Take your time.”`};
+  say(intro[S.master]);
+  chron(`Year 2, Day ${S.day}: ${S.name} was accepted as a Padawan of Master ${m.name}.`);
+  ask([{t:'Continue',f:()=>{S.scene='hub';temple()}}])}
+
+/* ---------- Temple training ---------- */
+function temple(){
+  S.scene='temple';persist();
+  head('A Morning at the Temple');
+  say(`${M().name} has given you the morning. “Two blocks before the briefing. Choose what you think you need.” The Council mission is at noon.`);
+  trainMenu()}
+function trainMenu(){
+  if(S.train<=0){return briefing()}
+  say(`<span class="sys">${S.train} training block${S.train>1?'s':''} remaining.</span>`);
+  ask([
+   {t:'Sparring drills with Ren Talli, a fellow Padawan',f:spar},
+   {t:'Force push control lesson',f:pushLesson},
+   {t:'Meditation in the Room of a Thousand Fountains',f:meditate},
+   {t:'Archive study: evidence and testimony',f:archive}])}
+function used(k){S.train--;const n=S.ctx[k]||0;if(n>=1)say('You have done this already this morning. It gives you less than before.','sys')}
+function spar(){used('spar');gain('saber','spar',.5);
+  say('Ren Talli grins over her training blade. You trade cuts until your arms burn. She hits you twice for every time you get through, but you notice what she does with her feet.');
+  if(S.master==='doran')mline('Good. You bled a little. Now you know where the line is.');
+  chron('Sparred often with fellow Padawan Ren Talli.');S.flags.ren=(S.flags.ren||0)+1;emo('confidence',.5);trainMenu()}
+function meditate(){used('med');gain('composure','med',.6);S.emo.anger=Math.max(0,S.emo.anger-1);S.emo.fear=Math.max(0,S.emo.fear-1);
+  say('The fountains draw your attention outward, then back in. Your breath slows. You notice that the tightness in your chest has a shape, and that it is yours.');trainMenu()}
+function archive(){used('arc');gain('invest','arc',.6);
+  say('The archivist teaches you the difference between a <b>fact</b> (you can verify it), a <b>claim</b> (someone says it), and an <b>impression</b> (something you felt). “Never let one wear another’s clothes,” she says.');
+  if(S.master==='venn')mline('She’s right. Keep the categories in your journal. You will need them.');trainMenu()}
+function pushLesson(){
+  used('push');
+  say('A training sphere sits on a low pedestal. The goal: push it gently into a ring three paces away. You reach out.');
+  const pushLevel=S.sk.push;
+  if(!S.ins.push&&pushLevel<2){
+    say('The sphere shoots off the pedestal, cracks against the far wall, and rolls to a stop. You winced before it hit.');
+    ask([{t:'Try again immediately',f:()=>{gain('push','pushtry',.3);say('Closer, but the sphere still overshoots. You are pushing harder every time you feel frustrated.');emo('anger',1);trainMenu()}},
+     {t:`Ask ${M().name.split(' ')[0]} why it keeps overshooting`,f:()=>{
+       mline(({vor:'You are forcing the result. Let the Force do less, and you do less. Feel where your intent ends.',kara:'You’re gripping. Breathe. The Force isn’t a fist — it’s a hand you can open.',doran:'You’re committing too early and too hard. Don’t throw the ball; aim the throw, then release.',venn:'Observe your own error. Where does the push begin — in your arm, or in your mind? Control begins with noticing.'})[S.master]);
+       S.ins.push=true;S.sk.push+=.6;say('The lesson sinks in. On your next attempt the sphere rolls into the ring with a soft click.');rec('patient','Asked for instruction after a failed push.');chron('Learned Force push control after failing, then asking for instruction.');trainMenu()}}]);
+  }else{gain('push','pushtry',.4);say('The sphere floats, hesitates, and drops into the ring. Clean.');trainMenu()}}
+
+/* ---------- briefing ---------- */
+function briefing(){
+  head('The Council Briefing');
+  say('The Council chamber is quieter than you expected. A holo of a mining moon turns slowly: <b>Kessel-9</b>. Relief shipments — medicine, mostly — have been failing to arrive for three months.');
+  say('“Pirates,” says a Councillor. “We suspect pirates intercepting the relief convoys.” The moon’s governor has asked for an escort and says the port authority is competent.');
+  say(`${M().name} says little. Later, in the ship’s corridor: “I suspect someone inside the port. But I have no proof. Don’t take my suspicion for a fact.”`,'master');
+  S.ev.C0={type:'CLAIM',text:'Council: pirates are intercepting relief shipments.'};
+  S.ev.C2={type:'CLAIM',text:'Governor: the port authority is competent; send escorts.'};
+  ask([{t:'Board the ship for Kessel-9',f:()=>{S.day+=4;S.scene='hub';land()}}])}
+function land(){
+  head('Kessel-9');
+  say('Red dust, grey sky, the smell of ore-processing on the wind. You land at Port Authority Bay 9 as dusk begins to gather. There are perhaps five hours before the curfew locks down the docks.');
+  if(band()<=1)say(`${M().name} steps out beside you. “Stay near. Tell me what you want to do — I’ll watch.”`,'master');
+  persist();hub()}
+
+/* ---------- investigation hub ---------- */
+function hub(){
+  S.scene='hub';persist();status();
+  if(S.time<=0)return conclude();
+  say(`<span class="sys">Time before curfew: ${S.time} hour${S.time>1?'s':''}. Open the Journal to review what you know.</span>`);
+  if(S.time===2&&!S.flags.asked){S.flags.asked=1;return masterAsks()}
+  const v=S.visited;
+  ask([
+   {t:'Read the dock office logs',if:!v.logs,f:logs},
+   {t:'Question Guard Pell, who reported the “pirate attack”',if:!v.guard,f:guard},
+   {t:'Examine the empty crate at Dock 9',if:!v.crate,f:crate},
+   {t:'Visit the miners’ clinic',if:!v.clinic,f:clinic},
+   {t:'Go to the union hall to find the organizer, Tessa Rin',if:!v.hall&&!!v.clinic,f:hall},
+   {t:'Meet the governor’s aide',if:!v.gov,f:gov},
+   {t:'Enough. Make your conclusion.',if:S.time<5,f:conclude}])}
+function spend(k){S.visited[k]=1;S.time--}
+function masterAsks(){
+  say(`${M().name} draws you aside. “Three hours left. What do you think is happening here? Say it plainly, even if you are unsure.”`,'master');
+  const set=(h,tag,txt)=>()=>{S.hyp=h;if(tag)rec(tag,txt);say('You commit your reading to the journal.','sys');hub()};
+  ask([{t:'Pirates are hitting the convoys.',f:set('Pirates are intercepting the shipments.')},
+   {t:'Someone inside the port is diverting shipments.',f:set('Someone inside the port is diverting shipments.')},
+   {t:'The union organizer, Tessa Rin, is sabotaging the docks.',if:!!S.visited.clinic,f:set('Tessa Rin is behind the sabotage.')},
+   {t:'I don’t know enough yet.',f:set(null,Object.keys(S.ev).length>=4?'honest':'patient','Admitted uncertainty when asked.')}])}
+
+function logs(){spend('logs');
+  say('The dock office clerk yawns as you read the shipment logs. Two things stand out.');
+  const q=S.sk.invest;
+  S.ev.F1={type:'FACT',text:'Manifest 41 lists six medical crates; dock scans show only four loaded.'};
+  say('<b>Manifest 41 lists six medical crates. The scanner logged four.</b> Someone signed off on a shipment that was never fully loaded.');
+  if(q>=1||S.master==='venn'||S.ins.invest){
+    S.ev.F2={type:'FACT',text:'Every amended manifest was signed by Port Logistics Director Halvek Orn.'};
+    say('And the amendments — every last correction — carry the same signature: <b>Halvek Orn, Port Logistics Director</b>.')}
+  else say('There are many amendment stamps. You are not sure what pattern, if any, they make.');
+  gain('invest','logs',.6);rec('evidence','Read the dock logs closely.');trace();hub()}
+function trace(){}
+
+function guard(){spend('guard');
+  say('Guard Pell is a thin man with bloodshot eyes. He keeps looking at the door behind you. “Pirates,” he says. “Came out of the ore-dust. We had no chance.”');
+  S.ev.C1={type:'CLAIM',text:'Guard Pell: pirates ambushed the convoy.'};
+  say(`${M().name} watches from the doorway, arms folded, not intervening.`);
+  const has=!!S.ev.F1;
+  ask([
+   {t:'Show him the manifest discrepancy and ask him to explain it',if:has,f:()=>{
+     say('Pell’s face goes grey. “I — I was told not to scan the last two. That’s all. Just told.” He won’t say by whom. A man in a grey coat, he whispers.');
+     S.ev.T1={type:'CLAIM',text:'Pell: he was told not to scan two crates, by a man in a grey coat.'};gain('talk','guard',.5);rec('evidence','Confronted guard with the manifest.');rec('patient','Used evidence rather than pressure.');hub()}},
+   {t:'Ask what frightens him, and promise to keep him safe',f:()=>{
+     say('“They know where my daughter goes to school,” he says at last. “Men in grey coats. They said pirates would be the story.”');
+     S.ev.T1={type:'CLAIM',text:'Pell: men in grey coats threatened his family and told him to say “pirates.”'};
+     emo('compassion',1);gain('talk','guard',.6);rec('compassion','Listened to a frightened guard.');rec('honest','Promised only what could be kept.');hub()}},
+   {t:'Lean on him: “Stop lying, or I’ll have you arrested.”',f:()=>{
+     say('Pell shuts down. “I want a lawyer.” Nothing more. He glances at you like an animal watching a door close.');
+     emo('anger',1);emo('confidence',0);gain('talk','guard',.1);rec('hasty','Pressed a frightened witness without evidence.');
+     if(hi('anger'))say('Your pulse is loud. Something in you would love for him to simply <i>say it</i>.','dark');hub()}},
+   {t:'<span style="color:var(--acc)">Reach into his mind and pull the truth out</span>',if:S.affinity==='mental'||hi('anger')||S.sk.talk>=1,f:()=>{
+     say('The Force closes around Pell’s thoughts like water. “Grey coats,” he mumbles. “Halvek’s office. Not pirates.” His nose bleeds.','force');
+     S.ev.T1={type:'CLAIM',text:'Pell (under Force influence): Halvek’s people told him to blame pirates.'};
+     gain('talk','guard',.2);S.emo.anger=Math.max(0,S.emo.anger-1);rec('coerce','Used mind influence on a frightened guard.');
+     emo('confidence',1);hub()}}
+  ]);}
+
+function crate(){spend('crate');
+  say('Dock 9 is quiet. One crate lies open on the rust-coloured concrete, stencilled MEDICAL — FRAGILE. Its lid is split. It is empty.');
+  ask([{t:'Search it the ordinary way first',f:()=>{say('Pry marks, a hasty tape job, and a smear of grease. A worker’s boot print, or a guard’s.');S.ev.F3={type:'FACT',text:'The crate lid was pried and re-taped by hand, not by pirates’ tools.'};gain('invest','crate',.4);rec('patient','Examined the crate physically first.');psy()}},
+   {t:'Reach for it with the Force immediately',f:()=>{psy()}}])}
+function psy(){
+  const good=S.sk.sense+S.sk.composure*.5-S.emo.fear;
+  say('You lay a hand on the split lid and let the Force move through it. The world narrows to a rhythm: hurried breathing, cold sweat, the taste of metal.','force');
+  if(hi('fear')||good<1){
+    say('A figure with a blaster looms out of the dust. Shouting. Your heart hammers — and you can’t tell whether that is <i>your</i> fear or the fear in the crate.','force');
+    S.ev.I1={type:'IMPRESSION',text:'Distorted vision: an armed figure in the dust. (Possibly fear rather than memory.)'};
+    say('The vision fades. You are left uneasy, unsure how much of it is real.');emo('fear',1)}
+  else{
+    say('A man with a ledger, hands shaking. Fear — then guilt, then a fear of being caught. Grey fabric at the edge of the frame. Not a blaster: a datapad.','force');
+    S.ev.I1={type:'IMPRESSION',text:'A man with a ledger felt fear and guilt at this crate; grey coat. (Impression, not proof.)'};
+    say('The image is honest but partial. It doesn’t show a face.')}
+  gain('sense','crate',.6);
+  if(S.master==='venn'||S.master==='kara')mline(S.master==='venn'?'What did you feel, and what did you see? Those are different things.':'That was a heavy one. Are you all right?');
+  rec('patient','Used psychometry carefully.',{react:false});hub()}
+
+function clinic(){spend('clinic');
+  say('The miners’ clinic is crowded. A weary nurse shows you the empty medicine cabinet. “Insulin, antibiotics — gone for three months. Children first. People are dying who shouldn’t.”');
+  S.ev.F5={type:'FACT',text:'The clinic has had no shipments of key medicines for three months.'};
+  emo('compassion',1);emo('anger',1);
+  say('She mentions Tessa Rin, a union organizer who has been warning them: “She said the docks were being robbed. Now the port says <i>she</i> did the sabotage. She hasn’t been seen since.”');
+  S.ev.C3={type:'CLAIM',text:'Port authority: union organizer Tessa Rin sabotaged the docks.'};
+  ask([{t:'Spend a few minutes helping carry the wounded to cots',f:()=>{say('It costs you time, but people look at you differently afterward.');rec('compassion','Stopped to help at the clinic.');S.flags.helped=1;S.time--;hub()}},{t:'Thank her and go',f:hub}])}
+
+function hall(){spend('hall');
+  say('The union hall is dark. Boxes of leaflets, a cold stove. You feel a life-signature hiding in the storeroom.');
+  say(`${M().name} stays outside on the steps: “Your judgment. I’ll be here.”`,'master');
+  say('A woman in her thirties steps out holding a lead pipe with both hands. <b>Tessa Rin.</b> “The Jedi. Come to take me in?”');
+  ask([
+   {t:'“I’m not here to arrest you. I’m here to find out what happened.”',f:()=>{
+     say('She lowers the pipe slowly. After a long minute: “Halvek Orn falsified the manifests. I copied the real ledger before they framed me.” She hands you a datacard.');
+     S.ev.F4={type:'FACT',text:'A ledger copy from Tessa Rin shows the true shipment counts and Halvek’s diversions.'};
+     S.flags.tessaSafe=1;emo('compassion',1);gain('talk','hall',.7);rec('honest','Was honest with Tessa Rin.',{witnessed:false});rec('compassion','Won Tessa’s trust without force.',{witnessed:false});hub()}},
+   {t:'“Put it down. You’re coming with me.”',f:()=>{
+     say('She throws the pipe and bolts through the back. The storeroom door slams. By the time you reach the alley, she’s gone — along with any chance of a copy of that ledger.');
+     emo('anger',1);S.flags.tessaGone=1;rec('hasty','Frightened away the key witness.',{witnessed:false});hub()}},
+   {t:'<span style="color:var(--acc)">Freeze her mind so she can’t run, then take the datacard</span>',if:S.sk.push>=.8||hi('anger'),f:()=>{
+     say('Her limbs go slack mid-step. You take the datacard from her fingers; her eyes follow you with pure hatred. It works. That’s what unsettles you most.','dark');
+     S.ev.F4={type:'FACT',text:'Ledger copy (taken by force): true shipment counts and Halvek’s diversions.'};
+     S.flags.tessaHurt=1;emo('anger',-1);rec('shortcut','Froze a frightened woman’s mind and took her evidence.',{witnessed:false});hub()}}
+  ])}
+
+function gov(){spend('gov');
+  say('The governor’s aide is smooth, uncurious, and very sure. “Pirates. Send the escort, Padawan. The port authority — Director Orn especially — has been nothing but helpful.”');
+  say(`${M().name} lets you handle it. His eyes, though, are on the aide’s hands.`,'master');
+  ask([{t:'Accept the aide’s explanation. It matches the Council’s view.',f:()=>{S.flags.tookGovLine=1;rec('obey','Deferred to the official line.');hub()}},
+   {t:'Note that Halvek Orn’s name keeps appearing, and ask what he does here.',f:()=>{say('The aide’s answer is smoother than the question. He is defending someone, not the port. You write it down.');S.ev.C4={type:'CLAIM',text:'Governor’s aide vouches strongly for Halvek Orn.'};gain('invest','gov',.5);rec('evidence','Noticed the aide protecting Halvek.');hub()}}])}
+
+/* ---------- conclusion ---------- */
+function conclude(){
+  head('The Port at Night');
+  say('The curfew bell tolls across the docks. Floodlights snap on. It is time to say what you believe.');
+  const proof=['F1','F2','F4','T1'].filter(k=>S.ev[k]).length;S.flags.proof=proof;
+  say(`<span class="sys">You have ${Object.keys(S.ev).length} entries in your journal. Whatever you decide, the story continues.</span>`);
+  ask([
+   {t:'Confront Director Halvek Orn with what you know',f:()=>confront(proof)},
+   {t:'Name Tessa Rin as the saboteur',f:()=>wrong('tessa')},
+   {t:'Tell the governor: pirates. Request the escort.',f:()=>wrong('pirates')},
+   {t:'Tell the Master you do not have enough to name anyone',f:()=>wrong('unsure')}])}
+
+function confront(proof){
+  say('Halvek Orn is a heavy, well-dressed man with a nervous smile and men in grey coats standing at the edge of the light.');
+  say('“Padawan. This is highly irregular.”');
+  if(proof>=3){
+    say('You lay it out: the manifest, the signatures, the copy of the true ledger, a frightened guard. Halvek’s smile falls away piece by piece. One of his men reaches for a vibro-blade — and Halvek waves him back.');
+    say('“…I want a lawyer,” he says, hoarsely. He knows he is finished.');
+    S.flags.outcome='justice';rec('evidence','Laid out the case cleanly.');rec('decisive','Confronted the director with the case.');
+    return aftermath()}
+  say('You say what you can. Halvek shrugs. “Rumor. Fabrication.” He glances left, and a man in a grey coat steps forward, vibro-blade drawn.');
+  if(proof===2)say('You have enough to plant doubt, but not to convict — and he knows it.','sys');
+  else rec('hasty','Confronted the director without enough proof.');
+  say('“Brann,” Halvek says softly. “See that the Padawan reconsiders.”');
+  ask([{t:'Ignite your lightsaber and face Brann',f:()=>duel()},
+   {t:'Try to talk Brann down before he moves',f:()=>{
+     const ok=S.sk.talk+S.sk.composure*.5>=1.8&&!hi('anger');
+     if(ok){say('You keep your voice level and your blade off. Brann hesitates — long enough for Halvek’s composure to crack, and for your Master to step forward.');rec('restraint','De-escalated an armed enforcer.');rec('decisive','Kept command of a tense moment.');S.flags.outcome=proof>=2?'partial':'wrong';aftermath()}
+     else{say('Brann’s eyes go flat. “Sorry, kid.” He attacks.');duel()}}}])}
+
+/* ---------- duel ---------- */
+function duel(){
+  head('Lightsaber Duel: Brann Kole');
+  const st={pg:3,eg:3,round:1};
+  say('Your blade’s blue light throws Brann’s shadow across the concrete. This is not a drill. One clean hit from either of you could end it.');
+  if(S.master==='doran'||band()<=1)say(`${M().name} is close, hand on his own hilt, ready — but not intervening.`,'master');
+  duelRound(st)}
+function skillRead(){return S.sk.saber+S.sk.sense+S.sk.composure*.5-S.emo.fear}
+function duelRound(st){
+  if(st.pg<=0)return downed();
+  if(st.eg<=0)return opening();
+  if(st.round>6){say('The exchange breaks apart at the sound of sirens. Brann falls back, spits, and vanishes into the dark.');rec('patient','Survived a long duel without ending it.');S.flags.outcome=S.flags.proof>=2?'partial':'wrong';return aftermath()}
+  const moves=['high','low','feint'],e=rnd(moves),read=skillRead()>=2.3;
+  const tell={high:'His shoulders lift; the blade rises for an overhead cut.',low:'His hip drops and the blade sweeps low.',feint:read?'His blade lifts high — but his eyes flick to your knees. A feint.':'His blade lifts high for an overhead cut.'}[e];
+  say(`<span class="sys">Round ${st.round} · Your guard: ${'●'.repeat(st.pg)}${'○'.repeat(3-st.pg)} · His guard: ${'●'.repeat(st.eg)}${'○'.repeat(3-st.eg)}</span>`);
+  say(tell);
+  if(hi('fear'))say('Your vision tunnels; you catch only the blade, not the man.','sys');
+  const acts=[{t:'Parry high',k:'H'},{t:'Parry low',k:'L'},{t:'Sidestep and counter',k:'S'},{t:'Press the attack',k:'P'}];
+  const opts=acts.map(a=>({t:a.t,f:()=>resolve(st,e,a.k)}));
+  opts.push({t:'Yield the ground and try to talk',f:()=>{say('You lower the blade a hand’s breadth. “There is no need for this.” Brann answers with a cut you barely turn.');st.pg--;st.round++;rec('hesitate','Tried to yield in the middle of a lethal exchange.');duelRound(st)}});
+  opts.push({t:'<span style="color:var(--red)">Reach for the Force and simply crush his grip</span>',if:hi('anger'),f:()=>darkStrike(st)});
+  ask(opts)}
+function resolve(st,e,k){
+  const good=(e==='high'&&k==='H')||(e==='low'&&k==='L')||(e==='feint'&&k==='S');
+  const dodge=k==='S'&&e!=='feint';
+  st.round++;
+  if(good){st.eg--;say(rnd(['Steel screams; the parry lands true and Brann’s guard rocks open.','You read it. His attack turns aside and he stumbles.','The counter bites; he backs off, breathing hard.']));gain('saber','duel',.5);if(e==='feint')gain('sense','duel',.3)}
+  else if(k==='P'&&S.sk.saber>=1.6){st.eg--;say('You step inside his cut and hit his guard hard. It’s reckless, and it works.');rec('reckless','Pressed inside a lethal cut.',{react:false})}
+  else if(dodge){say('You slip aside. Nothing landed; nothing gained.')}
+  else{st.pg--;say(rnd(['The blade finds a gap; a line of pain across your forearm.','You commit to the wrong side and he punishes it.','Too slow. His strike glances off your guard and you stagger.']));emo('fear',1);emo('anger',1)}
+  duelRound(st)}
+function opening(){
+  say('Brann’s guard breaks. His blade arm swings wide. There is an opening.');
+  const cont=()=>{S.flags.outcome=S.flags.proof>=2?'partial':'wrong';aftermath()};
+  ask([{t:'Strike him down',f:()=>{say('Your saber bites through him. He falls without a sound. It is over instantly — that’s the horror of it.');rec('violent','Killed an opponent who was already beaten.');chron('Killed a syndicate enforcer, Brann Kole, in a duel at Port Authority Bay 9.');emo('confidence',1);emo('anger',-1);S.flags.killed=1;cont()}},
+   {t:'Disarm him',f:()=>{say('Your blade flicks; the vibro-blade spins away into the dust. Brann drops to his knees, empty-handed and stunned.');rec('restraint','Disarmed a beaten opponent.');rec('decisive','Took the opening cleanly.');gain('saber','duel',.8);chron('Disarmed the enforcer Brann Kole rather than killing him.');S.flags.brannLived=1;cont()}},
+   {t:'Push him back with the Force and hold the line',f:()=>{say('A controlled push lifts Brann off his feet and lands him flat. He doesn’t get up quickly.');rec('restraint','Controlled a fight with a measured Force push.');gain('push','duel',.6);S.flags.brannLived=1;cont()}}])}
+function darkStrike(st){
+  say('It surfaces on its own: a Force technique nobody taught you. You close your fist and Brann’s hand — and his throat — clench in sympathy. He drops the blade, choking, clawing. It ends the fight in a heartbeat. It also feels <i>easy</i>.','dark');
+  rec('shortcut','Used an untaught Force grip to end a fight instantly.');
+  chron('First used a dark Force technique that nobody had taught them, to win a fight quickly.');
+  S.flags.brannLived=1;S.flags.darkUsed=1;S.emo.anger=0;S.emo.confidence=Math.min(3,S.emo.confidence+1);
+  S.flags.outcome=S.flags.proof>=2?'partial':'wrong';aftermath()}
+function downed(){
+  say('A solid hit. The world tilts. You are on one knee, your saber arm numb. Brann raises his blade — and then your Master is there, catching it on a hilt, pushing him back.');
+  S.wounded=true;emo('fear',1);rec('hesitate','Was overpowered in a lethal duel.',{react:false});
+  say(`${M().name} does not gloat. “Breathe. You are alive. That is the first lesson.”`,'master');
+  chron('Was badly wounded in a duel at Port Authority Bay 9 and rescued by their Master.');
+  ask([{t:'Get up',f:()=>{S.flags.outcome=S.flags.proof>=2?'partial':'wrong';aftermath()}}])}
+
+/* ---------- alternative conclusions ---------- */
+function wrong(kind){
+  if(kind==='tessa'){say('You name Tessa Rin. The Port Authority is delighted. She is arrested that night in a tenement stairwell.');S.flags.outcome='wrong';S.flags.accused='tessa';rec('hasty','Accused Tessa Rin without verification.');
+    if(S.flags.tessaSafe||S.ev.F4){say('You knew the ledger contradicted this. You accused her anyway.','sys');rec('stubborn','Ignored evidence against his own accusation.')}}
+  if(kind==='pirates'){say('You tell the governor: pirates. The escort is dispatched. The shipments continue to fail.');S.flags.outcome='wrong';S.flags.accused='pirates';rec('obey','Endorsed the pirate story.');
+    if(S.ev.F1)rec('stubborn','Held to the pirate story despite the manifest.')}
+  if(kind==='unsure'){say(`“I don’t have enough yet,” you say. “I’d rather say that than guess wrong.” ${M().name.split(' ')[0]} says nothing for a moment.`);S.flags.outcome='partial';S.flags.accused='none';rec('honest','Refused to name someone on thin evidence.');rec('patient','Chose not to guess.')}
+  aftermath()}
+
+/* ---------- aftermath ---------- */
+function aftermath(){
+  head('Aftermath');
+  const o=S.flags.outcome;
+  if(S.hyp){const hyp=S.hyp,fin=o==='justice'?'Someone inside the port is diverting shipments.':null;
+    if(fin&&hyp!==fin)rec('selfcorrect','Revised the working hypothesis when facts changed.',{react:false});
+    else if(!fin&&(hyp.includes('Pirates')||hyp.includes('Tessa'))&&(S.flags.accused==='pirates'||S.flags.accused==='tessa'))rec('stubborn','Held to an early hypothesis to the end.',{react:false})}
+  if(o==='justice'){
+    say('Halvek Orn is taken into custody. Within days, the relief shipments arrive complete. The clinic lights come back on.');
+    if(S.flags.tessaSafe)say('Tessa Rin is cleared and takes the podium at the union hall. She sends you a two-line note. It says: “Thank you for listening.”');
+    chron('Solved the Kessel-9 case: exposed Port Director Halvek Orn as the source of diverted medical shipments.');S.flags.clinic=1}
+  else if(o==='partial'){
+    say('Halvek slips out of the noose for now, but his men are exposed and the Council orders an audit. It’s not victory — but the truth is on the record, and it will not stay quiet.');
+    chron('Kessel-9: put Halvek Orn under Council audit but did not secure a conviction.');S.flags.clinic=1}
+  else{
+    say('You return to the Temple with a conclusion that does not hold. Within a fortnight the reports say the same thing: shipments still failing. The pirates never appear.');
+    if(S.flags.accused==='tessa')say('Weeks later you learn Tessa Rin died in detention of an untreated infection. You will remember it.');
+    chron('Kessel-9: the case was wrongly resolved; relief shipments kept failing and the true cause remained hidden.')}
+  if(S.flags.tessaGone)chron('Frightened away Tessa Rin, the key witness, at the union hall.');
+  ask([{t:'Return to the Temple',f:debrief}])}
+
+function debrief(){
+  head('The Debrief');
+  say(`${M().name} sits with you at the edge of the Temple gardens as the day ends.`);
+  // private memories: confess or conceal
+  const priv=S.mem.filter(m=>m.priv&&['shortcut','coerce','hasty'].includes(m.tag));
+  const finish=()=>{const top=topTags(2);
+    top.forEach(t=>{const v=M().w[t.tag]||0;const line=rnd(v>=0?M().pos:M().neg);
+      say(`“${line} I noticed that ${PHR[t.tag]}.”`,'master')});
+    say(`“${M().close}”`,'master');
+    growth()};
+  if(priv.length&&!S.flags.confessed){
+    const p=priv[0];
+    say(`There is something ${M().name.split(' ')[0]} does not know: ${p.note.toLowerCase().replace(/\.$/,'')}.`);
+    ask([{t:'Tell your Master everything, including that.',f:()=>{p.priv=false;p.w=1;applyTag(p.tag,1);rec('honest','Confessed a private action.',{react:false});S.flags.confessed=1;say('The words are hard, and they land as they are. Your Master doesn’t interrupt.');finish()}},
+     {t:'Say nothing. It is nobody’s business.',f:()=>{rec('secret','Concealed a private action from the Master.',{react:false});say('You keep your eyes on the fountain. The silence is heavier than words.');finish()}}])}
+  else finish()}
+
+function growth(){
+  head('Reflection');
+  // Master lesson unlocks conceptual insight
+  const lessons={shortcut:['composure','“The strength that came to you was borrowed from something. Sit with what it wanted from you.”'],hasty:['invest','“Slow hands. Keep facts and hunches apart.”'],hesitate:['saber','“When you commit, commit.”'],violent:['composure','“You could have chosen otherwise. Remember that you could have.”']};
+  const t=topTags(3).map(x=>x.tag).find(x=>lessons[x]);
+  if(t){const [sk,txt]=lessons[t];say(`${M().name} gives you a single sentence to take away: ${txt}`,'master');S.ins[sk]=true;S.sk[sk]+=.6;say(`<span class="sys">Insight gained — your ${SKILLS[sk]} deepens.</span>`)}
+  // independence
+  const b0=band();const r=S.rel;
+  if(r.trust>=1.5&&r.respect>=1.5&&r.concern<2.5){S.rel.indep=Math.max(S.rel.indep,b0+1);say(`${M().name}: “On the next assignment, I will hand you an outcome, not a method.”`,'master')}
+  else if(r.concern>=3)say(`${M().name}: “I am not letting you go alone yet.”`,'master');
+  S.day+=7;S.emo={fear:0,anger:0,confidence:1,compassion:1};S.wounded=false;
+  chron(`Relationship with Master ${M().name}: ${relState()}.`);
+  status();
+  ask([{t:'View your Career Chronicle',f:chronicle}])}
+
+function chronicle(){
+  head('Career Chronicle');
+  say(`Year 2, Day ${S.day}. <b>${S.name}</b>, Padawan of ${M().title} Master <b>${M().name}</b>.`);
+  say('Skills at a glance:');
+  say(Object.keys(SKILLS).map(k=>`${SKILLS[k]}: <b>${rank(k)}</b>`).join(' · '),'sys');
+  S.chron.forEach(l=>say('· '+l,'sys'));
+  say(`Relationship with your Master: <b>${relState()}</b>. Independence: <b>${BANDS[band()]}</b>.`);
+  say('You are still a Padawan. The Trials are years away. But the record has begun — and it is yours.');
+  S.scene='done';persist();
+  ask([{t:'Play again with a different Master or temperament',f:()=>{log.innerHTML='';S=fresh();status();title()}}])}
+
+/* ---------- boot ---------- */
+S=fresh();title();
+</script>
+</body>
+</html>
