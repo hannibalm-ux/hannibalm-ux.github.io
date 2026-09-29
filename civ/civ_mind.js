@@ -193,6 +193,8 @@ function civPlanDay(c, day){
   else if (ownT && !elder && !(choice && choice[1].extra && choice[1].extra.proj===ownP.id)) add(18*60+30, 'Work', ownT.loc, ownT.note+' after the day\'s work', ownT.extra);
   else add(18*60, 'Chore', home, 'Chores at home');
   add(18*60+40, 'Eat', home, 'Supper');
+  // the curious spend an evening hour or two on their experiments, when the household has food to spare
+  if (civEveningResearcher(c, h, day)){ const rt = CIV_TARGETS.research(c); if (rt) add(20*60+10, 'Work', rt.loc, rt.note+' by lamplight', Object.assign({task:'research'}, rt.extra)); }
   const social = c.personality.extraversion > 0.35 || c.needs.social < 45;
   add(21*60 + (c.traits.includes('Reckless')?45:0), social ? 'Socialize' : 'Leisure', social ? 'loc_town_square' : home, social ? 'Around the evening fire' : 'Quiet evening at home');
   add(DAY, 'Sleep', home, 'Sleeping');
@@ -437,6 +439,14 @@ function civLearnTech(c, t, from){
   else if (from && hash(c.id+t)%4===0) remember(c, `${from.name} showed me ${TECHS[t].label.toLowerCase()}.`, 5, [from.id]);
 }
 
+// who tinkers in the evening: the open-minded, those who want to discover, and anyone already deep in a subject
+function civEveningResearcher(c, h, day){
+  if (!isAdult(c) || c.age > 70 || c.jail || c.away || !CIV_TARGETS.research) return false;
+  if (h && hhFoodDays(h) < 1.2) return false;
+  const deep = Object.values(c.civ.know||{}).some(v=>v >= 25), mine = (S.civ.research||[]).some(r=>r.status==='active' && (r.by===c.id || (r.helpers||[]).includes(c.id)));
+  const drive = c.personality.openness*0.6 + cog(c,'creativity')*0.3 + (civHasGoal(c,'discover') ? 0.4 : 0) + (deep ? 0.2 : 0) + (mine ? 0.3 : 0);
+  return drive > 0.62 && (hash(c.id + day) % 7) < (mine ? 5 : 3); // several evenings a week, more once a project is under way
+}
 // ---------- the daily and weekly mind ----------
 function civMindsDaily(){
   const d = civDay();

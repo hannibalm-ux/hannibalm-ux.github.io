@@ -163,13 +163,15 @@ function civLandUseGoals(c, h){
   const fields = civStructsOf(s=>STRUCTURES[s.def].farm && civOwnedBy(s.owner, c));
   const knowsC = knowsTech(c,'cultivation') || (civTechKnown('cultivation') && kn(c,'agriculture')>=10);
   const pending = civProjects().some(p=>p.owner.k==='hh' && p.owner.id===h.id && STRUCTURES[p.def].farm);
-  const maxF = 1 + (sk(c,'farming')>35 ? 1 : 0) + (h.members.length>4 ? 1 : 0) + ((c.civ.exp.farm||{v:0}).v > 30 ? 1 : 0);
+  const maxF = 1 + (h.members.length>2 ? 1 : 0) + (sk(c,'farming')>35 ? 1 : 0) + (h.members.length>4 ? 1 : 0) + ((c.civ.exp.farm||{v:0}).v > 30 ? 1 : 0) + (c.civ.occ==='farmer' ? 1 : 0);
   if (knowsC && !pending && (season<=1 || (season===2 && civDay()%28<8)) && fields.length < maxF){
     const worry = hhFoodDays(h) < 6 || civHasGoal(c,'winter_stores') || sk(c,'farming') > 25 || S.civ.problems.food > 10;
     const seed = (h.store.grain||0) + (storeFood(S.civ.commons) > 0 ? (S.civ.commons.grain||0) : 0);
-    if (worry && seed >= 8){
-      const def = fields.length || h.members.length<3 ? 'garden' : (civCanBuild('field', [c]) ? 'field' : 'garden');
-      const site = civFindSite(def, S.civ.structs[c.home] ? [S.civ.structs[c.home].x, S.civ.structs[c.home].y] : S.civ.center, {margin:0, maxR:22, test:(x,y,w,hh)=>!civNearWater(x,y,w,hh,0)});
+    // a vegetable plot grows from saved seed and cuttings; a grain field needs seed grain to sow
+    const def = (!fields.length && h.members.length<3) || !civCanBuild('field', [c]) || seed < 8 ? 'garden' : 'field';
+    if (worry){
+      const from = S.civ.structs[c.home] ? [S.civ.structs[c.home].x, S.civ.structs[c.home].y] : S.civ.center, dry = (x,y,w,hh)=>!civNearWater(x,y,w,hh,0);
+      const site = civFindSite(def, from, {margin:0, maxR:22, test:dry}) || civFindSite(def, from, {margin:0, maxR:40, test:dry});
       if (site){ civStartProject(def, site, {k:'hh', id:h.id}, {purpose:'farm', why:'to grow food instead of searching for it'}); civAddGoal(c, 'start_field'); }
     }
   }
@@ -184,7 +186,10 @@ function civLandUseGoals(c, h){
   if (pens.length && loose.length) loose.forEach(a=>a.pen = pens[0].id);
 }
 function civNearWater(x,y,w,h,m){ for (let j=-m;j<h+m;j++) for (let i=-m;i<w+m;i++) if (tileAt(x+i,y+j)===T.WATER) return true; return false; }
-function civFieldFor(c){ const f = civStructsOf(s=>STRUCTURES[s.def].farm && s.status==='active' && (civOwnedBy(s.owner, c) || (s.org && c.civ.employer===s.org))); return f.sort((a,b)=>civFieldUrgency(b)-civFieldUrgency(a))[0] || null; }
+function civFieldFor(c){ const f = civStructsOf(s=>STRUCTURES[s.def].farm && s.status==='active' && (civOwnedBy(s.owner, c) || (s.org && c.civ.employer===s.org))); if (f.length) return f.sort((a,b)=>civFieldUrgency(b)-civFieldUrgency(a))[0];
+  // the common fields are worked by anyone without a field of their own; the harvest goes to the shared store
+  if (!isAdult(c) || c.civ.job) return null; const com = civStructsOf(s=>STRUCTURES[s.def].farm && s.status==='active' && s.owner && (s.owner.k==='community' || s.owner.k==='gov'));
+  return com.length ? com.sort((a,b)=>civFieldUrgency(b)-civFieldUrgency(a) || hash(c.id+a.id)%7-hash(c.id+b.id)%7)[0] : null; }
 function civFieldUrgency(s){ const m = s.meta; return m.stage==='ripe' ? 3 : m.stage==='fallow' ? 2 : 1; }
 CIV_TARGETS.farm = c => { const f = civFieldFor(c); if (!f) return null; const xy = [f.x + hash(c.id)%f.w, f.y + hash(c.id+'y')%f.h]; return {loc:f.id, xy, note:`${f.meta.stage==='ripe'?'Harvesting':f.meta.stage==='fallow'?'Sowing':'Tending'} ${f.name}`, extra:{field:f.id}}; };
 CIV_TASK_VALUE.farm = (c, h) => { const f = civFieldFor(c); if (!f) return 0; const m = f.meta, season = seasonOf(civDay());
@@ -192,7 +197,7 @@ CIV_TASK_VALUE.farm = (c, h) => { const f = civFieldFor(c); if (!f) return 0; co
 CIV_WORK.farm = (c, b, hrs) => {
   const f = S.civ.structs[b.field] || civFieldFor(c); if (!f) return {value:0, why:'no field'};
   const m = f.meta, D = STRUCTURES[f.def], season = seasonOf(civDay()), area = f.w*f.h, st = civOwnerStore(f.owner) || (hhOf(c)||{}).store;
-  const eff = hrs*(0.5+sk(c,'farming')/100);
+  const eff = hrs*(0.5+sk(c,'farming')/100); m.worked = civDay();
   if (m.stage==='fallow'){
     if (season>1 && !D.farm.perennial) return {value:0, why:'too late in the year to sow'};
     m.sowAcc = (m.sowAcc||0) + eff; if (m.sowAcc < area*0.12) return {value:eff*2, why:null};
@@ -226,7 +231,7 @@ function civFieldsDaily(){
     if (season===3 && !STRUCTURES[f.def].farm.perennial){ m.stage = 'fallow'; m.growth = 0; chronicle(`Frost killed the unharvested crop in ${f.name}.`, 4, '❄️', 'farm'); }
   });
   // fields nobody works go wild
-  civStructsOf(s=>STRUCTURES[s.def].farm && s.status==='active').forEach(f=>{ const users = civUsers(f).filter(isAdult); if (!users.length && civDay()-f.built > 30){ f.idle = (f.idle||0)+1; if (f.idle>45){ f.status = 'abandoned'; chronicle(`${f.name} was abandoned and is going back to grass.`, 4, '🌾', 'farm'); } } else f.idle = 0; });
+  civStructsOf(s=>STRUCTURES[s.def].farm && s.status==='active').forEach(f=>{ const users = civUsers(f).filter(isAdult); if (!users.length && civDay()-f.built > 30 && !(f.meta.worked!=null && civDay()-f.meta.worked < 40)){ f.idle = (f.idle||0)+1; if (f.idle>45){ f.status = 'abandoned'; chronicle(`${f.name} was abandoned and is going back to grass.`, 4, '🌾', 'farm'); } } else f.idle = 0; });
   civStructsOf(s=>(STRUCTURES[s.def].farm||STRUCTURES[s.def].ranch) && s.status==='abandoned').forEach(f=>{ f.cond -= 2; if (f.cond<=0) civRemoveStruct(f, 'abandon'); });
 }
 

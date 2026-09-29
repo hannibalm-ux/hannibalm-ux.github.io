@@ -262,7 +262,7 @@ const STRUCTURES = {
   exchange_hall:{label:'Stock exchange',      cat:'professional',w:5,h:4, style:'hall', roof:'#3a4a6a', mat:{stone:120, glass:20}, labor:300, tech:'masonry', biz:true},
   // education and science
   school_hut:   {label:'Schoolhouse',         cat:'education',w:3,h:3, style:'house', roof:'#b0783a', mat:{wood:30, thatch:10}, labor:50, edu:1},
-  school:       {label:'School',              cat:'education',w:5,h:3, style:'hall', roof:'#8a4a3a', mat:{lumber:60, stone:40}, labor:160, tech:'sawn_lumber', edu:2, up:['academy']},
+  school:       {label:'School',              cat:'education',w:5,h:3, style:'hall', roof:'#8a4a3a', mat:{lumber:60, stone:40}, labor:160, tech:'carpentry', edu:2, up:['academy']},
   trade_school: {label:'Trade school',        cat:'education',w:5,h:4, style:'stone', mat:{brick:80, lumber:30}, labor:220, tech:'bricks', edu:2, trade:true},
   academy:      {label:'Academy',             cat:'education',w:5,h:4, style:'hall', roof:'#3d5588', mat:{stone:120, lumber:40, glass:10}, labor:300, tech:'masonry', edu:3, up:['college']},
   college:      {label:'College',             cat:'education',w:6,h:4, style:'hall', roof:'#5a3a6a', mat:{stone:160, glass:20, lumber:60}, labor:420, tech:'masonry', edu:4, up:['university']},

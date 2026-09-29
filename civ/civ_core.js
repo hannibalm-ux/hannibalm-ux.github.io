@@ -496,9 +496,10 @@ function civEat(c, urgent){
   if (c.away){ c.needs.hunger = Math.max(c.needs.hunger, 55); return true; } // explorers live on what they carried
   const h = hhOf(c), n = c.needs; let ate = false;
   const want = urgent ? 60 : 78;
-  const eatFrom = st => { const order = CIV_FOODS.filter(g=>st[g]>0).sort((a,b)=>(CG[a].perish||999)-(CG[b].perish||999));
-    for (const g of order){ while (st[g]>0 && n.hunger<want){ storeTake(st, g, 1); n.hunger = clamp(n.hunger + CG[g].food, 0, 100); ate = true; c.civ.ateToday = (c.civ.ateToday||0)+1; } if (n.hunger>=want) break; } };
-  if (h) eatFrom(h.store);
+  const eatFrom = (st, keep) => { const order = CIV_FOODS.filter(g=>st[g]>(keep&&keep[g]||0)).sort((a,b)=>(CG[a].perish||999)-(CG[b].perish||999));
+    for (const g of order){ while (st[g]>(keep&&keep[g]||0) && n.hunger<want){ storeTake(st, g, 1); n.hunger = clamp(n.hunger + CG[g].food, 0, 100); ate = true; c.civ.ateToday = (c.civ.ateToday||0)+1; } if (n.hunger>=want) break; } };
+  // seed grain for next year's sowing is not eaten unless there is truly nothing else
+  if (h){ eatFrom(h.store, n.hunger >= 20 ? {grain:civSeedNeed(h)} : null); if (n.hunger < 20) eatFrom(h.store); }
   if (n.hunger < 40){ const inv = c.inventory; if (inv && Object.keys(inv).length) eatFrom(inv); }
   // an empty larder: the shared cache while it lasts, then kin and friends, then the market
   if (n.hunger < 35 && storeFood(S.civ.commons) > 0 && S.civ.rationToday < S.civ.rationCap){ const before = n.hunger; eatFrom(S.civ.commons); if (n.hunger>before){ S.civ.rationToday++; ev('rations'); } }
@@ -511,6 +512,7 @@ function civEat(c, urgent){
     if (nearW || (h && (h.store.water||0) >= 1)){ if (!nearW) storeTake(h.store, 'water', 1); c.civ.drank = dayOf(S.minute); c.civ.thirst = 0; } }
   return ate;
 }
+function civSeedNeed(h){ return civStructsOf(s=>STRUCTURES[s.def].farm && s.owner && s.owner.k==='hh' && s.owner.id===h.id && STRUCTURES[s.def].farm.crop.includes('grain')).reduce((a,s)=>a+Math.ceil(s.w*s.h*0.5), 0); }
 function civAskForFood(c){
   const h = hhOf(c); const kin = S.citizens.filter(o=>o!==c && hhOf(o) && hhOf(o)!==h && (peekRel(o,c.id).tags.includes('Family') || peekRel(o,c.id).affinity>35) && hhFoodDays(hhOf(o))>2.5);
   const giver = kin.sort((a,b)=>peekRel(b,c.id).affinity-peekRel(a,c.id).affinity)[0];
@@ -607,7 +609,13 @@ function civStructsDaily(){
     s.cond = Math.max(0, s.cond - (0.12 + (100-dur)/260)*storm*(age>200?1.4:1));
     if (s.def in {pen:1, ranch:1} && s.cond<30 && hashf(s.x,s.y,d)<0.1) civProblem('neglect', 1);
     // occupied homes and working businesses get patched up by the people who use them
-    if (s.status==='active' && s.cond<70){ const users = civUsers(s); if (users.length && hashf(s.x,s.y,d+1) < 0.25){ const st = civOwnerStore(s.owner) || (hhOf(users[0])||{}).store; const mat = D.mat && Object.keys(D.mat)[0]; if (!mat || (st && storeTake(st, mat, 2)>=1)) s.cond = Math.min(100, s.cond + 6); } }
+    if (s.status==='active' && s.cond<70){ const users = civUsers(s); if (users.length && hashf(s.x,s.y,d+1) < (D.home && s.cond < 35 ? 0.5 : 0.25)){
+      // repairs use the owner's materials, then the family's, then the common store; a home of wood, thatch, clay or stone
+      // can always be patched with what the family gathers, so an occupied hut is not left to fall down around them
+      const mat = D.mat && Object.keys(D.mat)[0], stores = [civOwnerStore(s.owner), (hhOf(users[0])||{}).store, S.civ.commons].filter(Boolean);
+      const natural = D.home && Object.keys(D.mat||{}).every(g=>['wood','thatch','clay','stone','fibre'].includes(g));
+      if (!mat || stores.some(st=>storeTake(st, mat, 2)>=1)) s.cond = Math.min(100, s.cond + 6);
+      else if (natural){ s.cond = Math.min(100, s.cond + 4); ev('homes_patched'); } } }
     if (D.bridge && s.cond<=0){ civRemoveStruct(s, 'collapse'); civProblem('infrastructure', 3); return; }
     if (s.cond<=0 && D.cat!=='farm' && D.cat!=='ranch'){ civRemoveStruct(s, 'collapse'); civProblem('housing', 1); return; }
     if (s.status==='active' && !civUsers(s).length && !D.bridge && !D.tile && age>30 && s.cond<35 && hashf(s.x,s.y,d+2)<0.03){ s.status = 'abandoned'; chronicle(`${s.name} stands empty and is falling apart.`, 3, '🏚️', 'land'); }

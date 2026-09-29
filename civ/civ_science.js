@@ -137,7 +137,7 @@ function civPreciousDaily(){
 const RESEARCH_STAGES = ['observe','question','hypothesis','experiment','record','replicate','communicate'];
 function civResearchers(){ return S.citizens.filter(c=>isAdult(c) && civTaskAvailable(c, 'research')); }
 CIV_TARGETS.research = c => { const lab = civStructsOf(s=>STRUCTURES[s.def].lab || STRUCTURES[s.def].edu>=4)[0]; if (lab) return {loc:lab.id, note:`Research at ${lab.name}`, extra:{}}; return {loc: c.home && LOC[c.home] ? c.home : 'loc_town_square', note:'Tinkering and taking notes', extra:{}}; };
-CIV_TASK_VALUE.research = (c) => { const food = hhOf(c) ? hhFoodDays(hhOf(c)) : 0; if (food < 3) return 0; return (c.personality.openness*4 + cog(c,'creativity')*4 + (civHasGoal(c,'discover')?5:0) + (civStructsOf(s=>STRUCTURES[s.def].lab).length?3:0) + (c.civ.employer && S.civ.orgs[c.civ.employer] && S.civ.orgs[c.civ.employer].type==='institute' ? 8 : 0)); };
+CIV_TASK_VALUE.research = (c) => { const food = hhOf(c) ? hhFoodDays(hhOf(c)) : 0; if (food < 1.5) return 0; return (food < 3 ? 0.5 : 1) * (c.personality.openness*4 + cog(c,'creativity')*4 + (civHasGoal(c,'discover')?5:0) + (civStructsOf(s=>STRUCTURES[s.def].lab).length?3:0) + (c.civ.employer && S.civ.orgs[c.civ.employer] && S.civ.orgs[c.civ.employer].type==='institute' ? 8 : 0)); };
 function civRigor(c){ const labs = civStructsOf(s=>STRUCTURES[s.def].lab).map(s=>STRUCTURES[s.def].lab); return clamp(cog(c,'reasoning')*0.35 + kn(c,'mathematics')/250 + (civTechKnown('writing')?0.1:0) + (civTechKnown('counting')?0.05:0) + (labs.length ? Math.max(...labs)*0.08 : 0) + sk(c,'research')/400, 0.05, 0.95); }
 function civPickQuestion(c){
   const C = S.civ;
@@ -151,7 +151,10 @@ function civPickQuestion(c){
 }
 CIV_WORK.research = (c, b, hrs) => {
   const C = S.civ;
-  let R = C.research.find(r=>r.by===c.id && r.status==='active');
+  let R = C.research.find(r=>r.status==='active' && (r.by===c.id || (r.helpers||[]).includes(c.id)));
+  // join a colleague's work in a field we know, rather than starting yet another project alone
+  if (!R){ const j = C.research.filter(r=>r.status==='active' && r.by!==c.id && alive(r.by) && kn(c, r.disc) >= 5 && (r.helpers||[]).length < 3).sort((a,b)=>b.stage-a.stage || b.prog-a.prog)[0];
+    if (j && rnd() < 0.6){ j.helpers = (j.helpers||[]).concat(c.id); R = j; adjustRel(c, alive(j.by), 3); } }
   if (!R){ const q = civPickQuestion(c); if (!q) return {value:0, why:'no question worth asking'}; R = {id:'rp_'+(++C.rSeq), by:c.id, org:c.civ.employer||null, disc:q.disc, q:q.q, theory:q.theory||null, tech:q.tech||null, stage:0, prog:0, results:[], started:civDay(), status:'active', rigor:civRigor(c)}; C.research.push(R); if (C.research.length>200) C.research.splice(0, C.research.length-200); ev('research_started'); }
   const speed = hrs*(0.3 + cog(c,'reasoning')*0.4 + cog(c,'creativity')*0.3)*(1 + (civStructsOf(s=>STRUCTURES[s.def].lab).length ? 0.6 : 0));
   R.prog += speed; c.civ.know[R.disc] = +Math.min(100, kn(c,R.disc) + hrs*0.25*(0.5+cog(c,'learning'))).toFixed(2); c.civ.skill.research = Math.min(100, sk(c,'research') + hrs*0.3);

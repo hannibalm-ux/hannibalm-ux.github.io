@@ -41,7 +41,7 @@ function civDecide(topic, att, convener){
       if (storeFood(C.commons) > 0 && C.rationCap > 120){ C.rationCap = Math.max(100, Math.round(C.rationCap*0.7)); out.push('ration the cache'); }
       if (civFoodDaysAll() < 3 && !C.shipments.some(s=>s.status==='en route')){ const r = civOrderImport('emergency'); if (r) out.push(r); }
       if (!civHas(['granary','warehouse']).length && support(c=>c.civ.cog.planning>0.5) > 0.3){ const r = proj('granary', 'to keep food through the winter'); if (r) out.push(r); }
-      if (civTechKnown('cultivation') && !civStructsOf(s=>STRUCTURES[s.def].farm && s.owner.k==='community').length && support(c=>c.values.includes('Community')) > 0.2){ const r = proj('field', 'a common field for everyone'); if (r) out.push('clear a common field'); }
+      if (civTechKnown('cultivation') && civStructsOf(s=>STRUCTURES[s.def].farm && s.status==='active' && s.owner && (s.owner.k==='community' || s.owner.k==='gov')).length < Math.max(1, Math.floor(S.citizens.length/60)) && support(c=>c.values.includes('Community')) > 0.2){ const r = proj('field', 'a common field for everyone'); if (r) out.push('clear a common field'); }
       return out.join(', ') || null; }
     case 'storage': return proj('granary', 'food keeps spoiling') || (civCanBuild('drying_rack', builders) ? proj('drying_rack', 'to dry fish and meat') : null);
     case 'infrastructure': { const cr = Object.values(C.crossing||{}).reduce((a,b)=>a+b,0); if (cr>5){ C.crossing = C.crossing || {}; const y = Object.entries(C.crossing).sort((a,b)=>b[1]-a[1])[0]; if (y) C.crossing[y[0]] += 20; return 'find a way across the river'; } return null; }
@@ -66,7 +66,8 @@ function civGovDaily(){
   else if (G.stage>=2 && d%7===2 && since>=5 && civProblemTotal()>=3) civGathering('council');
   // council: repeated gatherings with the same respected faces
   const recent = G.meetings.filter(m=>d-m.day<=28).length;
-  const since1 = G.stageHist.length ? d - G.stageHist[G.stageHist.length-1].day : 0;
+  // days since the government last changed shape, read fresh at each step so one day can't jump several stages
+  const sinceStage = () => G.stageHist.length ? d - G.stageHist[G.stageHist.length-1].day : 0, since1 = sinceStage();
   if (G.stage===1 && recent >= 4 && since1 >= 21){
     const values = S.citizens.filter(isAdult).reduce((a,c)=>{ c.values.forEach(v=>a[v]=(a[v]||0)+1); return a; }, {});
     const top = Object.entries(values).sort((a,b)=>b[1]-a[1])[0][0];
@@ -76,15 +77,17 @@ function civGovDaily(){
     civGovStage(2, `A ${G.form} has formed: ${pool.map(c=>c.name).join(', ')} will meet regularly to settle the settlement's business.`);
   }
   // leadership: when the council cannot keep up with a crisis
-  if (G.stage===2 && since1 >= 21 && (P.food>12 || P.crime>6 || P.dispute>8 || P.growth>6 || recent>=6)){
+  // (a council that has already passed laws or set taxes still needs someone to lead it: this depends on having a leader, not on the stage number)
+  const councilDay = (G.stageHist.find(h=>h.stage===2)||{}).day;
+  if (G.stage>=2 && !G.leader && councilDay!=null && d - councilDay >= 21 && sinceStage() >= 3 && (P.food>12 || P.crime>6 || P.dispute>8 || P.growth>6 || recent>=6)){
     const lead = (G.form==='assembly' ? civRespected(1) : civRespected(1, c=>G.council.includes(c.id)))[0] || civRespected(1)[0];
     if (lead){ G.leader = lead.id; lead.office = 'Leader'; const title = G.form==='chieftaincy' ? 'chief' : G.form==='council of elders' ? 'eldest speaker' : G.form==='merchant council' ? 'first merchant' : G.form==='theocratic circle' ? 'high speaker' : 'headman';
-      G.title = title; civGovStage(3, `${lead.name} has been recognised as the settlement's ${title}.`); remember(lead, `They made me ${title}.`, 9); }
+      G.title = title; const txt = `${lead.name} has been recognised as the settlement's ${title}.`; if (G.stage < 3) civGovStage(3, txt); else { G.stageHist.push({stage:3, day:d}); chronicle(txt, 8, '🏛️', 'gov'); ev('gov_stage'); } remember(lead, `They made me ${title}.`, 9); }
   }
   if (G.leader && !alive(G.leader)){ G.leader = null; civProblem('dispute', 4); if (G.stage>=3) civSuccession(); }
   G.council = G.council.filter(id=>alive(id));
   // offices appear when a job needs doing
-  if (G.stage>=3 && (G.stage>3 || since1 >= 14)){
+  if (G.stage>=3 && (G.stage>3 || sinceStage() >= 14)){
     // offices are paid where the culture expects it; freedom-minded settlements rely on volunteers
     G.paidOffices = (C.culture ? C.culture.order + C.culture.community >= C.culture.freedom : true);
     if (!G.offices.treasurer && (civMoneyOn() && (C.fund||0) + G.treasury > 30)){ const t = civRespected(1, c=>kn(c,'finance')+kn(c,'mathematics')>15 && !c.office)[0]; if (t) civAppoint('treasurer', t, 'to look after the common purse'); }
@@ -109,7 +112,7 @@ function civElectionsWeekly(){
   const avgOp = lead ? S.citizens.filter(isAdult).reduce((a,c)=>a+peekRel(c,lead.id).affinity,0)/Math.max(1,S.citizens.filter(isAdult).length) : -50;
   const voice = S.citizens.filter(c=>isAdult(c) && (c.values.includes('Freedom') || c.values.includes('Community'))).length / Math.max(1, S.citizens.filter(isAdult).length);
   const noVotes = ['chieftaincy','theocratic circle','oligarchy'].includes(G.form) && voice < 0.55;
-  if (G.stage<5 && !noVotes && (avgOp < 0 || !lead) && voice > 0.3 && civTechKnown('counting')){ civElection('people wanted a say in who leads'); civGovStage(5, 'The settlement held its first election.'); return; }
+  if (!G.elections.length && !noVotes && (avgOp < 0 || !lead) && voice > 0.3 && civTechKnown('counting')){ civElection('people wanted a say in who leads'); if (G.stage < 5) civGovStage(5, 'The settlement held its first election.'); else { G.stageHist.push({stage:5, day:d}); chronicle('The settlement held its first election.', 8, '🏛️', 'gov'); } return; }
   if (G.stage>=5 && G.elections.length && d - G.elections[G.elections.length-1].day >= 56) civElection('the term was up');
 }
 function civElection(why){
@@ -284,7 +287,10 @@ function civEducationWeekly(){
     const s = o.hq && C.structs[o.hq], lvl = o.edu.level;
     if (lvl===1 && civTechKnown('writing') && lit.some(t=>kn(t,'literacy')>=30)){ o.edu.level = 2; civEduStage(3, `${o.name} now teaches reading, writing and sums: a proper primary school.`); }
     if (lvl===2 && lit.length>=2 && s && s.def!=='school_hut'){ o.edu.level = 3; civEduStage(4, `${o.name} has grown into a secondary school.`); }
-    if (lvl===2 && s && s.def==='school_hut' && civCanBuild('school', lit) && !civProjects().some(p=>p.upgradeOf===s.id)){ civStartProject('school', {x:s.x, y:s.y, w:5, h:3}, s.owner, {upgradeOf:s.id, purpose:'education', why:'the schoolhouse is too small'}); }
+    // the schoolhouse is rebuilt as a proper school: bigger if the ground beside it is free, otherwise on its own footprint
+    if (lvl===2 && s && s.def==='school_hut' && civCanBuild('school', lit) && !civProjects().some(p=>p.upgradeOf===s.id)){
+      let fits = true; for (let y=s.y;y<s.y+3 && fits;y++) for (let x=s.x;x<s.x+5;x++){ const t = tileAt(x,y), inHut = x<s.x+s.w && y<s.y+s.h; if (!inHut && (t===-1 || !(t===T.GRASS||t===T.FLOWER||t===T.SAND||t===T.TREE) || S.civ.reserved[tkey(x,y)])){ fits = false; break; } }
+      civStartProject('school', fits ? {x:s.x, y:s.y, w:5, h:3} : {x:s.x, y:s.y, w:s.w, h:s.h}, s.owner, {upgradeOf:s.id, purpose:'education', why:'the schoolhouse is too small'}); }
     if (!o.staff.length){ o.idle = (o.idle||0)+1; if (o.idle>4){ civOrgDissolve(o, 'closed'); if (s){ s.forSale = civMoneyOn(); s.price = s.value; } } } else o.idle = 0;
     // hire another teacher if there are many pupils
     const pupils = S.citizens.filter(k=>!isAdult(k) && k.age>=6).length; if (pupils > o.staff.length*14){ const t = S.citizens.find(c=>isAdult(c) && !c.civ.job && kn(c,'teaching')+sk(c,'teaching') > 35); if (t){ o.staff.push(t.id); t.civ.employer = o.id; chronicle(`${t.name} joined ${o.name} as a teacher.`, 4, '🧑‍🏫', 'learning'); } }
@@ -456,14 +462,16 @@ function civAttractiveness(){
   const jobs = C.jobs.filter(j=>j.open).length, employed = ad.filter(c=>c.civ.job || c.civ.occ).length/Math.max(1,ad.length);
   const wage = civMoneyOn() ? civAvgWage()/(C.econ.level||1) : 0, crime = C.justice.cases.filter(k=>k.kind==='criminal' && civDay()-k.day<56).length/n*10;
   const school = C.edu.stage>=2 ? 0.3 : 0, health = civHas(['healer_hut','clinic','hospital']).length ? 0.3 : 0, tax = C.gov.taxes.rate ? (C.gov.taxes.form==='hearth' ? 0.05 : C.gov.taxes.rate*2) : 0;
-  const opp = C.deposits.filter(d=>d.known && (MIN[d.min].precious || MIN[d.min].fluid) && civDay()-d.found<180).length*0.6 + civOrgs(o=>o.biz).length*0.03;
+  const opp = C.deposits.filter(d=>d.known && (MIN[d.min].precious || MIN[d.min].fluid) && civDay()-d.found<180).length*0.6 + Math.min(0.8, civOrgs(o=>o.biz).length*0.03);
   // newcomers look ahead: arriving before a winter the stores cannot carry is a bad bet
   const full = C.landShort != null && civDay() - C.landShort < 28 ? 1 : 0; // no land left to build on
   const season = seasonOf(civDay()), winterRisk = (season===2 || season===3) ? clamp((20 - civFoodDaysAll())/20, 0, 1) : 0;
-  return {food, homeless, jobs, employed, wage, crime, school, health, tax, opp, winterRisk, score: -winterRisk*1.5 - full*1.5 + food*1.2 - homeless*(homeless > 0.15 ? 3 : 1.2) + Math.min(1, jobs*0.15) + employed*0.5 + wage*0.08 - crime*0.5 + school + health - tax + opp};
+  // word travels fast when people are going hungry: no one moves to a town that cannot feed itself
+  const famine = clamp((4 - civFoodDaysAll())/4, 0, 1) + clamp((S.civ.stats.deaths_privation||0) - (C.starvedSeen||0), 0, 5)*0.3;
+  return {food, homeless, jobs, employed, wage, crime, school, health, tax, opp, winterRisk, famine, score: -famine*2.5 - winterRisk*1.5 - full*1.5 + food*1.2 - homeless*(homeless > 0.15 ? 3 : 1.2) + Math.min(1, jobs*0.15) + employed*0.5 + wage*0.08 - crime*0.5 + school + health - tax + opp};
 }
 function civMigrationMonthly(){
-  const C = S.civ, A = civAttractiveness(); C.attract = A;
+  const C = S.civ, A = civAttractiveness(); C.attract = A; C.starvedSeen = C.stats.deaths_privation||0;
   C.migration.pressure = Math.max(0, A.score);
   // emigration: households who are doing badly and have somewhere better to go; moving far is costly and uncertain
   let left = 0;
