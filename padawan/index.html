@@ -101,7 +101,7 @@ function fresh(){return{scene:'title',name:'Padawan',master:null,cautious:true,a
  emo:{fear:0,anger:0,confidence:1,compassion:1},
  sk:{saber:.5,push:.5,sense:.5,talk:.5,invest:.5,composure:.5},ins:{},ctx:{},
  rel:{trust:1,respect:0,affection:0,indep:1,agree:0,concern:0},
- mem:[],ev:{},hyp:null,time:5,visited:{},flags:{},chron:[],day:121,train:2,wounded:false,mission:0}}
+ world:{unrest:1,syndicate:1,corruption:2,clinic:0},mem:[],ev:{},hyp:null,time:5,visited:{},flags:{},chron:[],day:121,train:2,wounded:false,mission:0}}
 function gain(k,ctx,amt=.5){const n=S.ctx[ctx]||0;S.ctx[ctx]=n+1;S.sk[k]+=amt/(1+n)}
 function chron(t){S.chron.push(t)}
 function emo(k,d){S.emo[k]=clamp(S.emo[k]+d,0,3)}
@@ -470,6 +470,7 @@ function aftermath(){
     say('You return to the Temple with a conclusion that does not hold. Within a fortnight the reports say the same thing: shipments still failing. The pirates never appear.');
     if(S.flags.accused==='tessa')say('Weeks later you learn Tessa Rin died in detention of an untreated infection. You will remember it.');
     chron('Kessel-9: the case was wrongly resolved; relief shipments kept failing and the true cause remained hidden.')}
+  worldUpdate(o);
   if(S.flags.tessaGone)chron('Frightened away Tessa Rin, the key witness, at the union hall.');
   ask([{t:'Return to the Temple',f:debrief}])}
 
@@ -514,7 +515,77 @@ function chronicle(){
   say(`Relationship with your Master: <b>${relState()}</b>. Independence: <b>${BANDS[band()]}</b>.`);
   say('You are still a Padawan. The Trials are years away. But the record has begun — and it is yours.');
   S.scene='done';persist();
-  ask([{t:'Play again with a different Master or temperament',f:()=>{log.innerHTML='';S=fresh();status();title()}}])}
+  ask([{t:'Return to the Temple and await the next assignment',if:S.mission<1,f:nextAssign},
+   {t:'Play again with a different Master or temperament',f:()=>{log.innerHTML='';S=fresh();status();title()}}])}
+
+
+/* ---------- world simulation & second assignment ---------- */
+function worldUpdate(o){const w=S.world;
+  if(o==='justice'){w.corruption=0;w.clinic=2;w.unrest=0;w.syndicate=S.flags.brannLived?1:2}
+  else if(o==='partial'){w.corruption=1;w.clinic=1;w.unrest=1;w.syndicate=2}
+  else{w.corruption=3;w.clinic=0;w.unrest=3;w.syndicate=2}
+  if(S.flags.killed)w.unrest=Math.min(3,w.unrest+1);
+  if(S.flags.accused==='tessa')w.unrest=Math.min(4,w.unrest+1)}
+function nextAssign(){
+  S.mission=1;S.day+=10;S.time=0;S.wounded=false;
+  head('Weeks Later');
+  say('Rumors reach the Temple before the official reports do. Ren Talli finds you in the refectory with a datapad and tells you what the traders are saying.');
+  const w=S.world,news=[];
+  if(w.unrest>=3)news.push('Kessel-9 is restless: crowds have gathered around the clinic, and the port guards are edgy.');
+  if(w.syndicate>=2)news.push('The syndicate that bought Halvek’s silence is rumoured to be looking for whoever talked.');
+  if(w.clinic>=2)news.push('Medicine is arriving on Kessel-9 again. Traders say the price of insulin has halved.');
+  if(!news.length)news.push('Kessel-9 is quiet, for now.');
+  news.forEach(n=>say('· '+n,'sys'));
+  say('The Council posts two assignments that trace back to your own case, and Ren asks quietly if you could help her with a small matter of her own.');
+  const opts=[];
+  if(w.unrest>=2)opts.push({t:'Calm the crowd at the Kessel-9 clinic (unrest is high)',f:crowd});
+  if(w.syndicate>=2)opts.push({t:'Protect Guard Pell and his family from syndicate reprisals',f:protect});
+  opts.push({t:'Help Ren Talli with her own assignment, informally',f:ren});
+  if(opts.length===1)opts.unshift({t:'Follow up on Kessel-9: check on the clinic',f:crowd});
+  ask(opts)}
+function soloNote(){
+  if(band()>=2){say(`${M().name} hands you the assignment and goes elsewhere. “Outcome, not method. Report back.” You’re on your own.`,'master');return false}
+  say(`${M().name} follows a few paces behind, watching.`);return true}
+function crowd(){
+  head('The Clinic Crowd');const w=S.world;const watched=soloNote();
+  say(`Two hundred miners fill the street outside the clinic. ${w.clinic>=2?'They are cheerful, mostly — but the supply of medicine is still thin.':'They are angry: the medicine still has not come, and someone has already thrown a stone.'} A young man with a cracked visor is shouting from a crate. Behind the crowd, port guards are edging forward with shock-batons.`);
+  ask([
+   {t:'Step between the guards and the crowd and calm the guards first',f:()=>{say('You hold up a hand. “Batons down. Please.” The guards look at your saber, then each other. Slowly, the line stops.');rec('restraint','Stopped guards before violence began.',{witnessed:watched});rec('decisive','Took charge of a volatile street.',{witnessed:watched});gain('talk','crowd',.7);crowd2(true,watched)}},
+   {t:'Speak to the crowd directly, with honesty about what you know and don’t',f:()=>{say('You tell them what happened: the fraud, the arrest, the medicine on its way. You say plainly that you can’t promise a date. A murmur runs through them. The young man on the crate comes down.');rec('honest','Was honest with a frightened crowd.',{witnessed:watched});rec('compassion','Spoke to the miners as people.',{witnessed:watched});gain('talk','crowd',.7);emo('compassion',1);crowd2(true,watched)}},
+   {t:'Use a wave of Force pressure to scatter the crowd before it turns violent',f:()=>{say('A ring of pressure shoves the front ranks back. Some fall. The stone-thrower is knocked flat. The crowd disperses — angrier, quieter, and frightened of you.','force');rec('coerce','Scattered a crowd with Force pressure.',{witnessed:watched});emo('anger',1);S.world.unrest++;crowd2(false,watched)}},
+   {t:'Do nothing, and watch how it develops',f:()=>{say('Nobody moves for a moment. Then a baton comes down on the young man’s shoulder and the street erupts.');rec('hesitate','Let a tense moment collapse.',{witnessed:watched});S.world.unrest++;crowd2(false,watched)}}])}
+function crowd2(good,watched){
+  if(good){say('By nightfall the street is clear and the guards have withdrawn. Nobody is hurt worse than bruised. The young man shakes your hand, unwillingly.');S.world.unrest=Math.max(0,S.world.unrest-1);chron('Defused a tense crowd at the Kessel-9 clinic without violence.')}
+  else{say('Order is restored, after a fashion. It will take the moon a long time to forget it.');chron('Handled the Kessel-9 clinic crowd badly; resentment on the moon deepened.')}
+  ask([{t:'Report back to your Master',f:debrief2}])}
+function protect(){
+  head('Reprisals');const watched=soloNote();
+  say('Guard Pell’s house sits at the end of a dusty lane. Two men in grey coats are watching it from a parked speeder. Inside, a child’s lamp is still on.');
+  ask([
+   {t:'Walk up and ask them, openly, what they want',f:()=>{const ok=S.sk.talk+S.sk.composure*.5>=1.6;
+      if(ok){say('You keep your voice steady and your saber on your belt. “Jedi business,” you say. “Leave.” One of them stares at you a long second, then starts the speeder.');rec('restraint','Stared down armed men without drawing.',{witnessed:watched});rec('decisive','Kept command of the scene.',{witnessed:watched});S.flags.pellSafe=1}
+      else{say('They laugh. One reaches for a weapon. You end up forcing them off with a hard push and a raised blade. They flee, but Pell’s family saw everything.');rec('violent','Drove off the syndicate men by force.',{witnessed:watched});S.flags.pellSafe=1}
+      end3()}},
+   {t:'Wait in the shadows and follow them when they leave',f:()=>{say('They leave at midnight. You track them to a rented room in the lower docks — evidence, and a lead on the syndicate itself.');S.flags.lead=1;rec('patient','Chose surveillance over confrontation.',{witnessed:watched});rec('evidence','Followed the men to their base.',{witnessed:watched});gain('invest','protect',.6);end3()}},
+   {t:'Use a Force suggestion: “Leave and forget this house.”',f:()=>{say('Their eyes go blank. “Nothing here,” one mumbles, and they drive away. It’s clean, quiet, and easy — far easier than anything you were taught.','dark');rec('coerce','Used mind influence on syndicate men to drive them off.',{witnessed:watched});S.flags.pellSafe=1;end3()}}])}
+function end3(){
+  if(S.flags.pellSafe)chron('Protected Guard Pell’s family from syndicate reprisals.');else chron('Located the syndicate’s hideout after the Kessel-9 case.');
+  ask([{t:'Report back to your Master',f:debrief2}])}
+function ren(){
+  head('Ren’s Errand');
+  say('Ren’s “small matter” is a mediation between two Temple technicians who accuse each other of tampering with a shipment of crystals. It’s the sort of dispute that could go either way. She wants a second opinion.');
+  const w=S.flags.ren||0;
+  ask([{t:'Listen to both sides and ask each what they’d want to see happen',f:()=>{say('It turns out the technicians simply misread a delivery schedule. You and Ren settle it in twenty minutes.');rec('compassion','Mediated a dispute between two technicians.');rec('patient','Heard both sides before judging.');gain('talk','ren',.6);S.flags.renBond=1;chron('Helped Ren Talli mediate a dispute between Temple technicians.');debrief2()}},
+   {t:'Tell them whoever is at fault should pay and be done',f:()=>{say('Both technicians leave sullen. Ren doesn’t say what she thinks of your judgment.');rec('hasty','Imposed a verdict without listening.');chron('Imposed a hasty verdict on a Temple dispute. Ren Talli was unimpressed.');debrief2()}}])}
+function debrief2(){
+  head('The Next Debrief');
+  const top=topTags(2);
+  top.forEach(t=>{const v=M().w[t.tag]||0;say(`“${rnd(v>=0?M().pos:M().neg)} I noticed that ${PHR[t.tag]}.”`,'master')});
+  const r=S.rel;
+  if(r.trust>=2&&r.respect>=2){S.rel.indep=Math.max(S.rel.indep,band()+1);say(`${M().name}: “You’re no longer just following me. Next time we will investigate side by side.”`,'master')}
+  chron(`Relationship with Master ${M().name}: ${relState()}.`);
+  S.mission=2;S.scene='done';persist();status();
+  ask([{t:'View your Career Chronicle',f:chronicle}])}
 
 /* ---------- boot ---------- */
 S=fresh();title();
