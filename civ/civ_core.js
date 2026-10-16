@@ -516,7 +516,8 @@ function civEat(c, urgent){
   // water: from the household jar, else a walk to the river
   // water: one jar a day from the household, or a drink at the river when working by it
   if (c.civ.drank !== dayOf(S.minute)){ const nearW = [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>tileAt(c.rt.x+dx,c.rt.y+dy)===T.WATER);
-    if (nearW || (h && (h.store.water||0) >= 1)){ if (!nearW) storeTake(h.store, 'water', 1); c.civ.drank = dayOf(S.minute); c.civ.thirst = 0; } }
+    const jar = h && (h.store.water||0) >= 1;
+    if (nearW || jar || civTapWater(c)){ if (!nearW && jar) storeTake(h.store, 'water', 1); c.civ.drank = dayOf(S.minute); c.civ.thirst = 0; } }
   return ate;
 }
 function civSeedNeed(h){ return civStructsOf(s=>STRUCTURES[s.def].farm && s.owner && s.owner.k==='hh' && s.owner.id===h.id && STRUCTURES[s.def].farm.crop.includes('grain')).reduce((a,s)=>a+Math.ceil(s.w*s.h*0.5), 0); }
@@ -655,6 +656,9 @@ function civHealthDaily(){
 }
 function civHomeComfortRaw(c){ const s = c.home && S.civ.structs[c.home]; const D = s && STRUCTURES[s.def]; return D && D.home ? D.home.insul*(0.5+s.cond/200) : 5; }
 function civCrowding(){ let over = 0, n = 0; Object.values(S.civ.hh).forEach(h=>{ const s = h.home && S.civ.structs[h.home]; const cap = s && STRUCTURES[s.def].home ? STRUCTURES[s.def].home.cap : 0; const m = h.members.length; n += m; over += Math.max(0, m-cap); }); const homeless = S.citizens.filter(c=>!S.civ.structs[c.home]).length; return clamp((over + homeless*0.7)/Math.max(1,n), 0, 1); }
+// piped water from a waterworks reaches every home; a well a short walk from home serves those around it
+function civTapWater(c){ if (civHas('waterworks').length) return true; const home = c.home && S.civ.structs[c.home]; if (!home) return false;
+  return civHas('well').some(w=>Math.abs(w.x-home.x) + Math.abs(w.y-home.y) <= 14); }
 function civSanitation(){ let s = 0; if (civHas('latrine').length) s += Math.min(0.3, civHas('latrine').length*6/Math.max(1,S.citizens.length)*0.3*5); if (civHas('well').length) s += 0.15; if (civHas('sewage').length) s += 0.4; if (civHas('waterworks').length) s += 0.2; if (civTechKnown('germ_theory')) s += 0.1; return clamp(s * (civTheoryAccepted('th_miasma') ? 1.1 : 1), 0, 0.9); }
 
 function civLifeDaily(){

@@ -188,7 +188,7 @@ function civDenseDevelop(d){
   const vacant = civStructsOf(s=>s.multi && s.status==='active').reduce((a,s)=>a + Math.max(0, civDenseRoom(s)), 0);
   const building = civProjects().filter(p=>CIV_DENSE.includes(p.def)).length;
   C.denseDemand = demand;
-  if (demand < 4 || vacant >= 8 || building >= 1 + Math.floor(S.citizens.length/300)) return;
+  if (demand < 4 || vacant >= 8 || building >= 1 + Math.floor(S.citizens.length/300)){ C.denseWhy = demand < 4 ? 'little demand' : vacant >= 8 ? 'flats standing empty' : 'a block is already going up'; return; }
   // the best kind of block someone can finance: a firm puts down 15%, an investor 25%, a syndicate of the wealthy pools 30% between
   // them, or the government pays 20% when many still live in huts or without a roof; the rest is paid out as the building goes up
   const builders = S.citizens.filter(isAdult), money = civMoneyOn(), lvl = C.econ.level||1;
@@ -201,10 +201,11 @@ function civDenseDevelop(d){
     const syndicate = pool.length >= 2 && pool.reduce((a,c)=>a + c.wallet*0.4, 0) >= cost*0.3 ? pool : null;
     const publicOK = !firm && !rich && !syndicate && G.stage >= 3 && (!money || (G.treasury||0) - cost*0.2 >= civTreasuryReserve()) && (homeless >= 1 || short || demand >= 10);
     if (firm || rich || syndicate || publicOK){ pick = {def, D, cost, firm, rich, syndicate, publicOK}; break; } }
-  if (!pick) return;
+  if (!pick){ C.denseWhy = CIV_DENSE.some(def=>civCanBuild(def, builders)) ? 'nobody can finance a block' : 'nobody knows how to build one'; return; }
   const {def, D, cost, firm, rich, syndicate} = pick;
   const owner = firm ? {k:'org', id:firm.id} : rich ? {k:'person', id:rich.id} : syndicate ? {k:'person', id:syndicate[0].id} : civTownOwner();
-  const site = civFindSite(def, civMarketCenter(), {margin:1, anySide:true}) || (typeof civFrontierSite==='function' ? civFrontierSite(def, {margin:1}) : null); if (!site){ C.landShort = d; return; }
+  const site = civFindSite(def, civMarketCenter(), {margin:1, anySide:true}) || (typeof civFrontierSite==='function' ? civFrontierSite(def, {margin:1}) : null); if (!site){ C.landShort = d; C.denseWhy = 'no site'; return; }
+  C.denseWhy = 'started';
   if (firm) firm.cash -= Math.round(cost*0.15); else if (rich) rich.wallet -= Math.round(cost*0.25);
   else if (syndicate){ let need = cost*0.3; syndicate.forEach(c=>{ const put = Math.min(c.wallet*0.4, need); c.wallet -= Math.round(put); need -= put; remember(c, `I put money into a new ${D.label.toLowerCase()}.`, 6); }); }
   else if (money) G.treasury -= Math.round(cost*0.2);

@@ -365,7 +365,9 @@ function civLoan(lender, borrower, amt, rate, weeks, purpose){
   const total = Math.round(amt*(1+rate)), per = Math.ceil(total/weeks);
   const k = civContract('loan', [lender, borrower], {principal:amt, rate, weeks, per, left:total, purpose, mortgage: purpose==='home' ? true : false}, 7);
   const lp = lender.k==='person' && alive(lender.id), bp = borrower.k==='person' && alive(borrower.id);
-  if (lp){ lp.civ.log.lend = (lp.civ.log.lend||0) + 3; lp.civ.lent = (lp.civ.lent||0)+1; if (bp) civCredit(lp, 'lend', bp); }
+  if (lp){ lp.civ.log.lend = (lp.civ.log.lend||0) + 3; lp.civ.lent = (lp.civ.lent||0)+1; if (bp) civCredit(lp, 'lend', bp);
+    /* every loan made teaches the lender something about money: judging borrowers, interest, keeping accounts */
+    const fv = lp.civ.know.finance||0, iv = lp.civ.skill.investing||0; lp.civ.know.finance = +Math.min(100, fv + 2.5*(1-fv/110)).toFixed(2); lp.civ.skill.investing = +Math.min(100, iv + 2*(1-iv/112)).toFixed(2); }
   chronicle(`${civOwnerLabel(lender)} lent ${civOwnerLabel(borrower)} ${amt}¢ for ${purpose} at ${Math.round(rate*100)}%.`, 4, '💰', 'finance'); ev('loans');
   if (S.civ.fin.stage < 1) civFinStage(1, 'People have started lending each other money.');
   return k;
@@ -388,7 +390,7 @@ function civFinanceWeekly(){
   if (lenders.length) civFinStage(2, `${lenders[0].name} has become known as a moneylender.`);
   // a lender with many loans, some bookkeeping and enough capital sets up a bank; a close-knit group may form a credit union
   if (F.stage>=2 && !civOrgs(o=>o.type==='bank'||o.type==='credit_union').length){
-    const f = S.citizens.filter(c=>isAdult(c) && ((c.civ.lent||0) >= 3 || c.civ.occ==='lender' || (c.civ.quals||[]).includes('merchant_school')) && kn(c,'finance') >= 20 && c.wallet >= 200*(S.civ.econ.level||1) && (civTechKnown('bookkeeping') || civTechKnown('writing'))).sort((a,b)=>b.wallet-a.wallet)[0];
+    const f = S.citizens.filter(c=>isAdult(c) && ((c.civ.lent||0) >= 3 || c.civ.occ==='lender' || (c.civ.quals||[]).includes('merchant_school')) && kn(c,'finance') >= 20 && civLenderCapital(c) >= 150*(S.civ.econ.level||1) && c.wallet >= 40*(S.civ.econ.level||1) && (civTechKnown('bookkeeping') || civTechKnown('writing'))).sort((a,b)=>civLenderCapital(b)-civLenderCapital(a))[0];
     if (f){ const coop = f.values.includes('Community') && rnd()<0.5; const o = civNewOrg(coop ? 'credit_union' : 'bank', coop ? `${S.civ.stageLabel||'Settlement'} Credit Union` : `${surnameOf(f)} Bank`, [f], {meta:{reserve:0.2}});
       civMoveMoney({k:'person',id:f.id}, civOrgPurse(o), Math.floor(f.wallet*0.7), 'capital'); o.mgr = f.id; f.civ.employer = o.id; f.civ.job = civJobFor(o, f, 'Banker', 3).id; f.profession = 'Banker';
       civFinStage(coop ? 3 : 4, coop ? `${o.name} was founded: members pool their savings and lend to each other.` : `${f.name} opened ${o.name}. Savings can now earn interest, and loans come with paperwork.`);
@@ -407,6 +409,8 @@ function civFinanceWeekly(){
   });
   if (civOrgs(o=>o.type==='bank').length >= 2 || civOrgs(o=>o.type==='exchange').length) civFinStage(5, 'Several banks and an exchange now move the settlement\'s money: it has real financial institutions.');
 }
+// what a lender is worth: cash in hand plus what borrowers still owe them (a moneylender's money is mostly out on loan)
+function civLenderCapital(c){ return c.wallet + Object.values(S.civ.contracts).filter(k=>k.kind==='loan' && k.status==='active' && k.parties[0].k==='person' && k.parties[0].id===c.id).reduce((a,k)=>a + (k.terms.left||0), 0); }
 function civBankFail(b, owed){
   const pay = Math.max(0, b.cash), frac = owed ? pay/owed : 0;
   Object.entries(b.deposits).forEach(([id, amt])=>{ const c = alive(id); if (c){ c.wallet += Math.floor(amt*frac); remember(c, `${b.name} failed. I lost ${Math.round(amt*(1-frac))}¢ of my savings.`, 9); setEmotion(c, 'Anxious', DAY*2); } });

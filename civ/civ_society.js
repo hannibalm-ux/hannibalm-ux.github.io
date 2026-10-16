@@ -153,11 +153,13 @@ function civTaxDaily(){
     const form = G.form==='merchant council' ? 'trade' : G.form==='assembly' ? 'income' : 'hearth';
     G.taxes = {rate: form==='hearth' ? 1 : 0.04, form, since:civDay()}; chronicle(`To pay for its offices, the settlement introduced a ${form} tax.`, 8, '💰', 'gov'); if (G.stage<7) civGovStage(7, 'The government now raises taxes.'); ev('taxes');
   }
+  // a budget review each month: the rate follows what the settlement needs to keep its public works going
+  if (G.taxes.rate && d%28===14) civBudgetReview();
   if (G.taxes.rate && civDay()%7===0){
     let got = 0;
     if (G.taxes.form==='hearth') Object.values(C.hh).forEach(h=>{ const p = civOwnerPurse({k:'hh', id:h.id}); if (civMoveMoney(p, {k:'gov'}, G.taxes.rate*(C.econ.level||1), 'tax')){ got += G.taxes.rate; hhAdults(h).forEach(a=>{ const w = cogOf(a).week = cogOf(a).week || {}; w.tax = (w.tax||0) + G.taxes.rate*(C.econ.level||1)/Math.max(1, hhAdults(h).length); }); } });
     else S.citizens.filter(c=>isAdult(c) && c.wallet > 20).forEach(c=>{ const w = weekSum(c,'inc'), t = Math.round(w*G.taxes.rate*100)/100; if (t>0 && civMoveMoney({k:'person',id:c.id}, {k:'gov'}, t, 'tax')){ got += t; const w = cogOf(c).week = cogOf(c).week || {}; w.tax = (w.tax||0) + t; } });
-    civOrgs(o=>o.biz && o.profitAvg>0).forEach(o=>{ const t = +(o.profitAvg*0.05).toFixed(2); if (civMoveMoney(civOrgPurse(o), {k:'gov'}, t, 'tax')) got += t; });
+    const bizRate = G.taxes.form==='hearth' ? 0.05 : Math.max(0.05, G.taxes.rate); civOrgs(o=>o.biz && o.profitAvg>0).forEach(o=>{ const t = +(o.profitAvg*bizRate).toFixed(2); if (civMoveMoney(civOrgPurse(o), {k:'gov'}, t, 'tax')) got += t; });
     G.taxWk = Math.round(got); if (S.week) S.week.taxes += Math.round(got);
     // pay the office holders
     if (G.paidOffices!==false) Object.values(G.offices).forEach(id=>{ const c = alive(id); if (c) civMoveMoney({k:'gov'}, {k:'person', id}, 3*(C.econ.level||1), 'salary'); });
@@ -165,6 +167,16 @@ function civTaxDaily(){
   // departments: once the government is running several kinds of service
   if (G.stage===7){ const kinds = new Set(); if (civProjects().some(p=>p.owner.k==='gov') || civStructsOf(s=>s.owner.k==='gov').length) kinds.add('public works'); if (C.justice.stage>=3) kinds.add('justice'); if (C.edu.stage>=3) kinds.add('education'); if (civHas(['clinic','hospital']).length) kinds.add('health'); if (G.offices.treasurer) kinds.add('treasury');
     if (kinds.size>=4 && G.treasury > 150){ G.depts = [...kinds]; civGovStage(8, `The government has organised itself into departments: ${G.depts.join(', ')}.`); } }
+}
+
+function civBudgetReview(){
+  const C = S.civ, G = C.gov, T = G.taxes, reserve = civTreasuryReserve(), tr = G.treasury||0;
+  const waiting = civProjects().filter(p=>p.owner.k==='gov').length + civHomelessHH().length + ((C.denseDemand||0) >= 10 ? 1 : 0);
+  // a flat charge per hearth can't pay for a city: once there are accounts to keep, people pay a share of what they earn
+  if (T.form==='hearth' && civTechKnown('bookkeeping') && S.citizens.length >= 150){ G.taxes = {rate:0.05, form:'income', since:civDay()}; chronicle('The flat hearth tax was replaced by a tax on income.', 6, '💰', 'gov'); ev('tax_changes'); return; }
+  const step = T.form==='hearth' ? 0.5 : 0.01, max = T.form==='hearth' ? 4 : 0.15, min = T.form==='hearth' ? 1 : 0.03;
+  if (tr < reserve && waiting > 0 && T.rate < max){ T.rate = +Math.min(max, T.rate + step).toFixed(2); chronicle(`With public works waiting and the treasury low, the ${T.form} tax was raised.`, 4, '💰', 'gov'); ev('tax_changes'); }
+  else if (tr > reserve*4 && T.rate > min){ T.rate = +Math.max(min, T.rate - step).toFixed(2); chronicle(`The treasury is comfortable, so the ${T.form} tax was lowered.`, 4, '💰', 'gov'); ev('tax_changes'); }
 }
 
 // ---------- justice ----------
@@ -272,7 +284,7 @@ function civSchoolDecision(convener){
   if (kids.length < 6 || !teacher) return null;
   if (civOrgs(o=>o.type==='school').length) return null;
   const o = civNewOrg('school', `${S.civ.stageLabel||'Settlement'} School`, [teacher], {edu:{level:1}}); o.staff.push(teacher.id); o.mgr = teacher.id; teacher.civ.employer = o.id;
-  const site = civFindSite('school_hut', C.center, {margin:1}); if (site) civStartProject('school_hut', site, {k:'org', id:o.id}, {org:o.id, purpose:'education', why:`for ${teacher.name.split(' ')[0]}'s pupils`});
+  const site = civFindSite('school_hut', C.center, {margin:1}) || civFindSite('school_hut', C.center, {margin:1, anySide:true}); if (site) civStartProject('school_hut', site, civTownOwner(), {org:o.id, purpose:'education', why:`for ${teacher.name.split(' ')[0]}'s pupils`});
   civEduStage(2, `The settlement started a small community school, with ${teacher.name} teaching.`); ev('schools');
   return 'start a school';
 }
@@ -288,7 +300,7 @@ function civEducationWeekly(){
     if (lvl===1 && civTechKnown('writing') && lit.some(t=>kn(t,'literacy')>=30)){ o.edu.level = 2; civEduStage(3, `${o.name} now teaches reading, writing and sums: a proper primary school.`); }
     if (lvl===2 && lit.length>=2 && s && s.def!=='school_hut'){ o.edu.level = 3; civEduStage(4, `${o.name} has grown into a secondary school.`); }
     // a school with no building of its own (never built, or fallen down) gets one: a proper school if anyone can build it, else a schoolhouse
-    if (!s && !civProjects().some(p=>p.org===o.id)){ const ad = S.citizens.filter(isAdult), def = civCanBuild('school', ad) ? 'school' : civCanBuild('school_hut', ad) ? 'school_hut' : null, site = def && civFindSite(def, C.center, {margin:1});
+    if (!s && !civProjects().some(p=>p.org===o.id)){ const ad = S.citizens.filter(isAdult), def = civCanBuild('school', ad) ? 'school' : civCanBuild('school_hut', ad) ? 'school_hut' : null, site = def && (civFindSite(def, C.center, {margin:1}) || civFindSite(def, C.center, {margin:1, anySide:true}) || civFindSite(def, C.center, {margin:0, anySide:true}));
       if (site) civStartProject(def, site, civTownOwner(), {org:o.id, purpose:'education', pay: civMoneyOn() ? 2 : 0, why:`${o.name} has no building`}); }
     // the schoolhouse is rebuilt as a proper school: bigger if the ground beside it is free, otherwise on its own footprint
     if (lvl===2 && s && s.def==='school_hut' && civCanBuild('school', S.citizens.filter(isAdult)) && !civProjects().some(p=>p.upgradeOf===s.id)){ // any carpenter in town can raise it, not only the teachers

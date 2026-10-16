@@ -161,7 +161,9 @@ function civPlanDay(c, day){
       const t = civKidTask(c, day);
       add(12*60, t.act, t.loc, t.note, t.extra); add(12*60+40, 'Eat', 'here', 'A bite to eat');
       const t2 = c.age>=12 ? civKidTask(c, day+0.5) : {act:'Leisure', loc:'loc_town_square', note:'Playing games on the commons', extra:{task:'play'}};
-      add(17*60+30, t2.act, t2.loc, t2.note, t2.extra); add(18*60+30, 'Eat', home, 'Supper');
+      add(17*60+30, t2.act, t2.loc, t2.note, t2.extra);
+      const hk = hhOf(c); if (hk && civWaterCarrier(hk)===c.id && (hk.store.water||0) < hk.members.length*2){ const w = civTarget(c, 'water'); add(18*60, 'Work', w.loc, 'Fetching water', {task:'water', xy:w.xy}); } /* children on their own */
+      add(18*60+30, 'Eat', home, 'Supper');
     }
     add(20*60+30, 'Socialize', 'loc_town_square', 'At the fire with the family'); add(DAY, 'Sleep', home, 'Sleeping');
     civFixHere(c, B); return {day, by:'civ', blocks:B};
@@ -202,7 +204,7 @@ function civPlanDay(c, day){
   return {day, by:'civ', blocks:B};
 }
 function civFixHere(c, B){ B.forEach((b,i)=>{ if (b.loc==='here'){ const prev = B[i-1]; if (prev && prev.xy){ b.xy = prev.xy; b.loc = prev.loc; } else b.loc = prev ? prev.loc : c.home; } }); }
-function civWaterCarrier(h){ const ad = hhAdults(h); if (!ad.length) return null; return ad.slice().sort((a,b)=>(a.age>60)-(b.age>60) || a.civ.cog.planning-b.civ.cog.planning)[civDay()%Math.max(1,ad.length)].id; }
+function civWaterCarrier(h){ const ad = hhAdults(h); if (!ad.length){ const kid = hhMembers(h).filter(k=>k.age>=8).sort((a,b)=>b.age-a.age)[0]; return kid ? kid.id : null; } /* children on their own fetch it themselves */ return ad.slice().sort((a,b)=>(a.age>60)-(b.age>60) || a.civ.cog.planning-b.civ.cog.planning)[civDay()%Math.max(1,ad.length)].id; }
 function civKidTask(c, day){
   const school = civSchoolFor(c);
   if (school) return {act:'Learn', loc:school.loc, note:`Lessons at ${school.name}`, extra:{task:'learn', xy:school.xy, school:school.id}};
