@@ -189,17 +189,29 @@ function civDenseDevelop(d){
   const building = civProjects().filter(p=>CIV_DENSE.includes(p.def)).length;
   C.denseDemand = demand;
   if (demand < 4 || vacant >= 8 || building >= 1 + Math.floor(S.citizens.length/300)) return;
-  const builders = S.citizens.filter(isAdult), def = CIV_DENSE.find(x=>civCanBuild(x, builders)); if (!def) return;
-  const D = STRUCTURES[def], cost = Math.round(Object.entries(D.mat).reduce((a,[g,q])=>a + q*civPrice(g), 0) + D.labor*2*(C.econ.level||1));
-  const firm = civMoneyOn() ? civOrgs(o=>o.biz && BUSINESS_TYPES[o.biz] && BUSINESS_TYPES[o.biz].contractor && o.cash > cost*0.4).sort((a,b)=>b.cash-a.cash)[0] : null;
-  const rich = civMoneyOn() && !firm ? S.citizens.filter(c=>isAdult(c) && !c.jail && c.wallet > cost*0.6).sort((a,b)=>b.wallet-a.wallet)[0] : null;
-  const publicOK = !firm && !rich && G.stage >= 3 && (!civMoneyOn() || (G.treasury||0) - cost*0.4 >= civTreasuryReserve()) && (homeless >= 2 || short);
-  const owner = firm ? {k:'org', id:firm.id} : rich ? {k:'person', id:rich.id} : publicOK ? civTownOwner() : null; if (!owner) return;
+  // the best kind of block someone can finance: a firm puts down 15%, an investor 25%, a syndicate of the wealthy pools 30% between
+  // them, or the government pays 20% when many still live in huts or without a roof; the rest is paid out as the building goes up
+  const builders = S.citizens.filter(isAdult), money = civMoneyOn(), lvl = C.econ.level||1;
+  let pick = null;
+  for (const def of CIV_DENSE){ if (!civCanBuild(def, builders)) continue;
+    const D = STRUCTURES[def], cost = Math.round(Object.entries(D.mat).reduce((a,[g,q])=>a + q*civPrice(g), 0) + D.labor*2*lvl);
+    const firm = money ? civOrgs(o=>o.biz && BUSINESS_TYPES[o.biz] && BUSINESS_TYPES[o.biz].contractor && o.cash > cost*0.15).sort((a,b)=>b.cash-a.cash)[0] : null;
+    const rich = money && !firm ? S.citizens.filter(c=>isAdult(c) && !c.jail && c.wallet > cost*0.25).sort((a,b)=>b.wallet-a.wallet)[0] : null;
+    const pool = money && !firm && !rich ? S.citizens.filter(c=>isAdult(c) && !c.jail && c.wallet > 100*lvl).sort((a,b)=>b.wallet-a.wallet).slice(0, 5) : [];
+    const syndicate = pool.length >= 2 && pool.reduce((a,c)=>a + c.wallet*0.4, 0) >= cost*0.3 ? pool : null;
+    const publicOK = !firm && !rich && !syndicate && G.stage >= 3 && (!money || (G.treasury||0) - cost*0.2 >= civTreasuryReserve()) && (homeless >= 1 || short || demand >= 10);
+    if (firm || rich || syndicate || publicOK){ pick = {def, D, cost, firm, rich, syndicate, publicOK}; break; } }
+  if (!pick) return;
+  const {def, D, cost, firm, rich, syndicate} = pick;
+  const owner = firm ? {k:'org', id:firm.id} : rich ? {k:'person', id:rich.id} : syndicate ? {k:'person', id:syndicate[0].id} : civTownOwner();
   const site = civFindSite(def, civMarketCenter(), {margin:1, anySide:true}) || (typeof civFrontierSite==='function' ? civFrontierSite(def, {margin:1}) : null); if (!site){ C.landShort = d; return; }
-  if (firm) firm.cash -= Math.round(cost*0.3); else if (rich) rich.wallet -= Math.round(cost*0.4); else if (civMoneyOn()) G.treasury -= Math.round(cost*0.4);
-  const p = civStartProject(def, site, owner, {purpose:'home', meta:{dense:true}, pay: civMoneyOn() ? 3*(C.econ.level||1) : 0, fund: Math.round(cost*0.4), org: firm ? firm.id : null, why: firm ? `${firm.name} is building flats to let` : rich ? `${rich.name} is building flats to let` : 'public housing'});
+  if (firm) firm.cash -= Math.round(cost*0.15); else if (rich) rich.wallet -= Math.round(cost*0.25);
+  else if (syndicate){ let need = cost*0.3; syndicate.forEach(c=>{ const put = Math.min(c.wallet*0.4, need); c.wallet -= Math.round(put); need -= put; remember(c, `I put money into a new ${D.label.toLowerCase()}.`, 6); }); }
+  else if (money) G.treasury -= Math.round(cost*0.2);
+  const who = firm ? firm.name : rich ? rich.name : syndicate ? `${syndicate.map(c=>c.name.split(' ')[0]).join(', ')} together` : null;
+  const p = civStartProject(def, site, owner, {purpose:'home', meta:{dense:true, investors: syndicate ? syndicate.map(c=>c.id) : null}, pay: money ? 3*lvl : 0, fund: Math.round(cost*0.25), org: firm ? firm.id : null, why: who ? `${who} are building flats to let` : 'public housing'});
   if (p && firm) p.contractor = firm.id;
-  chronicle(`${firm ? firm.name : rich ? rich.name : 'The settlement'} began ${an(D.label.toLowerCase())} with room for ${D.home.cap} people: ${homeless ? homeless+' families have no roof' : short ? 'there is no land left for houses' : 'too many still live in huts'}.`, 7, '🏢', 'land'); ev('dense_started');
+  chronicle(`${who || 'The settlement'} began ${an(D.label.toLowerCase())} with room for ${D.home.cap} people: ${homeless ? homeless+' families have no roof' : short ? 'there is no land left for houses' : 'too many still live in huts'}.`, 7, '🏢', 'land'); ev('dense_started');
 }
 function civDenseTenancy(dense, d){
   const C = S.civ, money = civMoneyOn();
