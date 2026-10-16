@@ -145,6 +145,7 @@ const RESEARCH_STAGES = ['observe','question','hypothesis','experiment','record'
 function civResearchers(){ return S.citizens.filter(c=>isAdult(c) && civTaskAvailable(c, 'research')); }
 CIV_TARGETS.research = c => { const lab = civStructsOf(s=>STRUCTURES[s.def].lab || STRUCTURES[s.def].edu>=4)[0]; if (lab) return {loc:lab.id, note:`Research at ${lab.name}`, extra:{}}; return {loc: c.home && LOC[c.home] ? c.home : 'loc_town_square', note:'Tinkering and taking notes', extra:{}}; };
 CIV_TASK_VALUE.research = (c) => { const food = hhOf(c) ? hhFoodDays(hhOf(c)) : 0; if (food < 1.5) return 0; return (food < 3 ? 0.5 : 1) * (c.personality.openness*4 + cog(c,'creativity')*4 + (civHasGoal(c,'discover')?5:0) + (civStructsOf(s=>STRUCTURES[s.def].lab).length?3:0) + (c.civ.employer && S.civ.orgs[c.civ.employer] && S.civ.orgs[c.civ.employer].type==='institute' ? 8 : 0)); };
+const CIV_UNLOCKS = {}; function civUnlocks(id){ if (CIV_UNLOCKS[id] == null) CIV_UNLOCKS[id] = Object.values(TECHS).filter(T0=>(T0.any||[]).some(g=>g.includes(id))).length; return CIV_UNLOCKS[id]; }
 function civExpertFor(k, v, not){ return S.citizens.filter(o=>o!==not && isAdult(o) && !o.jail && kn(o,k) >= v).sort((a,b)=>kn(b,k)-kn(a,k))[0] || null; }
 function civAnyMet(c, T0){ return !T0.any || T0.any.some(g=>g.every(x=> x.startsWith('th_') ? civTheoryAccepted(x) || (c.civ.beliefs[x]||0) > 0.6 : civTechKnown(x))); }
 // the researcher and the experts they consult between them have what the technique needs
@@ -160,7 +161,7 @@ function civPickQuestion(c){
   const techs = Object.values(TECHS).filter(T0=>T0.disc && !civTechKnown(T0.id) && civAnyMet(c, T0) && Object.entries(T0.need||{}).every(([k,v])=>kn(c,k) >= v*0.85 || (kn(c,k) >= v*0.35 && civExpertFor(k, v, c))));
   const pickT = theories.length && (rnd()<0.55 || !techs.length);
   if (pickT){ const T0 = theories.sort((a,b)=>(C.theories[a.id]?1:0)-(C.theories[b.id]?1:0) || kn(c,b.disc)-kn(c,a.disc))[0]; return {theory:T0.id, disc:T0.disc, q:`Is it true that ${T0.label.toLowerCase()}?`}; }
-  if (techs.length){ const need = (S.civ.spoiled||0) > 40 ? 1 : 0; const T0 = techs.sort((a,b)=>need*((b.store?1:0)-(a.store?1:0)) || kn(c,b.disc)-kn(c,a.disc))[0]; return {tech:T0.id, disc:T0.disc, q:`Could we manage ${T0.label.toLowerCase()}?`}; }
+  if (techs.length){ const need = (S.civ.spoiled||0) > 40 ? 1 : 0; const T0 = techs.sort((a,b)=>need*((b.store?1:0)-(a.store?1:0)) || (civUnlocks(b.id)*12 + kn(c,b.disc)) - (civUnlocks(a.id)*12 + kn(c,a.disc)))[0]; /* keystones first: the wheel, bricks, smelting open many doors */ return {tech:T0.id, disc:T0.disc, q:`Could we manage ${T0.label.toLowerCase()}?`}; }
   return civFrontier(c);
 }
 // when nothing is within reach, a researcher studies toward the nearest technique or idea that is not, in whichever of its

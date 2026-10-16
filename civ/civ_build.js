@@ -237,7 +237,7 @@ CIV_WORK.farm = (c, b, hrs) => {
   if (m.stage==='growing'){ m.tend = Math.min(1.5, (m.tend||0) + eff/(area*0.25)); return {value:eff*1.5, why:null}; }
   if (m.stage==='ripe'){
     m.harvAcc = (m.harvAcc||0) + eff; if (m.harvAcc < area*0.1) return {value:eff*2, why:null};
-    const tech = (civTechKnown('plough')?1.3:1) * (civTechKnown('irrigation')?1.2:1) * civTheoryMult('farm') * ((S.civ.land||{}).soil||1);
+    const tech = civFarmTechMult() * civTheoryMult('farm') * ((S.civ.land||{}).soil||1);
     const units = Math.round(area * (m.crop==='grain' ? 26 : 21) * D.farm.yield * (0.55 + Math.min(1, m.tend||0)*0.45) * (m.soil||1) * tech * (0.8+rnd()*0.4));
     if (st) storeAdd(st, m.crop, units); else storeAdd(S.civ.commons, m.crop, units); ev('pd_farm', units*CG[m.crop].food/90);
     m.soil = civTechKnown('crop_rotation') ? Math.min(1, (m.soil||1) + 0.05) : Math.max(0.55, (m.soil||1) - (m.last===m.crop ? 0.08 : 0.03));
@@ -248,6 +248,9 @@ CIV_WORK.farm = (c, b, hrs) => {
   }
   return {value:0};
 };
+// how much a field yields grows with the technology the settlement has: the plough and irrigation, rotation, then
+// steam threshing and milling, chemical fertiliser and motor tractors, which is what lets a few farmers feed a city
+function civFarmTechMult(){ return 1.4 * (civTechKnown('plough')?1.3:1) * (civTechKnown('irrigation')?1.2:1) * (civTechKnown('crop_rotation')?1.1:1) * (civTechKnown('steam_power')?1.25:1) * (civTechKnown('industrial_chemistry')?1.4:1) * (civTechKnown('combustion_engine')?1.3:1); }
 function civFieldsDaily(){
   const season = seasonOf(civDay());
   civStructsOf(s=>STRUCTURES[s.def].farm).forEach(f=>{

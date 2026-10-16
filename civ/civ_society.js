@@ -287,6 +287,9 @@ function civEducationWeekly(){
     const s = o.hq && C.structs[o.hq], lvl = o.edu.level;
     if (lvl===1 && civTechKnown('writing') && lit.some(t=>kn(t,'literacy')>=30)){ o.edu.level = 2; civEduStage(3, `${o.name} now teaches reading, writing and sums: a proper primary school.`); }
     if (lvl===2 && lit.length>=2 && s && s.def!=='school_hut'){ o.edu.level = 3; civEduStage(4, `${o.name} has grown into a secondary school.`); }
+    // a school with no building of its own (never built, or fallen down) gets one: a proper school if anyone can build it, else a schoolhouse
+    if (!s && !civProjects().some(p=>p.org===o.id)){ const ad = S.citizens.filter(isAdult), def = civCanBuild('school', ad) ? 'school' : civCanBuild('school_hut', ad) ? 'school_hut' : null, site = def && civFindSite(def, C.center, {margin:1});
+      if (site) civStartProject(def, site, civTownOwner(), {org:o.id, purpose:'education', pay: civMoneyOn() ? 2 : 0, why:`${o.name} has no building`}); }
     // the schoolhouse is rebuilt as a proper school: bigger if the ground beside it is free, otherwise on its own footprint
     if (lvl===2 && s && s.def==='school_hut' && civCanBuild('school', S.citizens.filter(isAdult)) && !civProjects().some(p=>p.upgradeOf===s.id)){ // any carpenter in town can raise it, not only the teachers
       let fits = true; for (let y=s.y;y<s.y+3 && fits;y++) for (let x=s.x;x<s.x+5;x++){ const t = tileAt(x,y), inHut = x<s.x+s.w && y<s.y+s.h; if (!inHut && (t===-1 || !(t===T.GRASS||t===T.FLOWER||t===T.SAND||t===T.TREE) || S.civ.reserved[tkey(x,y)])){ fits = false; break; } }
