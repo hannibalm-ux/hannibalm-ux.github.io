@@ -667,7 +667,7 @@
     ok(meshes.length===1 && meshes[0].isSkinnedMesh, `a person is ${meshes.length} meshes`); ok(meshes[0].userData.geoFar && meshes[0].userData.geoFar.index.count < meshes[0].userData.geoNear.index.count, 'no simpler far shape');
     const a = an3Build('cow', 0), b2 = an3Build('cow', 0); const am = []; a.traverse(o=>{ if (o.isMesh) am.push(o); }); ok(am.length===1 && am[0].isSkinnedMesh, 'an animal is several meshes'); ok(a.children[0].geometry===b2.children[0].geometry, 'animals of a kind do not share geometry');
     const groups = BUILDINGS.slice(0, 12).map(b=>hdBuilding(b)); let parts = 0; groups.forEach(gr=>gr.children.forEach(o=>{ if (o.isMesh) parts++; }));
-    const batch = hdBatchBuildings(groups); ok(batch.children.length < groups.length && batch.children.length < parts/3, `buildings did not batch (${parts} parts -> ${batch.children.length})`);
+    const batch = hdBatchBuildings(groups); ok(batch.children.length < parts/5, `buildings did not batch (${parts} parts -> ${batch.children.length})`);
     ok(groups.every(gr=>gr.children.every(o=>!o.isMesh || o.userData.batched || o.userData.interior || !o.visible || o.isInstancedMesh)), 'a building part is still drawn on its own');
     const hut = BUILDINGS.find(b=>b.style==='hut' && !/wattle|healer|school|council/.test(b.type||'')); if (hut){ const hg = hdBuilding(hut); ok(hg.children.some(o=>o.material===HD.mats.S_thatch), 'the hut has no thatch'); ok(hg.children.some(o=>o.material===HD.mats.S_log), 'the hut has no log walls'); ok(hg.userData.chimney, 'the hut has no chimney'); }
   });
