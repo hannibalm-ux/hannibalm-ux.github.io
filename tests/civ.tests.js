@@ -661,6 +661,16 @@
     HD_WIND.uCam.value = new THREE.Vector3(); const ch = hdBuildChunk(Math.floor(S.civ.center[0]/HD_CH), Math.floor(S.civ.center[1]/HD_CH)); ok(ch.children.length, 'no grass around the settlement');
     ok(hdGroundWorks().isGroup, 'no crops, fences or bridges');
   });
+  test('HD2', 'For 60 fps: people and animals are one draw each, buildings batch by material, homes are thatched log cabins', async ()=>{
+    await three(); R3.renderer = null; HD.q = 2; HD.on = true; HD.mats = {}; HD.smokers = [];
+    const c = S.citizens.find(isAdult), g = lpBuild(c); const meshes = []; g.traverse(o=>{ if (o.isMesh) meshes.push(o); });
+    ok(meshes.length===1 && meshes[0].isSkinnedMesh, `a person is ${meshes.length} meshes`); ok(meshes[0].userData.geoFar && meshes[0].userData.geoFar.index.count < meshes[0].userData.geoNear.index.count, 'no simpler far shape');
+    const a = an3Build('cow', 0), b2 = an3Build('cow', 0); const am = []; a.traverse(o=>{ if (o.isMesh) am.push(o); }); ok(am.length===1 && am[0].isSkinnedMesh, 'an animal is several meshes'); ok(a.children[0].geometry===b2.children[0].geometry, 'animals of a kind do not share geometry');
+    const groups = BUILDINGS.slice(0, 12).map(b=>hdBuilding(b)); let parts = 0; groups.forEach(gr=>gr.children.forEach(o=>{ if (o.isMesh) parts++; }));
+    const batch = hdBatchBuildings(groups); ok(batch.children.length < groups.length && batch.children.length < parts/3, `buildings did not batch (${parts} parts -> ${batch.children.length})`);
+    ok(groups.every(gr=>gr.children.every(o=>!o.isMesh || o.userData.batched || o.userData.interior || !o.visible || o.isInstancedMesh)), 'a building part is still drawn on its own');
+    const hut = BUILDINGS.find(b=>b.style==='hut' && !/wattle|healer|school|council/.test(b.type||'')); if (hut){ const hg = hdBuilding(hut); ok(hg.children.some(o=>o.material===HD.mats.S_thatch), 'the hut has no thatch'); ok(hg.children.some(o=>o.material===HD.mats.S_log), 'the hut has no log walls'); ok(hg.userData.chimney, 'the hut has no chimney'); }
+  });
 
   // ============================ GROWTH FEATURES ============================
   test('NW1', 'A person\'s profile adds up their net worth: purse, share of home and stores, animals, loans and debts', ()=>{

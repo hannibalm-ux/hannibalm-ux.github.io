@@ -399,7 +399,7 @@ function hdBuilding(b){
     roofGeo.translate(cx, top, cz);
     const rm = new THREE.Mesh(roofGeo, hdSharedMat(thatch ? 'thatch' : 'shingles')); rm.castShadow = rm.receiveShadow = true; rm.userData.roofPart = true; grp.add(rm);
     const long = b.w >= b.h, rl = Math.max(0.05, Math.abs(b.w - b.h)) + 0.1, RP = [];
-    if (thatch){ RP.push(lpPart(g.cyl, rc.clone().multiplyScalar(0.72).getHex(), [cx, top+hh+0.02, cz], long ? [0,0,Math.PI/2] : [Math.PI/2,0,0], [0.13, rl+0.3, 0.13]));
+    if (thatch){ RP.push(lpPart(g.cyl, rc.clone().multiplyScalar(0.72).getHex(), [cx, top+hh+0.02, cz], long ? [0,0,Math.PI/2] : [Math.PI/2,0,0], [0.13, rl+0.12, 0.13]));
       // moss and ivy patches on the straw, more on older roofs
       const nm = 3 + Math.min(9, Math.floor(age/60)) + (cond < 60 ? 4 : 0);
       for (let k=0;k<nm;k++){ const f = 0.1 + rnd()*0.75, side = Math.floor(rnd()*4), al = 0.12 + rnd()*0.76, n = 3 + Math.floor(rnd()*4);
@@ -539,6 +539,10 @@ function hdAdapt(dt){
   const room = HD.gpu != null ? HD.gpu < 9.5 : HD.ft < 17.4;
   HD.fast = room ? HD.fast + dt : 0;
   if (HD.rs < 1 && HD.fast > (HD.gpu != null ? 2 : 5) && now > HD.rsLock){ HD.fast = 0; HD.rs = Math.min(1, +(HD.rs + 0.05).toFixed(2)); HD.lastUp = now; }
+  // on Auto, a graphics card with plenty to spare (measured, at full resolution) moves up a tier
+  if (hdPref()==='auto' && HD.q < 2 && HD.rs >= 1 && HD.gpu != null && HD.gpu < 6 && HD.ft < 17.4){ HD.promo = (HD.promo||0) + dt; if (HD.promo > 10){ HD.promo = 0; hdSetTier(HD.q + 1); } } else HD.promo = 0;
+  // the HD button shows the frame rate, once a second
+  if (now - (HD.fpsT||0) > 1000){ HD.fpsT = now; hdUpdateButton(); }
 }
 function hdSetTier(q){
   HD.q = q; R3.hdQ = q;
@@ -550,7 +554,7 @@ function hdSetTier(q){
   R3.lastWorld = ''; R3.lastProps = ''; R3.pr = -1; hdUpdateButton();
 }
 function hdCyclePref(){ const order = ['auto','low','medium','high'], cur = hdPref(), next = order[(order.indexOf(cur)+1) % order.length]; try { localStorage.setItem('pixeltown.hd', next); } catch(e){} hdSetTier(hdTier()); }
-function hdUpdateButton(){ const b = document.getElementById('zHD'); if (!b) return; const p = hdPref(); b.textContent = 'HD ' + (p==='auto' ? 'Auto' : HD_QNAMES[HD.q]); b.title = `Graphics quality: ${p==='auto' ? `automatic (${HD_QNAMES[HD.q]} on this device)` : HD_QNAMES[HD.q]}. Click to change.`; }
+function hdUpdateButton(){ const b = document.getElementById('zHD'); if (!b) return; const p = hdPref(); b.textContent = 'HD ' + (p==='auto' ? 'Auto' : HD_QNAMES[HD.q]) + (HD.ft ? ' · ' + Math.min(60, Math.round(1000/HD.ft)) + ' fps' : ''); b.title = `Graphics quality: ${p==='auto' ? `automatic (${HD_QNAMES[HD.q]} on this device)` : HD_QNAMES[HD.q]}. Click to change.`; }
 
 // =====================================================================
 // static batching: every building's meshes are merged, by material, into a few meshes per 32x32-tile area, so a

@@ -6699,7 +6699,7 @@ function r3Draw(dark){
   const h = modOf(S.minute)/60, low = Math.max(0, 1 - Math.abs(Math.sin((h-6)/12*Math.PI))*1.6); // low sun at dawn and dusk
   U.haze.value = 0.03 + low*0.03 + (S.weather==='Fog' ? 0.05 : S.weather==='Rain'||S.weather==='Storm' ? 0.025 : S.weather==='Snow' ? 0.02 : 0) + dark*0.02;
   U.strength.value = (2.2 + low*2.5) * (R3.volBoost||1); U.haze.value *= (R3.hazeBoost||1);
-  if (hd){ U.strength.value *= 0.6; U.haze.value = U.haze.value*0.6 + low*0.025*(1-dark); } // golden shafts when the sun is low // HD has its own sky and fog: keep the shafts of light, lose the milkiness
+  if (hd){ U.strength.value *= 0.6; U.haze.value = U.haze.value*0.6 + low*0.012*(1-dark); } // golden shafts when the sun is low // HD has its own sky and fog: keep the shafts of light, lose the milkiness
   R.lampLights.forEach((l,i)=>{ U.lampPos.value[i].copy(l.position); U.lampI.value[i] = l.intensity; });
   U.dbg.value = R.volDebug ? 1 : 0;
   const ew = Math.max(2, Math.floor(R.volSize.x/2)), eh = Math.max(2, Math.floor(R.volSize.y/2)); if (R.effRT.width!==ew || R.effRT.height!==eh) R.effRT.setSize(ew, eh);
@@ -6710,7 +6710,7 @@ function r3Draw(dark){
 function r3Villagers(frac, ts, dark){
   const cam3 = R3.camera, yaw = R3.yaw, rx = Math.cos(yaw), rz = -Math.sin(yaw), fx = -Math.sin(yaw), fz = -Math.cos(yaw);
   const tint = new THREE.Color().setRGB(1-dark*0.9, 1-dark*0.85, 1-dark*0.55);
-  const seen = new Set(), casters = []; let nb = 0; const m4 = new THREE.Matrix4();
+  const seen = new Set(), casters = []; let nb = 0, builds = 0; const m4 = new THREE.Matrix4();
   const dtv = Math.min(0.1, (ts - (R3.voxT||ts))/1000); R3.voxT = ts;
   R3.figLim = Math.max(34, R3.dist*1.9); R3.figShadow = Math.max(14, R3.dist*0.85); R3.figLod = Math.max(12, R3.dist*0.7); // people beyond the haze are not drawn; only those near the camera cast real shadows
   for (const c of S.citizens){
@@ -6719,7 +6719,7 @@ function r3Villagers(frac, ts, dark){
     const p = citizenPos(c, frac), X = p.x + 10/16, Z = p.y + 1;
     const dCam = Math.hypot(X - cam.x/TILE, Z - cam.y/TILE); if (dCam > R3.figLim){ if (g) g.visible = false; continue; }
     const key = lpKey(c);
-    if (!g || g.userData.key!==key){ if (g) lpDispose(g); g = lpBuild(c); R3.scene.add(g); R3.vox.set(c.id, g); }
+    if (!g || g.userData.key!==key){ if (builds >= 2){ if (!g) continue; } else { builds++; if (g) lpDispose(g); g = lpBuild(c); R3.scene.add(g); R3.vox.set(c.id, g); } } // at most two new figures a frame, so panning never stutters
     seen.add(c.id);
     const A = lpAnimate(c, g, p, ts, dtv), ph = ts/160*g.userData.slow + g.userData.phase;
     g.position.set(X, A.moving ? Math.abs(Math.cos(ph))*0.03 : 0, Z); g.visible = true; const skm = g.children[0]; if (skm){ skm.castShadow = false; if (dCam < R3.figShadow) casters.push([dCam, skm]); const far = dCam > R3.figLod; if (skm.userData.geoFar && skm.userData.far !== far){ skm.userData.far = far; skm.geometry = far ? skm.userData.geoFar : skm.userData.geoNear; } } // far figures: simpler shape, blob shadow only

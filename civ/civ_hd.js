@@ -225,7 +225,7 @@ const HD_GLSL_SURF = `
         float n = hdF(p*0.35), n2 = hdN(p*3.1), n3 = hdN(p*11.0), wear = tv.g, wet = tv.b;
         vec3 g0 = uSeason < 0.5 ? vec3(0.34,0.56,0.2) : uSeason < 1.5 ? vec3(0.28,0.46,0.17) : uSeason < 2.5 ? vec3(0.5,0.48,0.22) : vec3(0.36,0.4,0.26);
         vec3 g1 = uSeason < 0.5 ? vec3(0.48,0.66,0.24) : uSeason < 1.5 ? vec3(0.4,0.56,0.2) : uSeason < 2.5 ? vec3(0.62,0.5,0.24) : vec3(0.46,0.46,0.3);
-        vec3 dirt = mix(vec3(0.5,0.37,0.24), vec3(0.62,0.48,0.32), n2);
+        vec3 dirt = mix(vec3(0.56,0.42,0.26), vec3(0.68,0.53,0.34), n2);
         if (k == 0 || k == 9 || k == 6 || k == 7){ // grass, flowery grass, pasture, forest floor
           col = mix(g0, g1, smoothstep(0.25, 0.75, n)) * (0.85 + n3*0.3);
           col = mix(col, vec3(0.62,0.58,0.3), smoothstep(0.62, 0.8, hdF(p*0.9+9.0))*0.45); // dry patches
@@ -234,12 +234,12 @@ const HD_GLSL_SURF = `
           if (k == 9){ vec2 c = hdCell(p*5.0); if (c.x < 0.18) { col = mix(vec3(0.95,0.85,0.3), vec3(0.9,0.5,0.7), step(0.5, c.y)); col = mix(col, vec3(0.95), step(0.8, c.y)); h += 0.4; } }
           if (k == 6){ col = mix(col, dirt*0.85, 0.25 + wear*0.45*smoothstep(0.3, 0.7, n2)); }
           if (k == 7){ col = mix(vec3(0.22,0.17,0.11), vec3(0.3,0.24,0.14), n2); vec2 c = hdCell(p*6.0); col = mix(col, mix(vec3(0.55,0.32,0.12), vec3(0.62,0.5,0.2), c.y), step(c.x, 0.3)*0.7); col = mix(col, vec3(0.2,0.34,0.12), smoothstep(0.6, 0.75, n)*0.7); h = n3*0.4 + (c.x < 0.3 ? 0.3 : 0.0); }
-          col = mix(col, dirt*0.9, wear*0.55*smoothstep(0.2, 0.8, n2 + wear*0.4)); // worn where people walk
+          col = mix(col, dirt*0.95, wear*0.38*smoothstep(0.25, 0.85, n2 + wear*0.4)); // worn where people walk, but the grass holds on between the tracks
           col = mix(col, col*vec3(0.62,0.62,0.55), wet*0.6); // damp near water
         } else if (k == 1){ // dirt path: compacted centre, pebbles, grass creeping in, deeper colour when worn
           col = dirt * (0.8 + n3*0.25) * (1.0 - wear*0.15); vec2 c = hdCell(p*7.0); float peb = step(c.x, 0.1 + c.y*0.06) * step(0.45, c.y);
           col = mix(col, mix(vec3(0.42,0.4,0.37), vec3(0.56,0.52,0.46), c.y), peb*0.7); h = n3*0.25 + peb*(0.6 - c.x*2.0);
-          col = mix(col, g0*0.9, (1.0-wear)*smoothstep(0.55, 0.8, hdF(p*1.3+4.0))*0.6); rough = 0.9 - peb*0.2;
+          col = mix(col, mix(g0, g1, n2)*0.92, clamp(1.15 - wear*1.3, 0.0, 1.0)*smoothstep(0.38, 0.72, hdF(p*1.3+4.0))*0.85); rough = 0.9 - peb*0.2; // grass grows back over lightly used tracks
         } else if (k == 2){ col = vec3(0.78,0.7,0.52) * (0.88 + n3*0.2); h = sin(p.x*5.0 + n*6.0)*0.3 + n3*0.2; rough = 0.95; }
         else if (k == 3){ float cr = abs(hdN(p*2.5) - 0.5); col = mix(vec3(0.42,0.41,0.39), vec3(0.58,0.56,0.52), n) * (0.75 + n3*0.35); col *= 0.65 + smoothstep(0.0, 0.06, cr)*0.35; col = mix(col, vec3(0.3,0.38,0.16), smoothstep(0.6, 0.72, hdF(p*1.6))*0.7); h = n*0.8 + smoothstep(0.0, 0.06, cr)*0.3; rough = 0.82; }
         else if (k == 4){ // tilled field: furrows along the field's length

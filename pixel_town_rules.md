@@ -1528,16 +1528,17 @@ The 3D view (the **3D** button) is a graphical remaster of the same world. It ch
 
 **Quality.** The **HD** button (in 3D) cycles through Auto, Low, Medium and High, and the choice is remembered.
 - **Auto** picks by device: phones and small screens get Low, and tablets (iPad) and machines with less memory get Medium. Everything else gets High.
-- If frames stay slow (over about 42 ms for five seconds), Auto steps down a tier.
-- Each tier sets the render resolution, texture size, shadow map (1024, 2048 or 4096), terrain detail, grass density and distance, the light-shaft samples, and whether ambient occlusion runs.
+- **Target: 60 frames a second.** The render scale adjusts itself to hold it (see Performance). On Auto, if even the lowest scale is not enough, the tier steps down; where the browser can time the graphics card and it has plenty to spare, Auto steps up a tier.
+- **Frame rate readout:** the HD button shows the current frame rate, for example "HD Auto · 60 fps".
+- Each tier sets the pixel ratio (at most 1, 1.25 or 1.5 times the screen's), anti-aliasing (none, 2× or 4×), texture size, shadow map (1024 or 2048), terrain detail, grass density and distance, the light-shaft samples, and whether ambient occlusion runs.
 
 **Lighting.**
-- **Tone and colour:** the scene is rendered in HDR, then tone-mapped (ACES). Colour grading gives cool shade and warm light, a little extra richness, a gentle contrast curve and a soft vignette.
+- **Tone and colour:** the scene is rendered in HDR, then tone-mapped (ACES). The daytime sun is warm and golden, with a sky-blue fill from above and a mossy bounce from below. Colour grading gives cool shade and golden light, richer greens and golds, a gentle contrast curve and a soft vignette.
 - **Sky:** a sky dome (gradient, sun disc and glow, the moon, twinkling stars at night) is also rendered into the environment map. This lights every material with reflected skylight.
 - **Moon and shadows:** the moon lights the night. The sun's shadow camera hugs the view so shadows stay crisp, with soft filtering.
 - **Ambient occlusion:** computed from the depth buffer. It darkens creases, the foot of every wall, and the ground under props, people and animals.
 - **Bloom:** controlled, a bright pass blurred at quarter resolution. Only sun glints, lamps, lit windows and fires glow.
-- **Light shafts:** the volumetric pass is kept, but made subtler.
+- **Light shafts:** shafts of sunlight through the haze, strongest when the sun is low.
 
 **Materials.** Wood planks, barn boards, logs, stone, brick, plaster, shingles, thatch, doors, bark and metal are generated at start as seamless colour, normal and roughness textures:
 - **Wood:** grain, knots, nails, gaps, weathering and moss.
@@ -1563,6 +1564,7 @@ The ground has bump detail. Snow settles in winter storms. Rain darkens the grou
 - **Ripples:** expanding rings where people fish, where boats move, where fish jump, and from raindrops.
 
 **Vegetation and ground detail** (in chunks around the camera, fading in and out at the edge):
+- **Ferns, shrubs and stepping stones:** ferns with arching fronds where grass meets the forest and at the foot of walls; leafy shrubs hugging walls and fences; flat stepping stones set into paths; grass creeps back over lightly used tracks.
 - **Grass and plants:** clumps of 3D grass blades whose colour follows the season and is flattened where people walk. Taller grass grows along fences, rocks and walls. There are flowers (in meadows and in clusters), reeds and cattails on banks and in the shallows, pebbles on paths and river beds, and ferns and mushrooms on the forest floor.
 - **Wind:** everything sways in a wind that strengthens in rain and storms.
 - **Trees:** oaks, birches, pines and bushes are made of trunks and branches with crowns of leaf cards. The normals point out of the crown, so it lights like a volume. Crowns sway, cast leaf shadows, and take seasonal colours; most broadleaf trees are bare in winter.
@@ -1571,7 +1573,8 @@ The ground has bump detail. Snow settles in winter storms. Rain darkens the grou
 **Built world.**
 - **Crops:** grain stalks that turn gold, leafy vegetables and fruiting orchard bushes, all sized by growth.
 - **Fences, bridges, docks and rails:** split-rail fences; plank bridges and docks on pilings, with railings on bridges; sleepers and rails on railways. Stumps and ford stepping stones appear too.
-- **Buildings:** each gets a stone foundation and walls chosen by style: logs or wattle for huts, clapboard or half-timbered plaster for houses, stone, barn boards and brick. Roofs are shingles (tinted by the building's roof colour, mossier with age or neglect, glossier in rain) or thatch, with eaves and a ridge.
+- **Homes** (as in a cosy forest village): a thick, golden thatch laid in three stepped courses, each with an overhanging lip and a visible edge of bundled straw, rising to a rolled ridge, with patches of moss that spread with age and neglect; walls of real logs that cross at the corners (pale ends showing) or clapboard or half-timbered plaster; a footing of rough stone; a stone chimney with a cap; ivy climbing a corner or two and arching over the door; flower boxes under some windows; and windows that glow warm whenever someone is home, day or night.
+- **Other buildings:** each gets a stone foundation and walls chosen by style: logs or wattle for huts, clapboard or half-timbered plaster for houses, stone, barn boards and brick. Roofs are shingles (tinted by the building's roof colour, mossier with age or neglect, glossier in rain) or thatch, with eaves and a ridge.
 - **Windows and doors:** framed windows with sills (shutters on some homes) glow warm when people are in. A plank door has a frame, a step, a handle and a lantern that lights at night. Chimneys smoke.
 - **Clutter by use:** firewood, barrels and potted plants at homes; crates and sacks at shops, granaries and mills; hay at barns; an anvil and timber at workshops; barrels and a bench at taverns; rubble at mines.
 - **Condition and wealth:** poor condition dulls the walls and roof. Prosperity and neglect show as before (extensions, flower boxes, weeds, broken boards).
@@ -1581,14 +1584,21 @@ The ground has bump detail. Snow settles in winter storms. Rain darkens the grou
 - **Embers:** rise from fires and torches.
 - **Seasonal:** fireflies on warm nights, pollen in the sun, falling leaves in autumn, and rain splashes.
 
-**Performance** (so that High stays smooth while dragging, turning and zooming):
+**Performance** (built to hold 60 frames a second, including while dragging, turning and zooming):
+- **Few draw calls.** A mature town of 200 people went from about 3,400 draw calls a frame to about 230. Every person and animal is a single skinned mesh: the body and limbs share one geometry and the joints are bones, so the walking, working and grazing animations are unchanged. Animals share one geometry per species. All buildings use a dozen shared materials (each building's colour and wear are in its vertex colours) and are merged, by material, into a few meshes per 32×32-tile area. Repeated props (barrels, crates, fences, graves, signs) are instanced. Trees use one shape per kind in each 16×16 block.
+- **Fewer triangles.** Triangles fell from about 1.6 million to about 0.5 million. The ground is cut into 32×32-tile pieces, so only those in view are drawn. Trees further than about 30 tiles switch to a crown with a third of the leaf cards. People further than about 17 tiles drop their small details (eyes, strands of hair, seams), and those beyond the haze are not drawn.
+- **Roofs still lift for interiors.** Every merged vertex remembers its building, so the one house the camera is peering into has its roof hidden by the shader, without rebuilding anything.
+- **Lit windows** are two merged meshes, lit and dark, rebuilt only when someone comes home or leaves.
+- **Shadows are reused.** The light's centre snaps to a 4-tile grid, and the shadow map is redrawn only when the sun, that centre or the world changes, and every third frame for the people and animals moving about. Only the nearest 40 people cast real shadows; the rest keep a soft blob. Thin tree trunks leave the shade to their crowns.
+- **Effects at half resolution.** Ambient occlusion and the light shafts are worked out on a quarter of the pixels. A light full-resolution pass then applies them, with bloom, tone mapping and grading.
+- **The simulation shares the frame.** Each frame the simulation gets only what is left of a 60 fps frame (16.7 ms) after drawing, so higher game speeds do not drop frames. At the top speed (Day/s), the achieved days per second is shown.
+- **Smooth panning.** At most two new people are built per frame, and grass building gets 3 ms of a frame (1.5 ms while moving).
 - **The ground is baked:** the blended procedural ground is drawn once into a texture (8, 16 or 20 texels per tile by tier). Each frame the terrain only samples it, plus a fine grain, caustics, snow and rain. When tiles change, only the changed area is redrawn.
-- **Targeted rebuilds:** the ground's shape is rebuilt only when water or rock change, and the forest only when trees change. Buildings are cached and only rebuilt when they themselves change (style, size, roof, condition, age, prosperity). Anything else (a new building, a path, a ripening field) just re-bakes those tiles.
-- **Grass streaming:** grass, flowers and pebbles are built in chunks of 8×8 tiles, a few milliseconds' worth per frame, nearest first. A ring beyond the view is built ahead of time. Chunks are kept (up to 260), so panning back and forth never rebuilds them, and a chunk is only rebuilt when its own tiles change.
-- **Cheaper while moving:** while the camera moves, ambient occlusion uses 4 samples instead of 8, and the light shafts use half their steps. The full quality returns as soon as it stops.
-- **Dynamic resolution:** if frames get slow (below about 48 per second), the render scale steps down, never below 60%, and climbs back when there is headroom. On Auto, if even that is not enough, the tier is lowered.
-- **Lighter lighting passes:** the sky's environment light leaves out the sun (which lights the scene directly), so it repeats every day. Each sky state (daylight, dusk, cloud, snow) is rendered once and cached (up to 40), and at fast game speeds it no longer re-renders every frame, which was the worst cause of stutter. The shadow map is 2048 on High, sharp because it hugs the view. Small crops do not cast sun shadows. Lamp light in the air is skipped in daylight, and the water's ripple loop only runs over live ripples.
-- **Instancing:** grass, trees, rocks, crops and fences are instanced, and no large textures are uploaded or per-building canvases drawn in 3D.
+- **Targeted rebuilds:** the ground's shape is rebuilt only when water or rock change, and the forest only when trees change. Buildings are cached and only rebuilt when they themselves change (style, size, roof, condition, age, prosperity).
+- **Grass streaming:** grass, flowers, ferns, shrubs and stepping stones are built in chunks of 8×8 tiles, nearest first, with a ring beyond the view built ahead of time. Up to 260 chunks are kept, so panning back and forth never rebuilds them.
+- **Cheaper while moving:** while the camera moves, ambient occlusion uses 4 samples instead of 8, and the light shafts use half their steps.
+- **Dynamic resolution for 60 fps:** if frames run slower than about 55 per second and the graphics card is the bottleneck, the render scale steps down (never below 55%). It climbs back when there is room. Where the browser offers GPU timer queries (desktop Chrome and Firefox), the real GPU time decides; elsewhere (Safari), frame times and how busy the script is decide. A step up that immediately proves too much is not tried again for 30 seconds.
+- **Lighter lighting passes:** the sky's environment light leaves out the sun (which lights the scene directly). Each sky state (daylight, dusk, cloud, snow) is rendered once and cached (up to 40).
 
 ## 47. Civilization mode: districts, livestock dealers, schools and wealth
 
