@@ -75,9 +75,14 @@ const HD_TEX = {
     o.r = o.g = o.b = tint*(0.75 + grain*0.3)*(0.72 + fv*0.35); if (fu < 0.05) { o.r *= 0.4; o.g *= 0.4; o.b *= 0.4; }
     const moss = hdSat((hdFbm(u*4, v*4, 4, 64, 4) - 0.58)*3); o.mo = moss;
     o.h = fu < 0.05 ? 0.05 : 0.2 + fv*0.8; o.o = 0.78 + grain*0.15 - moss*0.1; },
-  thatch: (u, v, o) => { const s = hdNoise(u*90, v*3, 90, 71), s2 = hdNoise(u*40 + 3, v*6, 40, 72), rows = 5, fv = (v*rows) % 1;
-    hdSetRGB(o, '#b89a58', 0.65 + s*0.4 + s2*0.15 - (fv > 0.85 ? 0.25 : 0)); hdLerpRGB(o, '#6a6a3a', hdSat((hdFbm(u*3, v*3, 3, 73, 3)-0.6)*2)*0.6); o.h = 0.3 + s*0.5 + fv*0.2; o.o = 0.95; },
+  // bundled straw: fine strands running down the slope, laid in overlapping courses with a shadowed lip at each course's end;
+  // pale and neutral so each roof's vertex colour gives its gold
+  thatch: (u, v, o) => { const rows = 6, fv = (v*rows) % 1, row = Math.floor(v*rows), uu = u + hdHash(row, 0, 74)*0.3, s = hdNoise(uu*140, v*5, 140, 71), s2 = hdNoise(uu*55 + 3, v*9, 55, 72), b = hdNoise(uu*12, row*3.7, 12, 75);
+    const lip = fv > 0.86 ? (fv - 0.86)/0.14 : 0; hdSetRGB(o, '#f2e4c4', (0.62 + s*0.32 + s2*0.16 + b*0.1)*(1 - lip*0.45)); o.h = 0.25 + s*0.4 + s2*0.15 + fv*0.35 - lip*0.5; o.o = 0.96; },
   door: (u, v, o) => { const b = Math.floor(u*4), fu = u*4 - b, grain = hdNoise(u*8, v*40 + b*9, 8, 81); hdSetRGB(o, '#6a4424', 0.8 + grain*0.35 + hdHash(b,0,82)*0.15); if (fu < 0.05) { o.r *= 0.4; o.g *= 0.4; o.b *= 0.4; } const band = Math.abs(v-0.2) < 0.03 || Math.abs(v-0.8) < 0.03; if (band) hdSetRGB(o, '#2a2624'); o.h = fu < 0.05 ? 0.1 : band ? 0.9 : 0.5 + grain*0.2; o.o = band ? 0.4 : 0.75; },
+  // a peeled log: pale wood with grain running along it and darker cracks; the building's vertex colour gives the stain
+  log: (u, v, o) => { const n = hdNoise(u*6, v*28, 6, 95), n2 = hdNoise(u*18, v*60, 18, 96), crack = hdNoise(u*9, v*7, 9, 97) > 0.8 ? 0.55 : 1;
+    hdSetRGB(o, '#efe0c8', (0.72 + n*0.3 + n2*0.12)*crack); o.h = 0.4 + n*0.35 - (crack < 1 ? 0.3 : 0); o.o = 0.92; },
   bark: (u, v, o) => { const n = hdNoise(u*10, v*2, 10, 91), n2 = hdNoise(u*24, v*6, 24, 92); hdSetRGB(o, '#5a4230', 0.6 + n*0.5 + n2*0.2); o.h = n*0.7 + n2*0.3; o.o = 0.95; },
   metal: (u, v, o) => { const n = hdFbm(u*8, v*8, 8, 101, 4); hdSetRGB(o, '#6a6a70', 0.8 + n*0.3); hdLerpRGB(o, '#7a4a2a', hdSat((hdFbm(u*4,v*4,4,102,3)-0.6)*2.5)); o.h = 0.5 + n*0.2; o.o = 0.45 + n*0.3; }
 };
@@ -145,7 +150,7 @@ function hdSky(p){
       if (HD.envCache.size > 40){ const [k0, r0] = HD.envCache.entries().next().value; if (r0 !== rt){ r0.dispose(); HD.envCache.delete(k0); } } }
     else { HD.envCache.delete(key); HD.envCache.set(key, rt); }
     R3.scene.environment = rt.texture; }
-  R3.scene.environmentIntensity = 0.25 + day*0.55;
+  R3.scene.environmentIntensity = 0.32 + day*0.62;
   R3.scene.fog.color.copy(hor);
   return hor;
 }
@@ -220,7 +225,7 @@ const HD_GLSL_SURF = `
         float n = hdF(p*0.35), n2 = hdN(p*3.1), n3 = hdN(p*11.0), wear = tv.g, wet = tv.b;
         vec3 g0 = uSeason < 0.5 ? vec3(0.34,0.56,0.2) : uSeason < 1.5 ? vec3(0.28,0.46,0.17) : uSeason < 2.5 ? vec3(0.5,0.48,0.22) : vec3(0.36,0.4,0.26);
         vec3 g1 = uSeason < 0.5 ? vec3(0.48,0.66,0.24) : uSeason < 1.5 ? vec3(0.4,0.56,0.2) : uSeason < 2.5 ? vec3(0.62,0.5,0.24) : vec3(0.46,0.46,0.3);
-        vec3 dirt = mix(vec3(0.5,0.37,0.24), vec3(0.62,0.48,0.32), n2);
+        vec3 dirt = mix(vec3(0.56,0.42,0.26), vec3(0.68,0.53,0.34), n2);
         if (k == 0 || k == 9 || k == 6 || k == 7){ // grass, flowery grass, pasture, forest floor
           col = mix(g0, g1, smoothstep(0.25, 0.75, n)) * (0.85 + n3*0.3);
           col = mix(col, vec3(0.62,0.58,0.3), smoothstep(0.62, 0.8, hdF(p*0.9+9.0))*0.45); // dry patches
@@ -229,12 +234,12 @@ const HD_GLSL_SURF = `
           if (k == 9){ vec2 c = hdCell(p*5.0); if (c.x < 0.18) { col = mix(vec3(0.95,0.85,0.3), vec3(0.9,0.5,0.7), step(0.5, c.y)); col = mix(col, vec3(0.95), step(0.8, c.y)); h += 0.4; } }
           if (k == 6){ col = mix(col, dirt*0.85, 0.25 + wear*0.45*smoothstep(0.3, 0.7, n2)); }
           if (k == 7){ col = mix(vec3(0.22,0.17,0.11), vec3(0.3,0.24,0.14), n2); vec2 c = hdCell(p*6.0); col = mix(col, mix(vec3(0.55,0.32,0.12), vec3(0.62,0.5,0.2), c.y), step(c.x, 0.3)*0.7); col = mix(col, vec3(0.2,0.34,0.12), smoothstep(0.6, 0.75, n)*0.7); h = n3*0.4 + (c.x < 0.3 ? 0.3 : 0.0); }
-          col = mix(col, dirt*0.9, wear*0.55*smoothstep(0.2, 0.8, n2 + wear*0.4)); // worn where people walk
+          col = mix(col, dirt*0.95, wear*0.38*smoothstep(0.25, 0.85, n2 + wear*0.4)); // worn where people walk, but the grass holds on between the tracks
           col = mix(col, col*vec3(0.62,0.62,0.55), wet*0.6); // damp near water
         } else if (k == 1){ // dirt path: compacted centre, pebbles, grass creeping in, deeper colour when worn
           col = dirt * (0.8 + n3*0.25) * (1.0 - wear*0.15); vec2 c = hdCell(p*7.0); float peb = step(c.x, 0.1 + c.y*0.06) * step(0.45, c.y);
           col = mix(col, mix(vec3(0.42,0.4,0.37), vec3(0.56,0.52,0.46), c.y), peb*0.7); h = n3*0.25 + peb*(0.6 - c.x*2.0);
-          col = mix(col, g0*0.9, (1.0-wear)*smoothstep(0.55, 0.8, hdF(p*1.3+4.0))*0.6); rough = 0.9 - peb*0.2;
+          col = mix(col, mix(g0, g1, n2)*0.92, clamp(1.15 - wear*1.3, 0.0, 1.0)*smoothstep(0.38, 0.72, hdF(p*1.3+4.0))*0.85); rough = 0.9 - peb*0.2; // grass grows back over lightly used tracks
         } else if (k == 2){ col = vec3(0.78,0.7,0.52) * (0.88 + n3*0.2); h = sin(p.x*5.0 + n*6.0)*0.3 + n3*0.2; rough = 0.95; }
         else if (k == 3){ float cr = abs(hdN(p*2.5) - 0.5); col = mix(vec3(0.42,0.41,0.39), vec3(0.58,0.56,0.52), n) * (0.75 + n3*0.35); col *= 0.65 + smoothstep(0.0, 0.06, cr)*0.35; col = mix(col, vec3(0.3,0.38,0.16), smoothstep(0.6, 0.72, hdF(p*1.6))*0.7); h = n*0.8 + smoothstep(0.0, 0.06, cr)*0.3; rough = 0.82; }
         else if (k == 4){ // tilled field: furrows along the field's length
@@ -332,13 +337,22 @@ function hdBindTD(){ if (HD.terrU){ HD.terrU.uTD.value = HD.td; HD.terrU.uOrigin
   if (HD.waterU){ HD.waterU.uTD.value = HD.td; HD.waterU.uTF.value = HD.tf; HD.waterU.uOrigin.value.set(X0, Y0); HD.waterU.uSize.value.set(MW, MH); } }
 function hdTerrain(){
   hdTerrainData(); hdBindTD();
-  const res = [1, 2, 3][HD.q], g = new THREE.PlaneGeometry(MW, MH, MW*res, MH*res); g.rotateX(-Math.PI/2); g.translate(X0+MW/2, 0, Y0+MH/2);
+  const res = [1, 2, 2][HD.q], g = new THREE.PlaneGeometry(MW, MH, MW*res, MH*res); g.rotateX(-Math.PI/2); g.translate(X0+MW/2, 0, Y0+MH/2);
   const pos = g.attributes.position;
   // banks wander: near the waterline the ground is nudged up and down so the shore is never a straight tile edge
   for (let i=0;i<pos.count;i++){ const x = pos.getX(i), z = pos.getZ(i); let h = hdHeightAt(x, z); if (h > -0.34 && h < 0.02) h += (hdNoise(x*1.9, z*1.9, 1e6, 91) - 0.5)*0.16 + (hdNoise(x*5.3, z*5.3, 1e6, 92) - 0.5)*0.05; pos.setY(i, h); }
   g.computeVertexNormals();
-  const m = new THREE.Mesh(g, hdTerrainMat()); m.receiveShadow = true; m.userData.hd = true; if (R3.renderer) hdBakeRun(); if (typeof R3!=='undefined') R3.geoSig = hdSigs().geo;
-  return m;
+  // cut into 32x32-tile pieces (from the one grid, so normals match across the seams): only the pieces in view are drawn
+  const grp = new THREE.Group(), mat = hdTerrainMat(), NX = MW*res+1, NZ = MH*res+1, P = pos.array, N = g.attributes.normal.array, U = g.attributes.uv.array, step = 32*res;
+  for (let z0=0; z0<NZ-1; z0+=step) for (let x0=0; x0<NX-1; x0+=step){ const x1 = Math.min(NX-1, x0+step), z1 = Math.min(NZ-1, z0+step), w = x1-x0+1, h = z1-z0+1;
+    const p = new Float32Array(w*h*3), n = new Float32Array(w*h*3), u = new Float32Array(w*h*2), idx = [];
+    for (let j=0;j<h;j++) for (let i=0;i<w;i++){ const src = (z0+j)*NX + (x0+i), dst = j*w + i; p.set(P.subarray(src*3, src*3+3), dst*3); n.set(N.subarray(src*3, src*3+3), dst*3); u.set(U.subarray(src*2, src*2+2), dst*2); }
+    for (let j=0;j<h-1;j++) for (let i=0;i<w-1;i++){ const a = j*w+i, b = a+1, c = a+w, d = c+1; idx.push(a, c, b, b, c, d); }
+    const cg = new THREE.BufferGeometry(); cg.setAttribute('position', new THREE.BufferAttribute(p,3)); cg.setAttribute('normal', new THREE.BufferAttribute(n,3)); cg.setAttribute('uv', new THREE.BufferAttribute(u,2)); cg.setIndex(idx); cg.computeBoundingSphere();
+    const m = new THREE.Mesh(cg, mat); m.receiveShadow = true; m.userData.hd = true; grp.add(m); }
+  g.dispose(); grp.userData.hd = true;
+  if (R3.renderer) hdBakeRun(); if (typeof R3!=='undefined') R3.geoSig = hdSigs().geo;
+  return grp;
 }
 
 // =====================================================================

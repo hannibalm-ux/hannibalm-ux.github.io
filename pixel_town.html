@@ -6297,7 +6297,7 @@ function r3Tex(canvas, repeat){
 }
 function r3CachedTex(canvas){ let t = R3.texCache.get(canvas); if (!t){ t = r3Tex(canvas); R3.texCache.set(canvas, t); } return t; }
 function crop(img, x, y, w, h){ const c = mk(Math.max(1,w), Math.max(1,h)); c.getContext('2d').drawImage(img, x, y, w, h, 0, 0, w, h); return c; }
-function r3Dispose(obj){ if (!obj) return; obj.traverse(o=>{ if (o.geometry) o.geometry.dispose(); const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : []; ms.forEach(m=>{ if (m.userData && m.userData.shared) return; ['map','emissiveMap'].forEach(k=>{ if (m[k] && !m[k].shared) m[k].dispose(); }); m.dispose(); }); }); if (obj.parent) obj.parent.remove(obj); }
+function r3Dispose(obj){ if (!obj) return; obj.traverse(o=>{ if (o.geometry) o.geometry.dispose(); if (o.isInstancedMesh) o.dispose(); const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : []; ms.forEach(m=>{ if (m.userData && m.userData.shared) return; ['map','emissiveMap'].forEach(k=>{ if (m[k] && !m[k].shared) m[k].dispose(); }); m.dispose(); }); }); if (obj.parent) obj.parent.remove(obj); }
 
 function r3Init(){
   const wrap = $('viewWrap');
@@ -6510,6 +6510,7 @@ function r3World(){
   R3.bldGroups = BUILDINGS.map(b=>{ if (!hd) return r3Building(b); alive.add(b.id); const k = hdBldKey(b), e = R3.bldCache.get(b.id); if (e && e.k===k) return e.g; if (e) r3Dispose(e.g); const g = r3Building(b); R3.bldCache.set(b.id, {k, g}); return g; });
   if (hd) for (const [id, e] of R3.bldCache) if (!alive.has(id)){ r3Dispose(e.g); R3.bldCache.delete(id); }
   R3.bldGroups.forEach(g=>w.add(g));
+  if (hd) w.add(hdBatchBuildings(R3.bldGroups)); // drawn as a few merged meshes; the groups stay for picking, interiors and upkeep
   if (hd) HD.smokers = R3.bldGroups.filter(g=>g.userData.chimney).map(g=>({b:g.userData.b, x:g.userData.chimney.x, y:g.userData.chimney.y, z:g.userData.chimney.z}));
   R3.scene.add(R3.world = w);
   if (R3.frameKey!==`${X0},${Y0},${MW},${MH}`){ if (!hd){ r3Frame(); buildGround(); R3.groundTex.dispose(); R3.groundTex = r3Tex(ground); R3.groundTex.shared = true; R3.groundKey = groundKey; } }
@@ -6547,7 +6548,7 @@ function r3Props(){
   R3.boats = CIV ? [] : [[43,43],[37,46]].map(([bx,by])=>{ const s = place(ART.boat, bx*TILE, by*TILE); s.userData.base = s.position.y; return s; });
   // lamp glows
   R3.glows = r3LampList().map(L=>{ const g = new THREE.Sprite(r3GlowMat(L.kind)); const k = L.kind==='electric' ? 3.4 : L.kind==='torch' ? 2.0 : 2.6; g.scale.set(k,k,1); g.position.set(L.x, L.h, L.z); grp.add(g); return g; });
-  if (typeof HD!=='undefined' && HD.on) grp.add(hdGroundWorksCached());
+  if (typeof HD!=='undefined' && HD.on){ hdInstanceProps(grp); grp.add(hdGroundWorksCached()); }
   R3.scene.add(R3.props = grp);
 }
 // villagers are drawn with the low-poly figures in civ/civ_3d.js (lpBuild / lpAnimate)
@@ -6562,7 +6563,9 @@ function r3GlowMat(kind){ R3.glowMats = R3.glowMats || {}; if (kind==='lamp' || 
 function r3VolInit(){
   const R = R3, hd = typeof HD!=='undefined' && HD.on, q = hd ? HD.q : (R.mobile ? 0 : 2), steps = hd ? [6, 10, 12][q] : (R.mobile ? 12 : 24);
   const rt = new THREE.WebGLRenderTarget(4, 4, {type:THREE.HalfFloatType});
-  rt.depthTexture = new THREE.DepthTexture(4, 4); rt.depthTexture.type = THREE.UnsignedIntType; rt.samples = q===0 ? 0 : 4;
+  rt.depthTexture = new THREE.DepthTexture(4, 4); rt.depthTexture.type = THREE.UnsignedIntType; rt.samples = q===0 ? 0 : q===1 ? 2 : 4;
+  // occlusion and light shafts are worked out at half resolution (a quarter of the pixels), then applied to the full image
+  const effRT = new THREE.WebGLRenderTarget(4, 4, {type:THREE.HalfFloatType, depthBuffer:false});
   // bloom: a bright pass and a two-way blur at quarter resolution
   const bOpts = {type:THREE.HalfFloatType, depthBuffer:false}, bA = new THREE.WebGLRenderTarget(4, 4, bOpts), bB = new THREE.WebGLRenderTarget(4, 4, bOpts);
   const quadVS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
@@ -6605,8 +6608,8 @@ function r3VolInit(){
       }
       vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
       void main(){
-        vec3 col = texture2D(tColor, vUv).rgb; float d = texture2D(tDepth, vUv).x;
-        if (hdOn > 0.5 && uQ > 0 && d < 0.9999){ float ao = ssao(vUv, d); col *= mix(1.0, ao, aoStr); }
+        float d = texture2D(tDepth, vUv).x, aoK = 1.0;
+        if (hdOn > 0.5 && uQ > 0 && d < 0.9999){ float ao = ssao(vUv, d); aoK = mix(1.0, ao, aoStr); }
         vec4 vp = projInv * vec4(vUv*2.0-1.0, d*2.0-1.0, 1.0); vp /= vp.w; vec3 wp = (camWorld * vp).xyz;
         vec3 rd = wp - camPos; float len = length(rd); rd /= len; len = min(d >= 0.9999 ? maxDist : len, maxDist);
         const float TOP = 7.0; float t0 = 0.0;   // only the air near the ground, where buildings and trees cast shadow, is marched
@@ -6623,24 +6626,35 @@ function r3VolInit(){
           if (lampI[0] > 0.0) for (int j=0;j<6;j++){ vec3 dl = lampPos[j] - p; L += lampCol * lampI[j] * 0.35 / (0.35 + dot(dl, dl)); }
           scat += T * dens * L * stepL; T *= exp(-dens * stepL * 0.5); t += stepL;
         }
-        col = col * mix(1.0, T, 0.6) + scat + fogCol * (1.0 - T) * 0.12;
+        if (dbg > 0.5){ gl_FragColor = vec4(vec3(litSum/float(N)), 0.0); return; }
+        gl_FragColor = vec4(scat + fogCol * (1.0 - T) * 0.12, aoK * mix(1.0, T, 0.6)); // light to add, and how much of the scene shows through
+      }`,
+    depthTest:false, depthWrite:false });
+  // the full-resolution pass: scene colour, the half-resolution effects, bloom, then tone mapping and grading
+  const comp = new THREE.ShaderMaterial({ uniforms: mat.uniforms, vertexShader:quadVS, depthTest:false, depthWrite:false,
+    fragmentShader:`
+      varying vec2 vUv; uniform sampler2D tColor, tEff, tBloom; uniform float hdOn, exposure, bloomStr, dbg;
+      vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
+      void main(){
+        vec4 e = texture2D(tEff, vUv); vec3 col = texture2D(tColor, vUv).rgb * e.a + e.rgb;
+        if (dbg > 0.5) col = e.rgb;
         if (hdOn > 0.5){
           col += texture2D(tBloom, vUv).rgb * bloomStr; // glow only around what is truly bright
           col = aces(col * exposure);
           float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
-          col = mix(vec3(l), col, 1.1); // a little richer
-          col *= mix(vec3(0.94, 0.98, 1.06), vec3(1.05, 1.0, 0.93), smoothstep(0.08, 0.75, l)); // cool shade, warm light
+          col = mix(vec3(l), col, 1.18); // richer greens and golds
+          col *= mix(vec3(0.92, 0.98, 1.06), vec3(1.08, 1.0, 0.86), smoothstep(0.08, 0.75, l)); // cool shade, golden light
           col = clamp(col, 0.0, 1.0); col = mix(col, col*col*(3.0-2.0*col), 0.18); // gentle contrast curve
           vec2 v = vUv - 0.5; col *= 1.0 - 0.22*pow(dot(v, v)*2.2, 1.6); // soft vignette
         }
-        if (dbg > 0.5) col = vec3(litSum/float(N));
         gl_FragColor = linearToOutputTexel(vec4(col, 1.0));
-      }`,
-    depthTest:false, depthWrite:false });
-  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); quad.frustumCulled = false;
+      }` });
+  mat.uniforms.tEff = {value:effRT.texture};
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), comp); quad.frustumCulled = false;
   const vs = new THREE.Scene(); vs.add(quad);
+  const eq = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); eq.frustumCulled = false; const es = new THREE.Scene(); es.add(eq);
   const bq = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), brightMat); bq.frustumCulled = false; const bs = new THREE.Scene(); bs.add(bq);
-  Object.assign(R, {vol:true, volRT:rt, volMat:mat, volScene:vs, volCam:new THREE.OrthographicCamera(-1,1,1,-1,0,1), volSize:new THREE.Vector2(), bloomA:bA, bloomB:bB, brightMat, blurMat, bloomQuad:bq, bloomScene:bs});
+  Object.assign(R, {vol:true, volRT:rt, volMat:mat, compMat:comp, effRT, effScene:es, volScene:vs, volCam:new THREE.OrthographicCamera(-1,1,1,-1,0,1), volSize:new THREE.Vector2(), bloomA:bA, bloomB:bB, brightMat, blurMat, bloomQuad:bq, bloomScene:bs});
 }
 // the locate marker in 3D: a glowing outline on the ground and a beam of light above the building
 function r3Marker(ts){
@@ -6656,7 +6670,12 @@ function r3Marker(ts){
   U.ring.scale.set(H.w + 0.4 + k*0.4, 1, H.h + 0.4 + k*0.4); U.tip.position.y = 5 + k*0.8; U.beam.material.opacity = 0.2 + 0.25*k;
 }
 function r3Draw(dark){
-  const R = R3; r3Marker(performance.now());
+  const R = R3; r3Marker(performance.now()); if (typeof HD!=='undefined' && HD.on && R.vol) hdGpuBegin();
+  // the shadow map is redrawn only when the light, its centre or the world has changed, and every third frame for
+  // the people and animals moving about; the rest of the time last frame's shadows are reused
+  const sh = R.renderer.shadowMap, sp = R.sun.position; sh.autoUpdate = false; R.shF = (R.shF||0) + 1;
+  const skey = Math.round(sp.x*4)+','+Math.round(sp.y*40)+','+Math.round(sp.z*4)+','+R.sun.shadow.camera.right+','+(S.worldVer||0);
+  if (skey !== R.shKey || R.shF % 3 === 0){ sh.needsUpdate = true; R.shKey = skey; }
   if (!R.vol){ R.renderer.render(R.scene, R.camera); return; }
   R.renderer.getDrawingBufferSize(R.volSize);
   if (R.volRT.width!==R.volSize.x || R.volRT.height!==R.volSize.y) R.volRT.setSize(R.volSize.x, R.volSize.y);
@@ -6667,7 +6686,7 @@ function r3Draw(dark){
     R.brightMat.uniforms.texel.value.set(1/R.volSize.x, 1/R.volSize.y); R.bloomQuad.material = R.brightMat; R.renderer.setRenderTarget(R.bloomB); R.renderer.render(R.bloomScene, R.volCam);
     for (let k=0;k<2;k++){ R.blurMat.uniforms.tSrc.value = R.bloomB.texture; R.blurMat.uniforms.dir.value.set((k+1)/bw, 0); R.bloomQuad.material = R.blurMat; R.renderer.setRenderTarget(R.bloomA); R.renderer.render(R.bloomScene, R.volCam);
       R.blurMat.uniforms.tSrc.value = R.bloomA.texture; R.blurMat.uniforms.dir.value.set(0, (k+1)/bh); R.renderer.setRenderTarget(R.bloomB); R.renderer.render(R.bloomScene, R.volCam); }
-    U.bloomStr.value = 0.1 + dark*0.25; U.exposure.value = 1.05 + dark*0.35; U.uQ.value = HD.q;
+    U.bloomStr.value = 0.14 + dark*0.25; U.exposure.value = 1.16 + dark*0.35; U.uQ.value = HD.q;
     // while the camera moves, occlusion and light shafts use fewer samples: nobody sees the difference in motion, but the frame rate does
     U.aoN.value = HD.moving ? 4 : (HD.q > 1 ? 8 : 6); U.volN.value = HD.moving ? Math.max(4, Math.floor([6, 10, 12][HD.q]/2)) : [6, 10, 12][HD.q]; }
   R.renderer.setRenderTarget(null);
@@ -6680,28 +6699,33 @@ function r3Draw(dark){
   const h = modOf(S.minute)/60, low = Math.max(0, 1 - Math.abs(Math.sin((h-6)/12*Math.PI))*1.6); // low sun at dawn and dusk
   U.haze.value = 0.03 + low*0.03 + (S.weather==='Fog' ? 0.05 : S.weather==='Rain'||S.weather==='Storm' ? 0.025 : S.weather==='Snow' ? 0.02 : 0) + dark*0.02;
   U.strength.value = (2.2 + low*2.5) * (R3.volBoost||1); U.haze.value *= (R3.hazeBoost||1);
-  if (hd){ U.strength.value *= 0.3; U.haze.value *= 0.45; } // HD has its own sky and fog: keep the shafts of light, lose the milkiness
+  if (hd){ U.strength.value *= 0.6; U.haze.value = U.haze.value*0.6 + low*0.012*(1-dark); } // golden shafts when the sun is low // HD has its own sky and fog: keep the shafts of light, lose the milkiness
   R.lampLights.forEach((l,i)=>{ U.lampPos.value[i].copy(l.position); U.lampI.value[i] = l.intensity; });
-  U.dbg.value = R.volDebug ? 1 : 0; R.renderer.render(R.volScene, R.volCam);
+  U.dbg.value = R.volDebug ? 1 : 0;
+  const ew = Math.max(2, Math.floor(R.volSize.x/2)), eh = Math.max(2, Math.floor(R.volSize.y/2)); if (R.effRT.width!==ew || R.effRT.height!==eh) R.effRT.setSize(ew, eh);
+  R.renderer.setRenderTarget(R.effRT); R.renderer.render(R.effScene, R.volCam); R.renderer.setRenderTarget(null);
+  R.renderer.render(R.volScene, R.volCam); if (typeof HD!=='undefined' && HD.on) hdGpuEnd();
 }
 
 function r3Villagers(frac, ts, dark){
   const cam3 = R3.camera, yaw = R3.yaw, rx = Math.cos(yaw), rz = -Math.sin(yaw), fx = -Math.sin(yaw), fz = -Math.cos(yaw);
   const tint = new THREE.Color().setRGB(1-dark*0.9, 1-dark*0.85, 1-dark*0.55);
-  const seen = new Set(); let nb = 0; const m4 = new THREE.Matrix4();
+  const seen = new Set(), casters = []; let nb = 0, builds = 0; const m4 = new THREE.Matrix4();
   const dtv = Math.min(0.1, (ts - (R3.voxT||ts))/1000); R3.voxT = ts;
+  R3.figLim = Math.max(34, R3.dist*1.9); R3.figShadow = Math.max(14, R3.dist*0.85); R3.figLod = Math.max(12, R3.dist*0.7); // people beyond the haze are not drawn; only those near the camera cast real shadows
   for (const c of S.citizens){
     let g = R3.vox.get(c.id);
     if (!visibleCitizen(c)){ if (g) g.visible = false; continue; }
     const p = citizenPos(c, frac), X = p.x + 10/16, Z = p.y + 1;
-    if (Math.abs(X - cam.x/TILE) > 60 || Math.abs(Z - cam.y/TILE) > 60){ if (g) g.visible = false; continue; }
+    const dCam = Math.hypot(X - cam.x/TILE, Z - cam.y/TILE); if (dCam > R3.figLim){ if (g) g.visible = false; continue; }
     const key = lpKey(c);
-    if (!g || g.userData.key!==key){ if (g) lpDispose(g); g = lpBuild(c); R3.scene.add(g); R3.vox.set(c.id, g); }
+    if (!g || g.userData.key!==key){ if (builds >= 2){ if (!g) continue; } else { builds++; if (g) lpDispose(g); g = lpBuild(c); R3.scene.add(g); R3.vox.set(c.id, g); } } // at most two new figures a frame, so panning never stutters
     seen.add(c.id);
     const A = lpAnimate(c, g, p, ts, dtv), ph = ts/160*g.userData.slow + g.userData.phase;
-    g.position.set(X, A.moving ? Math.abs(Math.cos(ph))*0.03 : 0, Z); g.visible = true;
+    g.position.set(X, A.moving ? Math.abs(Math.cos(ph))*0.03 : 0, Z); g.visible = true; const skm = g.children[0]; if (skm){ skm.castShadow = false; if (dCam < R3.figShadow) casters.push([dCam, skm]); const far = dCam > R3.figLod; if (skm.userData.geoFar && skm.userData.far !== far){ skm.userData.far = far; skm.geometry = far ? skm.userData.geoFar : skm.userData.geoNear; } } // far figures: simpler shape, blob shadow only
     if (nb < 399){ m4.makeTranslation(X, 0.02, Z-0.05); R3.blobs.setMatrixAt(nb++, m4); }
   }
+  casters.sort((a,b)=>a[0]-b[0]); for (let i=0;i<Math.min(40, casters.length);i++) casters[i][1].castShadow = true; // the nearest forty cast real shadows
   for (const [id,g] of R3.vox) if (!seen.has(id)){ if (!cById(id) || cById(id).dead || !S.citizens.includes(cById(id))){ lpDispose(g); R3.vox.delete(id); } else g.visible = false; }
   // animals: real 3D models
   r3Animals(ts, dark);
@@ -6733,7 +6757,9 @@ function r3Sky(frac){
   const tx = cam.x/TILE, tz = cam.y/TILE;
   const sx = Math.cos(ang)*1.2, sy = Math.max(0.2, Math.min(0.62, elev*0.8)), sz = 0.3;
   const L = Math.hypot(sx,sy,sz);
-  R3.sun.position.set(tx + sx/L*80, sy/L*80, tz + sz/L*80); R3.sun.target.position.set(tx, 0, tz);
+  // the light's centre snaps to a 4-tile grid, so the shadow map stays valid while the view pans within a cell (and does not shimmer)
+  const stx = Math.round(tx/4)*4, stz = Math.round(tz/4)*4;
+  R3.sun.position.set(stx + sx/L*80, sy/L*80, stz + sz/L*80); R3.sun.target.position.set(stx, 0, stz);
   // after sunset the moon takes over: a cool, soft light so the town can still be seen
   const sunI = Math.max(0, elev>0 ? 3.4*Math.min(1, elev*2.5+0.15) : 0) * (1-overcast*0.75), moonI = (1-day)*0.9*(1-overcast*0.5);
   R3.sun.intensity = Math.max(sunI, moonI);
@@ -6744,9 +6770,11 @@ function r3Sky(frac){
   R3.hemi.groundColor.copy(C('#5a6a44').lerp(C('#303a50'), 1-day));
   if (R3.water.material.color) R3.water.material.color.copy(C('#3e76b0').lerp(C('#1c3052'), 1-day));
   if (typeof HD!=='undefined' && HD.sky){ hdSky({day, dusk:duskAmt, overcast, snow: wx==='Snow', sunDir: R3.sun.position.clone().sub(R3.sun.target.position).normalize(), sunCol: C(sunI >= moonI ? '#fff4e0' : '#a8bcf0').lerp(C('#ffb070'), duskAmt*0.8).multiplyScalar(Math.max(0.15, sunI/3.4))});
-    R3.hemi.intensity *= 0.55; R3.sun.intensity *= 1.15;
+    R3.hemi.intensity *= 0.72; R3.sun.intensity *= 1.15;
+    // HD: a warm, golden sun and a sky-blue fill from above with a mossy bounce from below, as in late-afternoon light
+    if (sunI >= moonI){ R3.sun.color.lerp(C('#ffd49a'), 0.35); R3.hemi.color.lerp(C('#bcd6f4'), 0.5*day); R3.hemi.groundColor.lerp(C('#6a6a34'), 0.5*day); }
     // shadows stay crisp: the shadow camera hugs the part of the world in view
-    const ext = clamp(R3.dist*1.15, 16, 70); if (R3.sun.shadow.camera.right !== ext){ Object.assign(R3.sun.shadow.camera, {left:-ext, right:ext, top:ext, bottom:-ext}); R3.sun.shadow.camera.updateProjectionMatrix(); } }
+    const ext = clamp(Math.ceil((R3.dist*1.15 + 4)/4)*4, 16, 72); if (R3.sun.shadow.camera.right !== ext){ Object.assign(R3.sun.shadow.camera, {left:-ext, right:ext, top:ext, bottom:-ext}); R3.sun.shadow.camera.updateProjectionMatrix(); } }
   return dark;
 }
 function r3Weather(dt){
@@ -6766,14 +6794,14 @@ function r3Weather(dt){
 function r3Render(frac, ts){
   const dt = Math.min(0.1,(ts-lastFrameTs)/1000); lastFrameTs = ts;
   resizeCanvas(); buildGround();
-  const r = R3.c3.getBoundingClientRect(), dpr = window.devicePixelRatio||1, pr = typeof HD!=='undefined' && HD.on ? Math.round([1, Math.min(dpr, 1.5), Math.min(dpr, 2)][HD.q] * (HD.rs||1) * 20)/20 : Math.min(dpr, R3.mobile?1.25:1.75);
+  const r = R3.c3.getBoundingClientRect(), dpr = window.devicePixelRatio||1, pr = typeof HD!=='undefined' && HD.on ? Math.round([Math.min(dpr, 1), Math.min(dpr, 1.25), Math.min(dpr, 1.5)][HD.q] * (HD.rs||1) * 20)/20 : Math.min(dpr, R3.mobile?1.25:1.75);
   const W = Math.max(200, Math.round(r.width)), H = Math.max(150, Math.round(r.height));
   if (R3.w!==W || R3.h!==H || R3.pr!==pr){ R3.w=W; R3.h=H; R3.pr=pr; R3.renderer.setPixelRatio(pr); R3.renderer.setSize(W, H, false); R3.camera.aspect = W/H; R3.camera.updateProjectionMatrix(); }
   const wk = `${S.worldVer||0}|${ART.season}|${BUILDINGS.length}|${X0},${Y0},${MW},${MH}`;
-  if (wk!==R3.lastWorld){ R3.lastWorld = wk; r3World(); }
+  if (wk!==R3.lastWorld){ R3.lastWorld = wk; r3World(); R3.shKey = null; }
   if (R3.groundKey!==groundKey){ R3.groundKey = groundKey; if (typeof HD!=='undefined' && HD.on){ if (HD.td) hdRefreshTerrainData(); } else R3.groundTex.needsUpdate = true; }
   const pk = `${wk}|${Math.floor(S.minute/60)}|${(S.deceased||[]).length}`;
-  if (pk!==R3.lastProps){ R3.lastProps = pk; r3Props(); }
+  if (pk!==R3.lastProps){ R3.lastProps = pk; r3Props(); R3.shKey = null; }
   // camera
   if (cam.follow && ui.sel){ const c = cById(ui.sel); if (c && !c.dead){ const p = citizenPos(c, frac); cam.x += (p.x*TILE+10-cam.x)*0.1; cam.y += (p.y*TILE+16-cam.y)*0.1; } }
   const k = R3.keys, spd = R3.dist*0.9*dt;
@@ -6788,7 +6816,8 @@ function r3Render(frac, ts){
   // light, weather, windows, lamps
   const dark = r3Sky(frac);
   r3Weather(dt);
-  if (ts - R3.winT > 500){ R3.winT = ts; (R3.bldGroups||[]).forEach(g=>{ const m = g.userData.frontMat; if (m) m.emissiveIntensity = dark>0.12 && litBuilding(g.userData.b) ? 0.9*dark/0.68+0.25 : 0; }); }
+  if (ts - R3.winT > 500 && typeof HD!=='undefined' && HD.on && HD.bldBatch){ R3.winT = ts; hdWindowsUpdate(dark); }
+  else if (ts - R3.winT > 500){ R3.winT = ts; (R3.bldGroups||[]).forEach(g=>{ const m = g.userData.frontMat; if (m) m.emissiveIntensity = dark>0.12 && litBuilding(g.userData.b) ? 0.9*dark/0.68+0.25 : 0; }); }
   if (R3.glows) R3.glows.forEach(g=>{ g.visible = dark>0.08; g.material.opacity = Math.min(1, dark*1.6); });
   if (ts - R3.lampT > 400){ R3.lampT = ts; const near = r3LampList().map(L=>Object.assign({d:Math.hypot(L.x-tx,L.z-tz)}, L)).sort((a,b)=>a.d-b.d); R3.lampLights.forEach((l,i)=>{ const n = near[i]; if (!n || dark<0.08){ l.intensity = 0; return; } l.position.set(n.x, n.h-0.05, n.z); l.color.setHex(LAMP3_HEX[n.kind]||0xffc070); l.intensity = (n.kind==='electric' ? 9 : n.kind==='torch' ? 4.5 : 6)*dark; l.distance = n.kind==='electric' ? 12 : 9; }); }
   if (CIV && typeof r3LightDaylight==='function') r3LightDaylight(dark);
@@ -6835,14 +6864,15 @@ function r3Pick(clientX, clientY){
 }
 
 // ---------- main loop ----------
-let catchingUp = false;
+let catchingUp = false; const frameStats = {draw:4};
 function frame(ts){
   if (!catchingUp){
     const target = Math.floor(clock.now());
     const backlog = target - S.minute;
     if (backlog > Math.max(2000, clock.speed*4)){ catchUp(backlog, 'Pixel Town kept running while this tab was in the background.'); }
     else {
-      let n=0; const t0=performance.now(), budget = clock.speed>=3600 ? 26 : 12, cap = clock.speed>=3600 ? 1440 : 400;
+      // the simulation gets what is left of a 60 fps frame (16.7 ms) after drawing, so speeding up time does not drop frames
+      let n=0; const t0=performance.now(), budget = clamp(14.5 - (frameStats.draw||4), 2, clock.speed>=3600 ? 14 : 12), cap = clock.speed>=3600 ? 1440 : 400;
       while (S.minute < target && n < cap && performance.now()-t0 < budget){ simTick(); n++; if (modOf(S.minute)%60===0) saveGame(); }
       if (ts - simRate.t > 2000){ if (simRate.t) simRate.dps = (S.minute - simRate.m)/1440/((ts - simRate.t)/1000); simRate.t = ts; simRate.m = S.minute; }
       if (S.minute < target-60) clock.rebase(S.minute);
@@ -6851,9 +6881,11 @@ function frame(ts){
     const frac = clamp(clock.now() - S.minute, 0, 1);
     updateAnimals(Math.min(0.1,(ts-lastFrameTs)/1000));
     if (CIV) civUpdateVehicles(Math.min(0.1,(ts-lastFrameTs)/1000), clock.paused ? 0 : Math.min(4, 0.6+clock.speed*0.05));
+    const tD = performance.now();
     if (R3.on && R3.ready) r3Render(frac, ts); else render(frac, ts);
     music.update();
     renderPanels(false);
+    frameStats.draw = frameStats.draw*0.9 + (performance.now() - tD)*0.1;
   }
   requestAnimationFrame(frame);
 }

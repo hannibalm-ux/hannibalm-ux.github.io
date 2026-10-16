@@ -239,7 +239,7 @@
   // ============================ 3D AND APPEARANCE ============================
   test('V38', '3D animals are real animated models with persistent attributes', async ()=>{
     await three();
-    ['cow','pig','sheep','chicken','horse','dog','cat','goat','deer','boar','rabbit','wolf','bird','fish'].forEach(k=>{ const g = an3Build(k, 0); ok(g.isGroup && g.userData.core && g.userData.core.isMesh, k+' is not a 3D model'); if (!['bird','fish'].includes(k)) ok(g.userData.legs.length===(k==='chicken' ? 2 : 4), k+' has the wrong number of legs'); if (k==='bird') ok(g.userData.wings, 'birds have no wings'); });
+    ['cow','pig','sheep','chicken','horse','dog','cat','goat','deer','boar','rabbit','wolf','bird','fish'].forEach(k=>{ const g = an3Build(k, 0); ok(g.isGroup && g.userData.core && (g.userData.core.isMesh || (g.userData.core.isBone && g.children[0] && g.children[0].isSkinnedMesh)), k+' is not a 3D model'); if (!['bird','fish'].includes(k)) ok(g.userData.legs.length===(k==='chicken' ? 2 : 4), k+' has the wrong number of legs'); if (k==='bird') ok(g.userData.wings, 'birds have no wings'); });
     const c = adults()[0]; const a = civNewAnimal('goat', {k:'hh', id:c.civ.hh}, {age:200, sex:'F'}); ['age','health','sex','owner','prod','born','mother','kids'].forEach(f=>ok(f in a, 'animal lacks '+f));
     const saved = JSON.parse(JSON.stringify(S.civ.animals)); ok(saved.find(x=>x.id===a.id).sex==='F', 'animal not saved');
     ok(typeof lpBuild==='function' && typeof r3Animals==='function', 'no 3D animal pass');
@@ -316,7 +316,7 @@
     ok(tris(g) > 1500, 'the figure is too simple: '+tris(g)+' triangles');
     ok(U.aL.joint && U.lL.joint && U.hand, 'limbs do not bend'); const box = new THREE.Box3().setFromObject(g), sz = box.getSize(new THREE.Vector3());
     ok(sz.y > sz.x*2.2 && sz.y > 1.2 && sz.y < 2.2, 'unrealistic proportions '+sz.x.toFixed(2)+'x'+sz.y.toFixed(2));
-    ['cow','horse','sheep','deer','dog'].forEach(k=>{ const a = an3Build(k, 0); ok(a.userData.head && a.userData.head.isGroup, k+' has no posable head'); ok(tris(a) > 250, k+' is too simple'); });
+    ['cow','horse','sheep','deer','dog'].forEach(k=>{ const a = an3Build(k, 0); ok(a.userData.head && (a.userData.head.isGroup || a.userData.head.isBone), k+' has no posable head'); ok(tris(a) > 250, k+' is too simple'); });
     ok(SKINS.length >= 12 && HAIRS.length >= 14 && EYES.length >= 10 && CLOTH.dyed.length >= 16 && CLOTH.pants.length >= 6, 'palette is still narrow');
   });
 
@@ -654,12 +654,22 @@
   });
   test('HD1', 'The HD world builds: blended terrain, water, trees, rocks, buildings, grass and crops', async ()=>{
     await three(); R3.renderer = null; HD.q = 1;
-    hdTerrainData(); ok(HD.td && HD.td.image.width===MW, 'no terrain data'); const terr = hdTerrain(); ok(terr.isMesh && terr.geometry.attributes.position.count > MW*MH, 'no terrain mesh');
+    hdTerrainData(); ok(HD.td && HD.td.image.width===MW, 'no terrain data'); const terr = hdTerrain(); let tv = 0; terr.traverse(o=>{ if (o.isMesh) tv += o.geometry.attributes.position.count; }); ok(tv > MW*MH, 'no terrain mesh');
     ok(hdWater().isMesh, 'no water'); const trees = hdTrees(); ok(trees.children.some(o=>o.isInstancedMesh && o.material.alphaTest > 0), 'no leaf-card trees');
     const b = BUILDINGS[0]; const g = hdBuilding(b); ok(g.children.length >= 5 && g.userData.frontMat, 'the building has no detail');
     ok(g.children.some(o=>o.material && o.material.normalMap), 'no normal-mapped materials on the building');
     HD_WIND.uCam.value = new THREE.Vector3(); const ch = hdBuildChunk(Math.floor(S.civ.center[0]/HD_CH), Math.floor(S.civ.center[1]/HD_CH)); ok(ch.children.length, 'no grass around the settlement');
     ok(hdGroundWorks().isGroup, 'no crops, fences or bridges');
+  });
+  test('HD2', 'For 60 fps: people and animals are one draw each, buildings batch by material, homes are thatched log cabins', async ()=>{
+    await three(); R3.renderer = null; HD.q = 2; HD.on = true; HD.mats = {}; HD.smokers = [];
+    const c = S.citizens.find(isAdult), g = lpBuild(c); const meshes = []; g.traverse(o=>{ if (o.isMesh) meshes.push(o); });
+    ok(meshes.length===1 && meshes[0].isSkinnedMesh, `a person is ${meshes.length} meshes`); ok(meshes[0].userData.geoFar && meshes[0].userData.geoFar.index.count < meshes[0].userData.geoNear.index.count, 'no simpler far shape');
+    const a = an3Build('cow', 0), b2 = an3Build('cow', 0); const am = []; a.traverse(o=>{ if (o.isMesh) am.push(o); }); ok(am.length===1 && am[0].isSkinnedMesh, 'an animal is several meshes'); ok(a.children[0].geometry===b2.children[0].geometry, 'animals of a kind do not share geometry');
+    const groups = BUILDINGS.slice(0, 12).map(b=>hdBuilding(b)); let parts = 0; groups.forEach(gr=>gr.children.forEach(o=>{ if (o.isMesh) parts++; }));
+    const batch = hdBatchBuildings(groups); ok(batch.children.length < parts/5, `buildings did not batch (${parts} parts -> ${batch.children.length})`);
+    ok(groups.every(gr=>gr.children.every(o=>!o.isMesh || o.userData.batched || o.userData.interior || !o.visible || o.isInstancedMesh)), 'a building part is still drawn on its own');
+    const hut = BUILDINGS.find(b=>b.style==='hut' && !/wattle|healer|school|council/.test(b.type||'')); if (hut){ const hg = hdBuilding(hut); ok(hg.children.some(o=>o.material===HD.mats.S_thatch), 'the hut has no thatch'); ok(hg.children.some(o=>o.material===HD.mats.S_log), 'the hut has no log walls'); ok(hg.userData.chimney, 'the hut has no chimney'); }
   });
 
   // ============================ GROWTH FEATURES ============================

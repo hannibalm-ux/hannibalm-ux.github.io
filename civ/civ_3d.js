@@ -75,6 +75,16 @@ function voxGeo(boxes){
   g.setAttribute('color', new THREE.BufferAttribute(col,3)); g.setAttribute('uv', new THREE.BufferAttribute(uv,2)); g.setIndex(new THREE.BufferAttribute(idx,1));
   g.computeBoundingSphere(); return g;
 }
+// several voxel parts, each moved to where its bone sits, become one geometry with each vertex tied to its bone
+function lpSkinGeo(parts, sc){
+  const gs = parts.map(([boxes, bi, off])=>{ const g = voxGeo(boxes); if (sc) g.scale(sc, sc, sc); g.translate(off[0], off[1], off[2]); return [g, bi]; });
+  let nv = 0, ni = 0; gs.forEach(([g])=>{ nv += g.attributes.position.count; ni += g.index.count; });
+  const pos = new Float32Array(nv*3), nor = new Float32Array(nv*3), col = new Float32Array(nv*3), uv = new Float32Array(nv*2), idx = new Uint32Array(ni), si = new Uint16Array(nv*4), sw = new Float32Array(nv*4);
+  let v = 0, t = 0; gs.forEach(([g, bi])=>{ const n = g.attributes.position.count; pos.set(g.attributes.position.array, v*3); nor.set(g.attributes.normal.array, v*3); col.set(g.attributes.color.array, v*3); uv.set(g.attributes.uv.array, v*2);
+    const I = g.index.array; for (let k=0;k<I.length;k++) idx[t+k] = I[k] + v; t += I.length; for (let k=0;k<n;k++){ si[(v+k)*4] = bi; sw[(v+k)*4] = 1; } v += n; g.dispose(); });
+  const G = new THREE.BufferGeometry(); G.setAttribute('position', new THREE.BufferAttribute(pos,3)); G.setAttribute('normal', new THREE.BufferAttribute(nor,3)); G.setAttribute('color', new THREE.BufferAttribute(col,3)); G.setAttribute('uv', new THREE.BufferAttribute(uv,2));
+  G.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si,4)); G.setAttribute('skinWeight', new THREE.BufferAttribute(sw,4)); G.setIndex(new THREE.BufferAttribute(idx,1)); G.computeBoundingSphere(); G.boundingSphere.radius += 0.6; return G;
+}
 function lpBuild(c){
   const K = lpLook(c), {L, G, female, kid} = K, age = K.age, hr = mapRand(hash(c.id+'vox'));
   const sh = (h,f) => shade(h,f);
@@ -161,13 +171,21 @@ function lpBuild(c){
     B(l, -aw+0.25,-5.4,-aw+0.25, aw-0.25,0.2,aw-0.25, L.coat ? shirt : skin); B(l, -aw+0.3,-5.6,-aw+0.3, aw-0.3,-4.9,aw-0.3, L.coat ? sh(shirt,1.2) : skinD);
     B(l, -aw+0.2,-7.9,-1.1, aw-0.2,-5.4,1.35, skin); B(l, s<0?aw-0.6:-aw-0.2, -6.6,0.2, s<0?aw+0.2:-aw+0.6, -5.4,1.2, skinD); B(l, -aw+0.25,-8.3,-0.9, aw-0.25,-7.8,1.1, skinD); });
   // assemble: joints at the shoulders, elbows, hips and knees
-  const mat = voxMat(), grp = new THREE.Group(), fig = new THREE.Group(); grp.add(fig);
-  const mesh = boxes => { const m = new THREE.Mesh(voxGeo(boxes), mat); m.castShadow = true; m.receiveShadow = true; return m; };
-  const torso = mesh(body); fig.add(torso);
-  const limb = (up, low, x, y, lowY) => { const pivot = new THREE.Group(); pivot.position.set(x*VOX, y*VOX, 0); pivot.add(mesh(up)); const joint = new THREE.Group(); joint.position.set(0, lowY*VOX, 0); joint.add(mesh(low)); pivot.add(joint); fig.add(pivot); return {pivot, joint}; };
+  // one skinned mesh per person: the body and limbs share one geometry, and the joints are bones, so a whole figure
+  // is a single draw call (and a single shadow draw) however many parts it has; the pivots animate exactly as before
+  const mat = voxMat(), grp = new THREE.Group(), fig = new THREE.Bone(), torso = new THREE.Bone(); fig.add(torso);
+  const bones = [fig, torso], parts = []; // [boxes, bone index, offset]
+  parts.push([body, 1, [0,0,0]]);
+  const limb = (up, low, x, y, lowY) => { const pivot = new THREE.Bone(); pivot.position.set(x*VOX, y*VOX, 0); const joint = new THREE.Bone(); joint.position.set(0, lowY*VOX, 0); pivot.add(joint); fig.add(pivot);
+    bones.push(pivot); parts.push([up, bones.length-1, [x*VOX, y*VOX, 0]]); bones.push(joint); parts.push([low, bones.length-1, [x*VOX, (y+lowY)*VOX, 0]]); return {pivot, joint}; };
   const sx = 6.0*w, hx = 2.3*w*hipW;
   const aL = limb(armUL, armLL, -sx, 26.9, -7.4), aR = limb(armUR, armLR, sx, 26.9, -7.4);
   const lL = limb(legU, legL, -hx, 17, -8.4), lR = limb(legU, legL, hx, 17, -8.4);
+  // a second, simpler geometry for figures seen from afar: the small boxes (eyes, strands of hair, seams) are left out
+  const small = bx => { const d = [Math.abs(bx[3]-bx[0]), Math.abs(bx[4]-bx[1]), Math.abs(bx[5]-bx[2])].sort((a,b)=>a-b); return d[1] < 1.0; };
+  const geoNear = lpSkinGeo(parts), geoFar = lpSkinGeo(parts.map(([bxs, bi, off])=>[bxs.filter(bx=>!small(bx)), bi, off]));
+  const sk = new THREE.SkinnedMesh(geoNear, mat); sk.castShadow = true; sk.receiveShadow = true; sk.add(fig); grp.add(sk);
+  sk.bind(new THREE.Skeleton(bones)); sk.userData.skin = true; sk.userData.geoNear = geoNear; sk.userData.geoFar = geoFar;
   const hand = new THREE.Group(); hand.position.set(0, -6.8*VOX, 0.3*VOX); aR.joint.add(hand);
   // size from genes; children grow gradually; the old shrink a little and stoop
   const adultH = 0.94 + (G.height||0.5)*0.16 + (female ? -0.05 : 0.02);
@@ -210,7 +228,7 @@ function lpTool(kind){
   }
   const m = new THREE.Mesh(lpMerge(P), lpMat()); m.castShadow = true; LP.cache.set('tool:'+kind, m); return m.clone();
 }
-function lpDispose(g){ g.traverse(o=>{ if (o.isMesh && o.geometry && !o.userData.shared) o.geometry.dispose(); }); R3.scene.remove(g); }
+function lpDispose(g){ g.traverse(o=>{ if (o.isMesh && o.geometry && !o.userData.shared) o.geometry.dispose(); if (o.userData.geoFar){ o.userData.geoFar.dispose(); o.userData.geoNear.dispose(); } if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose(); }); R3.scene.remove(g); }
 // animate: walking bends knees and elbows; work swings the tool; the old walk slowly and stoop
 function lpAnimate(c, g, p, ts, dtv){
   const U = g.userData, moving = p.moving && (p.dx||p.dy);
@@ -312,11 +330,14 @@ function an3Build(kind, variant){
   const legPos = A.biped ? [[-W*0.22, 0],[W*0.22, 0]] : [[-W/2+A.lw*0.6, L/2-A.lw-1.5],[W/2-A.lw*0.6, L/2-A.lw-1.5],[-W/2+A.lw*0.6, -L/2+A.lw+1.5],[W/2-A.lw*0.6, -L/2+A.lw+1.5]];
   const legBx = []; const lw = A.lw, lh = A.leg;
   if (!A.flyer){ B(legBx, -lw/2,-lh*0.55,-lw/2, lw/2,0.8,lw/2, A.biped ? A.hoof : bodyC); B(legBx, -lw*0.42,-lh+1,-lw*0.42, lw*0.42,-lh*0.5,lw*0.42, A.biped ? A.hoof : bodyD); B(legBx, -lw/2-0.05,-lh,-lw/2-0.05, lw/2+0.05,-lh+1.2,lw/2+(A.biped?1.5:0.3), A.hoof); }
-  const legGeo = legBx.length ? (()=>{ const g = voxGeo(legBx); g.scale(AVOX/VOX, AVOX/VOX, AVOX/VOX); return g; })() : null;
-  const coreM = mk(core); grp.add(coreM);
-  const headG = new THREE.Group(); headG.position.set(0, (y0+H-2)*AVOX, (L/2-2)*AVOX); const headM = mk(head); headG.add(headM); grp.add(headG);
-  const legs = legGeo ? legPos.map(([x,z])=>{ const p = new THREE.Group(); p.position.set(x*AVOX, y0*AVOX+0.01, z*AVOX); const m = new THREE.Mesh(legGeo, mat); m.castShadow = true; p.add(m); grp.add(p); return p; }) : [];
-  let wings = null; if (A.flyer){ const wb = [[0,-0.2,-1.6, 5,0.3,1.6, bodyD]]; const wg = voxGeo(wb); wg.scale(AVOX/VOX, AVOX/VOX, AVOX/VOX); wings = [-1,1].map(s=>{ const p = new THREE.Group(); p.position.set(s*W/2*AVOX, (y0+H*0.8)*AVOX, 0); const m = new THREE.Mesh(wg, mat); if (s<0) m.scale.x = -1; p.add(m); grp.add(p); return p; }); }
+  // one skinned mesh per animal (body, head, legs and wings on bones), sharing one geometry per species and coat
+  const hp = [0, (y0+H-2)*AVOX, (L/2-2)*AVOX], root = new THREE.Bone(), headB = new THREE.Bone(); headB.position.set(...hp); root.add(headB);
+  const bones = [root, headB], parts = [[core, 0, [0,0,0]], [head, 1, hp]];
+  const legs = legBx.length ? legPos.map(([x,z])=>{ const o = [x*AVOX, y0*AVOX+0.01, z*AVOX], b = new THREE.Bone(); b.position.set(...o); root.add(b); bones.push(b); parts.push([legBx, bones.length-1, o]); return b; }) : [];
+  let wings = null; if (A.flyer){ wings = [-1,1].map(s=>{ const o = [s*W/2*AVOX, (y0+H*0.8)*AVOX, 0], b = new THREE.Bone(); b.position.set(...o); root.add(b); bones.push(b); parts.push([s<0 ? [[-5,-0.2,-1.6, 0,0.3,1.6, bodyD]] : [[0,-0.2,-1.6, 5,0.3,1.6, bodyD]], bones.length-1, o]); return b; }); }
+  const gkey = 'an:'+kind+':'+(variant?1:0); let geo = LP.cache.get(gkey); if (!geo){ geo = lpSkinGeo(parts, AVOX/VOX); LP.cache.set(gkey, geo); }
+  const sk = new THREE.SkinnedMesh(geo, mat); sk.userData.shared = true; sk.castShadow = true; sk.receiveShadow = true; sk.add(root); grp.add(sk); sk.bind(new THREE.Skeleton(bones));
+  const coreM = root, headG = headB;
   grp.userData = {core:coreM, head:headG, legs, wings, kind, h:y0+H, leg:y0, phase:Math.random()*10};
   return grp;
 }
@@ -330,15 +351,14 @@ function r3Animals(ts, dark){
     let g = R3.an3.get(key); if (!g || g.userData.kind!==a.kind){ if (g) lpDispose(g); g = an3Build(a.kind, a.variant); R3.scene.add(g); R3.an3.set(key, g); }
     const U = g.userData, moving = a.walk>0 && (a.wait<=0), run = a.flee>0, speed = run ? 3 : 1;
     const ph = ts/(run?90:170) + U.phase;
-    g.position.set(X, 0, Z);
+    g.position.set(X, 0, Z); const dA = Math.hypot(X-tx, Z-tz); g.visible = dA < (R3.figLim||60); if (!g.visible) return; if (g.children[0]) g.children[0].castShadow = dA < (R3.figShadow||20);
     const yaw = a.face<0 ? -Math.PI/2 : Math.PI/2; g.rotation.y += (yaw - g.rotation.y)*0.2;
     // walk and run swing the legs; grazing lowers the head; sleeping lies down; birds fly
     U.legs.forEach((l,i)=>{ l.rotation.x = moving ? Math.sin(ph + (i%2?Math.PI:0) + (i>1?Math.PI/2:0))*0.6*speed*0.6 : 0; });
     if (U.wings){ const flap = Math.sin(ts/60 + U.phase)*0.9; U.wings[0].rotation.z = flap; U.wings[1].rotation.z = -flap; g.position.y = 2.2 + Math.sin(ts/700 + U.phase)*0.4; }
     const graze = !moving && !night && !U.wings && ['cow','sheep','goat','horse','deer','rabbit'].includes(a.kind) && Math.sin(ts/1500+U.phase)>0;
     if (U.head) U.head.rotation.x += ((graze ? 0.75 : 0) - U.head.rotation.x)*0.1; U.core.position.y = moving ? Math.abs(Math.sin(ph))*0.02*speed : 0;
-    if (night && !U.wings && a.kind!=='chicken'){ g.position.y = -(U.leg||0)*AVOX*0.9; U.legs.forEach(l=>l.visible = false); if (U.head) U.head.rotation.x = 0.35; } else U.legs.forEach(l=>l.visible = true);
-    g.visible = true;
+    if (night && !U.wings && a.kind!=='chicken'){ g.position.y = -(U.leg||0)*AVOX*0.9; U.legs.forEach(l=>l.scale.setScalar(0.001)); if (U.head) U.head.rotation.x = 0.35; } else U.legs.forEach(l=>l.scale.setScalar(1));
   });
   for (const [k,g] of R3.an3) if (!seen.has(k)){ lpDispose(g); R3.an3.delete(k); }
   // fish jump now and then in open water near the camera
@@ -414,7 +434,7 @@ function r3Decorate(b, grp){
     const P = [lpPart(g.box, b.roof ? lpShade(b.roof,1.1) : '#b8a080', [b.x+b.w+0.35, 0.5, b.y+b.h*0.6], [0,0,0], [0.7, 1.0, Math.min(1.6,b.h*0.6)])];
     for (let k=0;k<Math.min(3,b.w-1);k++) P.push(lpPart(g.box, ['#e84a4a','#f2c14e','#e87aa8'][k%3], [b.x+0.8+k*1.1, 0.95, b.y+b.h+0.08], [0,0,0], [0.45,0.1,0.12]));
     const m = new THREE.Mesh(lpMerge(P), lpMat()); m.castShadow = true; grp.add(m); }
-  if (age > 250){ grp.traverse(o=>{ if (o.isMesh && o.material && o.material.map && o.material.side===THREE.DoubleSide && o.material.color){ o.material.color.lerp(new THREE.Color('#6a8a5a'), Math.min(0.35, (age-250)/1200)); } }); }
+  if (age > 250){ grp.traverse(o=>{ if (o.isMesh && o.material && o.material.map && o.material.side===THREE.DoubleSide && o.material.color && !o.material.userData.shared){ o.material.color.lerp(new THREE.Color('#6a8a5a'), Math.min(0.35, (age-250)/1200)); } }); }
   const org = s.org && S.civ.orgs[s.org]; if (org && org.profitAvg > 5 && !D.tile){ const m = new THREE.Mesh(lpMerge([lpPart(g.box, '#2a3a5a', [b.x+b.w/2, 1.1, b.y+b.h+0.05], [0,0,0], [Math.min(2.4,b.w*0.7), 0.3, 0.05]), lpPart(g.box, '#f2c14e', [b.x+b.w/2, 1.1, b.y+b.h+0.08], [0,0,0], [Math.min(2.2,b.w*0.6), 0.04, 0.02])]), lpMat()); grp.add(m); }
 }
 // ---------- interiors: built only for buildings near the camera when zoomed in ----------
@@ -442,12 +462,13 @@ function r3Interior(b){
   const m = new THREE.Mesh(lpMerge(P), lpMat()); m.receiveShadow = true; return m;
 }
 function r3Interiors(tx, tz){
-  const near = R3.dist < 12;
+  const near = R3.dist < 12, hide = [];
   (R3.bldGroups||[]).forEach(grp=>{ const b = grp.userData.b; if (!b || b.style==='mine') return; const d = Math.hypot(b.x+b.w/2-tx, b.y+b.h/2-tz);
     const want = near && d < 4.5;
     if (want && !grp.userData.interior){ grp.userData.interior = r3Interior(b); grp.add(grp.userData.interior); }
     if (grp.userData.interior) grp.userData.interior.visible = want;
-    grp.children.forEach(o=>{ if (o.userData.roofPart) o.visible = !want; });
+    grp.children.forEach(o=>{ if (o.userData.roofPart && !o.userData.batched) o.visible = !want; }); if (want && grp.userData.bid) hide.push(grp.userData.bid);
     const box = grp.userData.box; if (box){ const mats = box.material; if (Array.isArray(mats)){ mats[2].visible = !want; [0,1,4,5].forEach(i=>{ mats[i].side = want ? THREE.DoubleSide : THREE.FrontSide; }); } }
   });
+  if (typeof HD_HIDE!=='undefined'){ HD_HIDE.uHide0.value = hide[0] || -9; HD_HIDE.uHide1.value = hide[1] || -9; } // batched roofs are lifted in the shader
 }
