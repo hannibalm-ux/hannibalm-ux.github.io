@@ -145,12 +145,19 @@ const RESEARCH_STAGES = ['observe','question','hypothesis','experiment','record'
 function civResearchers(){ return S.citizens.filter(c=>isAdult(c) && civTaskAvailable(c, 'research')); }
 CIV_TARGETS.research = c => { const lab = civStructsOf(s=>STRUCTURES[s.def].lab || STRUCTURES[s.def].edu>=4)[0]; if (lab) return {loc:lab.id, note:`Research at ${lab.name}`, extra:{}}; return {loc: c.home && LOC[c.home] ? c.home : 'loc_town_square', note:'Tinkering and taking notes', extra:{}}; };
 CIV_TASK_VALUE.research = (c) => { const food = hhOf(c) ? hhFoodDays(hhOf(c)) : 0; if (food < 1.5) return 0; return (food < 3 ? 0.5 : 1) * (c.personality.openness*4 + cog(c,'creativity')*4 + (civHasGoal(c,'discover')?5:0) + (civStructsOf(s=>STRUCTURES[s.def].lab).length?3:0) + (c.civ.employer && S.civ.orgs[c.civ.employer] && S.civ.orgs[c.civ.employer].type==='institute' ? 8 : 0)); };
+function civExpertFor(k, v, not){ return S.citizens.filter(o=>o!==not && isAdult(o) && !o.jail && kn(o,k) >= v).sort((a,b)=>kn(b,k)-kn(a,k))[0] || null; }
+function civAnyMet(c, T0){ return !T0.any || T0.any.some(g=>g.every(x=> x.startsWith('th_') ? civTheoryAccepted(x) || (c.civ.beliefs[x]||0) > 0.6 : civTechKnown(x))); }
+// the researcher and the experts they consult between them have what the technique needs
+function civTeamPrereqs(c, id){ const T0 = TECHS[id]; if (!T0 || !civAnyMet(c, T0)) return false; return Object.entries(T0.need||{}).every(([k,v])=>kn(c,k) >= v || !!civExpertFor(k, v, c)); }
 function civRigor(c){ const labs = civStructsOf(s=>STRUCTURES[s.def].lab).map(s=>STRUCTURES[s.def].lab); return clamp(cog(c,'reasoning')*0.35 + kn(c,'mathematics')/250 + (civTechKnown('writing')?0.1:0) + (civTechKnown('counting')?0.05:0) + (labs.length ? Math.max(...labs)*0.08 : 0) + sk(c,'research')/400, 0.05, 0.95); }
 function civPickQuestion(c){
   const C = S.civ;
+  // a third of the time, work on the settlement's research agenda: the field that holds back the most techniques
+  if (rnd() < 0.35){ const fr = civFrontier(c, true); if (fr) return fr; }
   // an open theory the researcher is equipped to test, or a practical problem a technique might solve
   const theories = Object.values(THEORIES).filter(T0=>Object.entries(T0.need).every(([k,v])=>kn(c,k)>=v) && !(C.theories[T0.id] && (C.theories[T0.id].accept>0.92 || C.theories[T0.id].accept<0.05)));
-  const techs = Object.values(TECHS).filter(T0=>T0.disc && !civTechKnown(T0.id) && Object.entries(T0.need||{}).every(([k,v])=>kn(c,k) >= v*0.85));
+  // a technique is within reach if the researcher knows enough of each field, or knows the basics and can consult someone who knows it well
+  const techs = Object.values(TECHS).filter(T0=>T0.disc && !civTechKnown(T0.id) && civAnyMet(c, T0) && Object.entries(T0.need||{}).every(([k,v])=>kn(c,k) >= v*0.85 || (kn(c,k) >= v*0.35 && civExpertFor(k, v, c))));
   const pickT = theories.length && (rnd()<0.55 || !techs.length);
   if (pickT){ const T0 = theories.sort((a,b)=>(C.theories[a.id]?1:0)-(C.theories[b.id]?1:0) || kn(c,b.disc)-kn(c,a.disc))[0]; return {theory:T0.id, disc:T0.disc, q:`Is it true that ${T0.label.toLowerCase()}?`}; }
   if (techs.length){ const need = (S.civ.spoiled||0) > 40 ? 1 : 0; const T0 = techs.sort((a,b)=>need*((b.store?1:0)-(a.store?1:0)) || kn(c,b.disc)-kn(c,a.disc))[0]; return {tech:T0.id, disc:T0.disc, q:`Could we manage ${T0.label.toLowerCase()}?`}; }
@@ -158,11 +165,21 @@ function civPickQuestion(c){
 }
 // when nothing is within reach, a researcher studies toward the nearest technique or idea that is not, in whichever of its
 // fields they are weakest: this is how physics, the environment sciences and the rest climb toward steam, steel and electricity
-function civFrontier(c){
+// the research agenda: for each field, how many open techniques and ideas nobody in the settlement yet knows enough of it for
+function civResearchAgenda(){
+  const C = S.civ, d = civDay(); if (C.agendaDay === d && C.agenda) return C.agenda;
+  const best = {}, top = k => best[k] ?? (best[k] = Math.max(0, ...S.citizens.map(c=>kn(c,k)))), open = x => x.startsWith('th_') ? true : civTechKnown(x), A = {};
+  const count = need => Object.entries(need||{}).forEach(([k,v])=>{ if (top(k) < v) A[k] = (A[k]||0) + 1 + (v - top(k))/40; });
+  Object.values(TECHS).forEach(T0=>{ if (!civTechKnown(T0.id) && (!T0.any || T0.any.some(g=>g.every(open)))) count(T0.need); });
+  Object.values(THEORIES).forEach(T0=>{ const Tt = C.theories[T0.id]; if (!(Tt && (Tt.accept > 0.92 || Tt.accept < 0.05))) count(T0.need); });
+  C.agendaDay = d; return C.agenda = Object.entries(A).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[k, +v.toFixed(1)]);
+}
+function civFrontier(c, agenda){
   const C = S.civ, open = x => x.startsWith('th_') ? true : civTechKnown(x);   // an untested theory can be studied toward too
-  const cands = [];
+  const cands = [], focus = agenda ? (civResearchAgenda()[hash(c.id+civDay())%Math.min(2, civResearchAgenda().length || 1)] || [])[0] : null;
   Object.values(TECHS).forEach(T0=>{ if (civTechKnown(T0.id) || !T0.need) return; if (T0.any && !T0.any.some(g=>g.every(open))) return; cands.push({id:T0.id, label:T0.label, need:T0.need}); });
   Object.values(THEORIES).forEach(T0=>{ const Tt = C.theories[T0.id]; if (Tt && (Tt.accept > 0.92 || Tt.accept < 0.05)) return; if (Object.entries(T0.need).every(([k,v])=>kn(c,k)>=v)) return; cands.push({id:T0.id, label:T0.label, need:T0.need, theory:true}); });
+  if (focus){ const f = cands.filter(o=>(o.need||{})[focus] > kn(c, focus)); if (f.length){ const o = f.sort((a,b)=>a.need[focus]-b.need[focus])[0]; return {study:o.id, disc:focus, q:`What would it take to ${o.theory ? 'test whether '+o.label.toLowerCase() : 'manage '+o.label.toLowerCase()}?`}; } }
   if (!cands.length) return null;
   const scored = cands.map(o=>{ const ratios = Object.entries(o.need).map(([k,v])=>[k, Math.min(1, kn(c,k)/v)]); const weak = ratios.sort((a,b)=>a[1]-b[1])[0]; return Object.assign(o, {score: ratios.reduce((a,r)=>a+r[1],0)/ratios.length + weak[1]*0.5 + rnd()*0.1, weak:weak[0]}); }).sort((a,b)=>b.score-a.score);
   const o = scored[0]; return {study:o.id, disc:o.weak, q:`What would it take to ${o.theory ? 'test whether '+o.label.toLowerCase() : 'manage '+o.label.toLowerCase()}?`};
@@ -193,7 +210,7 @@ function civExperiment(R, c){
     R.results.push({by:c.id, support, rig:+rig.toFixed(2), day:civDay(), written: civTechKnown('writing')});
     const b = c.civ.beliefs[R.theory] ?? 0.5; c.civ.beliefs[R.theory] = +clamp(b + (support?0.15:-0.15)*(1-stubborn(c)*0.5), 0, 1).toFixed(2);
   } else if (R.tech){ const T0 = TECHS[R.tech];
-    const ok = civTechPrereqs(c, R.tech); const p = ok ? 0.35 + rig*0.4 : 0.02;
+    const ok = civTechPrereqs(c, R.tech) || civTeamPrereqs(c, R.tech); const p = ok ? 0.35 + rig*0.4 : 0.02;
     R.results.push({by:c.id, support: rnd()<p, rig:+rig.toFixed(2), day:civDay()});
   }
 }
@@ -217,7 +234,7 @@ function civPublish(R, c){
     ev('studies'); if (hash(R.id)%4===0) chronicle(`${c.name} has been studying ${R.disc}, working toward ${(TECHS[R.study]||THEORIES[R.study]||{label:'something new'}).label.toLowerCase()}.`, 4, '📐', 'science');
   } else if (R.tech){
     const wins = R.results.filter(x=>x.support).length;
-    if (wins && civTechPrereqs(c, R.tech)){ civLearnTech(c, R.tech, null); if (R.replicated){ const p = alive(R.replicated); if (p) civLearnTech(p, R.tech, c); } ev('techs_by_research'); }
+    if (wins && (civTechPrereqs(c, R.tech) || civTeamPrereqs(c, R.tech))){ civLearnTech(c, R.tech, null); Object.keys(TECHS[R.tech].need||{}).forEach(k=>{ if (kn(c,k) < TECHS[R.tech].need[k]){ const ex = civExpertFor(k, TECHS[R.tech].need[k], c); if (ex && !knowsTech(ex, R.tech)) civLearnTech(ex, R.tech, c); } }); /* the experts consulted learn it too */ if (R.replicated){ const p = alive(R.replicated); if (p) civLearnTech(p, R.tech, c); } ev('techs_by_research'); }
     else chronicle(`${c.name}'s experiments with ${TECHS[R.tech].label.toLowerCase()} did not work out yet.`, 4, '🧪', 'science');
   }
 }
