@@ -154,7 +154,18 @@ function civPickQuestion(c){
   const pickT = theories.length && (rnd()<0.55 || !techs.length);
   if (pickT){ const T0 = theories.sort((a,b)=>(C.theories[a.id]?1:0)-(C.theories[b.id]?1:0) || kn(c,b.disc)-kn(c,a.disc))[0]; return {theory:T0.id, disc:T0.disc, q:`Is it true that ${T0.label.toLowerCase()}?`}; }
   if (techs.length){ const need = (S.civ.spoiled||0) > 40 ? 1 : 0; const T0 = techs.sort((a,b)=>need*((b.store?1:0)-(a.store?1:0)) || kn(c,b.disc)-kn(c,a.disc))[0]; return {tech:T0.id, disc:T0.disc, q:`Could we manage ${T0.label.toLowerCase()}?`}; }
-  return null;
+  return civFrontier(c);
+}
+// when nothing is within reach, a researcher studies toward the nearest technique or idea that is not, in whichever of its
+// fields they are weakest: this is how physics, the environment sciences and the rest climb toward steam, steel and electricity
+function civFrontier(c){
+  const C = S.civ, open = x => x.startsWith('th_') ? true : civTechKnown(x);   // an untested theory can be studied toward too
+  const cands = [];
+  Object.values(TECHS).forEach(T0=>{ if (civTechKnown(T0.id) || !T0.need) return; if (T0.any && !T0.any.some(g=>g.every(open))) return; cands.push({id:T0.id, label:T0.label, need:T0.need}); });
+  Object.values(THEORIES).forEach(T0=>{ const Tt = C.theories[T0.id]; if (Tt && (Tt.accept > 0.92 || Tt.accept < 0.05)) return; if (Object.entries(T0.need).every(([k,v])=>kn(c,k)>=v)) return; cands.push({id:T0.id, label:T0.label, need:T0.need, theory:true}); });
+  if (!cands.length) return null;
+  const scored = cands.map(o=>{ const ratios = Object.entries(o.need).map(([k,v])=>[k, Math.min(1, kn(c,k)/v)]); const weak = ratios.sort((a,b)=>a[1]-b[1])[0]; return Object.assign(o, {score: ratios.reduce((a,r)=>a+r[1],0)/ratios.length + weak[1]*0.5 + rnd()*0.1, weak:weak[0]}); }).sort((a,b)=>b.score-a.score);
+  const o = scored[0]; return {study:o.id, disc:o.weak, q:`What would it take to ${o.theory ? 'test whether '+o.label.toLowerCase() : 'manage '+o.label.toLowerCase()}?`};
 }
 CIV_WORK.research = (c, b, hrs) => {
   const C = S.civ;
@@ -162,9 +173,9 @@ CIV_WORK.research = (c, b, hrs) => {
   // join a colleague's work in a field we know, rather than starting yet another project alone
   if (!R){ const j = C.research.filter(r=>r.status==='active' && r.by!==c.id && alive(r.by) && kn(c, r.disc) >= 5 && (r.helpers||[]).length < 3).sort((a,b)=>b.stage-a.stage || b.prog-a.prog)[0];
     if (j && rnd() < 0.6){ j.helpers = (j.helpers||[]).concat(c.id); R = j; adjustRel(c, alive(j.by), 3); } }
-  if (!R){ const q = civPickQuestion(c); if (!q) return {value:0, why:'no question worth asking'}; R = {id:'rp_'+(++C.rSeq), by:c.id, org:c.civ.employer||null, disc:q.disc, q:q.q, theory:q.theory||null, tech:q.tech||null, stage:0, prog:0, results:[], started:civDay(), status:'active', rigor:civRigor(c)}; C.research.push(R); if (C.research.length>200) C.research.splice(0, C.research.length-200); ev('research_started'); }
+  if (!R){ const q = civPickQuestion(c); if (!q) return {value:0, why:'no question worth asking'}; R = {id:'rp_'+(++C.rSeq), by:c.id, org:c.civ.employer||null, disc:q.disc, q:q.q, theory:q.theory||null, tech:q.tech||null, study:q.study||null, stage:0, prog:0, results:[], started:civDay(), status:'active', rigor:civRigor(c)}; C.research.push(R); if (C.research.length>200) C.research.splice(0, C.research.length-200); ev('research_started'); }
   const speed = hrs*(0.3 + cog(c,'reasoning')*0.4 + cog(c,'creativity')*0.3)*(1 + (civStructsOf(s=>STRUCTURES[s.def].lab).length ? 0.6 : 0));
-  R.prog += speed; c.civ.know[R.disc] = +Math.min(100, kn(c,R.disc) + hrs*0.25*(0.5+cog(c,'learning'))).toFixed(2); c.civ.skill.research = Math.min(100, sk(c,'research') + hrs*0.3);
+  R.last = civDay(); R.prog += speed; c.civ.know[R.disc] = +Math.min(100, kn(c,R.disc) + hrs*(R.study ? 0.32 : 0.25)*(0.5+cog(c,'learning'))).toFixed(2); c.civ.skill.research = Math.min(100, sk(c,'research') + hrs*0.3);
   if (R.prog < 4) return {value:1.5, why:null};
   R.prog = 0; R.stage++;
   const st = RESEARCH_STAGES[Math.min(R.stage, RESEARCH_STAGES.length-1)];
@@ -199,6 +210,11 @@ function civPublish(R, c){
     else if (was >= 0.6 && Tt.accept < 0.6){ chronicle(`New experiments overturned the idea that ${T0.label.toLowerCase()}.`, 8, '🔬', 'science'); ev('theories_overturned'); }
     else chronicle(`${c.name} reported on the question "${R.q}" (${R.results.filter(x=>x.support).length} of ${R.results.length} trials in favour).`, 5, '🧪', 'science');
     c.civ.respect += 2;
+  } else if (R.study){
+    // study ends in notes others can learn from: colleagues in the field catch up part of the way, and with writing it becomes a book
+    const k = kn(c, R.disc); civResearchers().filter(o=>o!==c && kn(o, R.disc) < k).slice(0, 6).forEach(o=>{ o.civ.know[R.disc] = +Math.min(k, kn(o, R.disc) + (k - kn(o, R.disc))*0.25).toFixed(2); });
+    if (civTechKnown('writing') && k >= 20 && !(C.books||[]).some(bk=>bk.dom===R.disc && bk.lvl >= k-3)){ C.books = (C.books||[]).concat({dom:R.disc, lvl:Math.round(k*0.9), by:c.id, day:civDay()}).slice(-40); ev('books'); }
+    ev('studies'); if (hash(R.id)%4===0) chronicle(`${c.name} has been studying ${R.disc}, working toward ${(TECHS[R.study]||THEORIES[R.study]||{label:'something new'}).label.toLowerCase()}.`, 4, '📐', 'science');
   } else if (R.tech){
     const wins = R.results.filter(x=>x.support).length;
     if (wins && civTechPrereqs(c, R.tech)){ civLearnTech(c, R.tech, null); if (R.replicated){ const p = alive(R.replicated); if (p) civLearnTech(p, R.tech, c); } ev('techs_by_research'); }
@@ -208,6 +224,8 @@ function civPublish(R, c){
 function civScienceDaily(){ civMinesDaily(); civPreciousDaily(); }
 function civScienceWeekly(){
   const C = S.civ;
+  // projects whose researcher has died, left or not touched them in two months are given up, so the records show what is really going on
+  (C.research||[]).forEach(R=>{ if (R.status==='active' && (!alive(R.by) || civDay() - (R.last ?? R.started) > 56)){ R.status = 'abandoned'; R.ended = civDay(); } });
   // beliefs spread in conversation too; the stubborn hold on
   Object.keys(C.theories).forEach(id=>{ const Tt = C.theories[id]; Tt.accept = +(Tt.accept*0.995 + (S.citizens.filter(c=>(c.civ.beliefs[id]||0)>0.6).length/Math.max(1,S.citizens.length))*0.005).toFixed(3); });
   // a research institute forms when several people keep doing research and someone can pay for a lab

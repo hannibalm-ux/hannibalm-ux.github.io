@@ -102,7 +102,7 @@ function civPayProjectWage(p, c, hrs){ const pay = Math.round(p.pay*hrs); if (pa
 // a vacated home is kept to rent or sell, given to kin, or left to fall down
 function civVacated(s, h){
   s.occ = null;
-  if (s.shelter){ const other = S.citizens.find(c=>c.home===s.id); if (other){ s.occ = other.civ.hh; return; } } // a shared shelter stays the town's
+  if (s.shelter || s.multi){ const other = S.citizens.find(c=>c.home===s.id); if (other){ s.occ = other.civ.hh; return; } if (s.multi) return; } // a shared shelter stays the town's; flats wait for new tenants
   const need = Object.values(S.civ.hh).find(x=>!x.home || !S.civ.structs[x.home]);
   if (need && (!civMoneyOn() || peekRelHH(h, need) > 20)){ need.home = s.id; s.occ = need.id; hhMembers(need).forEach(m=>m.home = s.id); chronicle(`${need.name} moved into ${s.name}, left behind by the ${h.name} household.`, 4, '📦', 'land'); indexCitizens(); return; }
   if (civMoneyOn()){ s.forSale = true; s.price = Math.round(s.value*1.05); civLandlordOffer(s); }

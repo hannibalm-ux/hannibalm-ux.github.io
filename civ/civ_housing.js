@@ -132,6 +132,7 @@ function civReclaimDaily(){
     chronicle(gone ? `${s.name} had no owner left (it belonged to ${was}), so it returned to the settlement.` : `${s.name} stood empty and unwanted, so it returned to the settlement.`, 4, '🏚️', 'land');
   });
   civShelterNeedy();
+  civDenseHousingDaily();
 }
 // town-owned homes go rent-free to those with no roof: families with children first, then those without longest
 function civShelterNeedy(){
@@ -161,4 +162,60 @@ function civShelterNeedy(){
     chronicle(`The settlement gave ${s.name} to the ${h.name} household, who had no roof${hhMembers(h).some(m=>!isAdult(m))?' and young children':''}. They live there rent-free.`, 5, '🏠', 'land');
     if (S.week) S.week.society.push(`${h.name} household housed in ${s.name}`);
     if (STRUCTURES[s.def].home.cap - living(s) < 2) return; } });
+}
+
+// ---------- modern housing: terraces, boarding houses, apartment blocks and towers ----------
+// A household only ever builds a house for itself, so dense housing needs someone building for others: a building firm or a
+// wealthy investor who lets the flats, or the government building public housing. They build where there is real demand
+// (families with no roof, crowding, people still in huts, land running out); families move in, and the huts they leave
+// go to others or fall empty. Each new building technique raises the ceiling: boarding houses with sawn lumber, terraces with
+// bricks, apartment blocks with multi-storey building, towers with steel frames.
+const CIV_DENSE = ['tower','apartments','row_houses','boarding'];
+const CIV_POOR_HOMES = ['lean_to','crude_hut','longhouse','wattle_hut'];
+function civDenseLiving(s){ return S.citizens.filter(c=>c.home===s.id).length; }
+function civDenseRoom(s){ return STRUCTURES[s.def].home.cap - civDenseLiving(s); }
+function civDenseHousingDaily(){
+  const C = S.civ, d = civDay();
+  const dense = civStructsOf(s=>CIV_DENSE.includes(s.def) && s.status==='active' && s.cond >= 20); dense.forEach(s=>{ s.multi = true; });
+  if (dense.length) civDenseTenancy(dense, d);
+  if (d % 7 === 3) civDenseDevelop(d);
+}
+function civDenseDevelop(d){
+  const C = S.civ, G = C.gov;
+  const homeless = civHomelessHH().length, crowded = Object.values(C.hh).filter(h=>{ const s = h.home && C.structs[h.home]; return s && STRUCTURES[s.def].home && h.members.length > STRUCTURES[s.def].home.cap; }).length;
+  const poor = Object.values(C.hh).filter(h=>{ const s = h.home && C.structs[h.home]; return s && CIV_POOR_HOMES.includes(s.def); }).length, short = C.landShort != null && d - C.landShort < 56;
+  const demand = homeless*2 + crowded + (short ? 6 : 0) + Math.floor(poor/5) + Math.floor(S.citizens.length/150);
+  const vacant = civStructsOf(s=>s.multi && s.status==='active').reduce((a,s)=>a + Math.max(0, civDenseRoom(s)), 0);
+  const building = civProjects().filter(p=>CIV_DENSE.includes(p.def)).length;
+  C.denseDemand = demand;
+  if (demand < 4 || vacant >= 8 || building >= 1 + Math.floor(S.citizens.length/300)) return;
+  const builders = S.citizens.filter(isAdult), def = CIV_DENSE.find(x=>civCanBuild(x, builders)); if (!def) return;
+  const D = STRUCTURES[def], cost = Math.round(Object.entries(D.mat).reduce((a,[g,q])=>a + q*civPrice(g), 0) + D.labor*2*(C.econ.level||1));
+  const firm = civMoneyOn() ? civOrgs(o=>o.biz && BUSINESS_TYPES[o.biz] && BUSINESS_TYPES[o.biz].contractor && o.cash > cost*0.4).sort((a,b)=>b.cash-a.cash)[0] : null;
+  const rich = civMoneyOn() && !firm ? S.citizens.filter(c=>isAdult(c) && !c.jail && c.wallet > cost*0.6).sort((a,b)=>b.wallet-a.wallet)[0] : null;
+  const publicOK = !firm && !rich && G.stage >= 3 && (!civMoneyOn() || (G.treasury||0) - cost*0.4 >= civTreasuryReserve()) && (homeless >= 2 || short);
+  const owner = firm ? {k:'org', id:firm.id} : rich ? {k:'person', id:rich.id} : publicOK ? civTownOwner() : null; if (!owner) return;
+  const site = civFindSite(def, civMarketCenter(), {margin:1, anySide:true}) || (typeof civFrontierSite==='function' ? civFrontierSite(def, {margin:1}) : null); if (!site){ C.landShort = d; return; }
+  if (firm) firm.cash -= Math.round(cost*0.3); else if (rich) rich.wallet -= Math.round(cost*0.4); else if (civMoneyOn()) G.treasury -= Math.round(cost*0.4);
+  const p = civStartProject(def, site, owner, {purpose:'home', meta:{dense:true}, pay: civMoneyOn() ? 3*(C.econ.level||1) : 0, fund: Math.round(cost*0.4), org: firm ? firm.id : null, why: firm ? `${firm.name} is building flats to let` : rich ? `${rich.name} is building flats to let` : 'public housing'});
+  if (p && firm) p.contractor = firm.id;
+  chronicle(`${firm ? firm.name : rich ? rich.name : 'The settlement'} began ${an(D.label.toLowerCase())} with room for ${D.home.cap} people: ${homeless ? homeless+' families have no roof' : short ? 'there is no land left for houses' : 'too many still live in huts'}.`, 7, '🏢', 'land'); ev('dense_started');
+}
+function civDenseTenancy(dense, d){
+  const C = S.civ, money = civMoneyOn();
+  // who wants a flat: families with no roof first, then crowded ones, then (weekly) those in huts who can pay
+  const homeless = civHomelessHH(), crowded = Object.values(C.hh).filter(h=>{ const s = h.home && C.structs[h.home]; return s && !s.multi && STRUCTURES[s.def].home && h.members.length > STRUCTURES[s.def].home.cap; });
+  const huts = d % 7 === 1 ? Object.values(C.hh).filter(h=>{ const s = h.home && C.structs[h.home]; return s && CIV_POOR_HOMES.includes(s.def) && (!money || civHHMoney(h) >= 30*(C.econ.level||1)); }) : [];
+  const want = [...new Set(homeless.concat(crowded, huts))];
+  for (const s of dense){ let room = civDenseRoom(s); if (room <= 0) continue;
+    for (const h of want){ if (room <= 0) break; if (h.home===s.id || h.members.length > room) continue;
+      const pub = s.owner.k==='gov' || s.owner.k==='community', rent = money ? Math.max(2, Math.round(s.value*0.004/Math.max(1, STRUCTURES[s.def].home.cap/5))) : 0;
+      if (money && !pub && civHHMoney(h) < rent*4) continue; // a landlord wants a month's rent in hand
+      const was = h.home && C.structs[h.home];
+      if (money && rent && !(pub && !(civHHMoney(h) >= rent*4))){ civContract('rent', [s.owner, {k:'hh', id:h.id}], {struct:s.id, hh:h.id, amount:rent, every:7}, 7); }
+      h.home = s.id; if (!s.occ || !C.hh[s.occ]) s.occ = h.id; delete h.homelessSince; hhMembers(h).forEach(m=>m.home = s.id); room -= h.members.length; want.splice(want.indexOf(h), 1);
+      if (was && was.id !== s.id) civVacated(was, h);
+      ev('dense_tenants'); if (hash(h.id+s.id)%3===0) chronicle(`The ${h.name} household moved into a flat in ${s.name}${was ? `, leaving their ${STRUCTURES[was.def].label.toLowerCase()}` : ''}.`, 4, '🏢', 'land');
+    } }
+  indexCitizens();
 }

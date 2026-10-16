@@ -99,7 +99,7 @@ function civMarketStages(){
   if (E.stage<4 && civHas('market').length) set(4, 'Market stalls stand where the trading spot used to be.');
   const shops = Object.values(C.orgs).filter(o=>o.status==='active' && o.hq && S.civ.structs[o.hq] && ['retail','food','crafts','hospitality','health','professional'].includes((BUSINESS_TYPES[o.biz]||{}).industry));
   if (E.stage<5 && E.stage>=3 && shops.length) set(5, `${shops[0].name} opened its doors: the settlement's first permanent shop.`);
-  if (E.stage===5 && shops.length>=4){ const [mx,my] = civMarketCenter(); const near = shops.filter(o=>{ const s = S.civ.structs[o.hq]; return Math.hypot(s.x-mx, s.y-my) < 12; }); if (near.length>=4){ set(6, 'Shops now crowd around the market: the settlement has a commercial district.'); E.district = true; } }
+  if (E.stage===5 && shops.length>=4){ const [mx,my] = civMarketCenter(); const near = shops.filter(o=>{ const s = S.civ.structs[o.hq]; return Math.hypot(s.x-mx, s.y-my) < 18; }); if (near.length>=4 || (shops.length >= 10 && near.length >= 2)){ set(6, 'Shops now crowd around the market: the settlement has a commercial district.'); E.district = true; } }
 }
 
 // ---------- market with money ----------
@@ -347,7 +347,7 @@ function civContractsDaily(){
     if (k.kind==='sponsorship' || k.kind==='sports'){ if (!civMoveMoney(a, b, k.terms.amount, k.kind)) k.breaches++; if (k.terms.until && d>=k.terms.until) k.status = 'ended'; return; }
   });
 }
-function civEvict(k){ const s = S.civ.structs[k.terms.struct]; if (!s) return; const h = S.civ.hh[s.occ]; if (h){ h.home = null; hhMembers(h).forEach(m=>m.home = 'loc_town_square'); chronicle(`The ${h.name} household was evicted from ${s.name}.`, 6, '📦', 'land'); ev('evictions'); } s.occ = null; indexCitizens(); }
+function civEvict(k){ const s = S.civ.structs[k.terms.struct]; if (!s) return; const h = S.civ.hh[k.terms.hh || s.occ]; if (h){ h.home = null; hhMembers(h).forEach(m=>m.home = 'loc_town_square'); chronicle(`The ${h.name} household was evicted from ${s.name}.`, 6, '📦', 'land'); ev('evictions'); } if (!s.multi || (h && s.occ===h.id)){ s.occ = null; if (s.multi) civVacated(s, h); } indexCitizens(); }
 
 // ---------- credit: informal lending → moneylenders → credit organisations → banks ----------
 function civSeekLoan(c, amt, purpose){
@@ -388,7 +388,7 @@ function civFinanceWeekly(){
   if (lenders.length) civFinStage(2, `${lenders[0].name} has become known as a moneylender.`);
   // a lender with many loans, some bookkeeping and enough capital sets up a bank; a close-knit group may form a credit union
   if (F.stage>=2 && !civOrgs(o=>o.type==='bank'||o.type==='credit_union').length){
-    const f = S.citizens.filter(c=>isAdult(c) && (c.civ.lent||0) >= 4 && kn(c,'finance') >= 22 && c.wallet >= 300 && (civTechKnown('bookkeeping') || civTechKnown('writing'))).sort((a,b)=>b.wallet-a.wallet)[0];
+    const f = S.citizens.filter(c=>isAdult(c) && ((c.civ.lent||0) >= 3 || c.civ.occ==='lender' || (c.civ.quals||[]).includes('merchant_school')) && kn(c,'finance') >= 20 && c.wallet >= 200*(S.civ.econ.level||1) && (civTechKnown('bookkeeping') || civTechKnown('writing'))).sort((a,b)=>b.wallet-a.wallet)[0];
     if (f){ const coop = f.values.includes('Community') && rnd()<0.5; const o = civNewOrg(coop ? 'credit_union' : 'bank', coop ? `${S.civ.stageLabel||'Settlement'} Credit Union` : `${surnameOf(f)} Bank`, [f], {meta:{reserve:0.2}});
       civMoveMoney({k:'person',id:f.id}, civOrgPurse(o), Math.floor(f.wallet*0.7), 'capital'); o.mgr = f.id; f.civ.employer = o.id; f.civ.job = civJobFor(o, f, 'Banker', 3).id; f.profession = 'Banker';
       civFinStage(coop ? 3 : 4, coop ? `${o.name} was founded: members pool their savings and lend to each other.` : `${f.name} opened ${o.name}. Savings can now earn interest, and loans come with paperwork.`);
