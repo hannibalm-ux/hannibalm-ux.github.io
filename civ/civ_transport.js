@@ -79,7 +79,7 @@ const CIV_VEHICLES = {
   truck:     {label:'Lorries',            icon:'🚚', tech:'automobiles', stage:3},
   plane:     {label:'Aeroplanes',         icon:'✈️', tech:'aviation', needs:'airfield'}
 };
-const CIV_TRANSPORT_BUILD = [ ['stable', 1], ['boathouse', 1], ['shipyard', 2], ['power_plant', 3], ['station', 3], ['airfield', 3] ];
+const CIV_TRANSPORT_BUILD = [ ['stable', 1], ['boathouse', 1], ['shipyard', 2], ['waterworks', 2], ['sewage', 3], ['power_plant', 3], ['station', 3], ['airfield', 3] ]; // public works, as each technique arrives
 function civVehicleNeeds(k){ const V = CIV_VEHICLES[k], out = []; if (!civTechKnown(V.tech)) out.push(TECHS[V.tech].label); if (V.stage && civStageIdx() < V.stage) out.push(`a ${civStageName(V.stage).toLowerCase()}`); if (V.needs && !civHas(V.needs).length) out.push(`a ${STRUCTURES[V.needs].label.toLowerCase()}`); return out; }
 function civVehicleOK(k){ return !civVehicleNeeds(k).length; }
 // how much faster people and goods get about
@@ -100,7 +100,7 @@ function civTransportWeekly(){
     else if (def==='station') site = civFindSite(def, C.center, {margin:1, test:(x,y,w,h)=>!!civTrack({x, y, w, h})}); // somewhere the line can run
     else site = civFindSite(def, C.center, {margin:1});
     if (!site) continue;
-    const why = {stable:'to keep horses for riders and wagons', boathouse:'to build and keep boats', shipyard:'to build ships and a harbour for them', power_plant:'to bring electric light to the streets', station:'to bring the railway to town', airfield:'so aeroplanes can land'}[def];
+    const why = {stable:'to keep horses for riders and wagons', boathouse:'to build and keep boats', shipyard:'to build ships and a harbour for them', power_plant:'to bring electric light to the streets', waterworks:'to pipe clean water to every street', sewage:'to carry waste away from homes and the river', station:'to bring the railway to town', airfield:'so aeroplanes can land'}[def];
     civStartProject(def, site, civTownOwner(), {purpose:'transport', why});
     return;
   }
