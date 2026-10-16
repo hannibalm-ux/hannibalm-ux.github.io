@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#070b11">
+<title>The Belt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="belt.css">
+</head>
+<body>
+<canvas id="view" tabindex="0" aria-label="Solar system view. Drag to orbit, scroll or pinch to zoom, tap an object to select it."></canvas>
+<div id="labels"></div>
+<header id="top">
+  <div class="logo">THE BELT</div>
+  <div class="stat" id="stCo">Company<b>—</b></div>
+  <div class="stat" id="stCash">Cash<b>—</b></div>
+  <div class="stat hide-s" id="stNet">Last 30 days<b>—</b></div>
+  <div class="stat hide-s" id="stFleet">Fleet<b>—</b></div>
+  <div class="stat date" id="stDate">Date<b>—</b></div>
+</header>
+<div id="coach" class="panel" hidden></div>
+<aside id="insp" class="panel" hidden aria-label="Inspector"></aside>
+<div id="feed" class="panel hide-s" aria-live="polite"></div>
+<nav id="bar" aria-label="Controls">
+  <div class="grp" id="speeds"></div>
+  <div class="grp" id="nav"></div>
+</nav>
+<div id="toast" role="status"></div>
+<section id="sheet" hidden></section>
+<section id="modal" hidden></section>
+<section id="start" hidden></section>
+<script type="module" src="main.js"></script>
+</body>
+</html>
